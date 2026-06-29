@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env.local
+.env.*.local
+*.pyc
+__pycache__/
+*.egg-info/
+.venv/
+venv/
+*.log
+.DS_Store
+Thumbs.db
