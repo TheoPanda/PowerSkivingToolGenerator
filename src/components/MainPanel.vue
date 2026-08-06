@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, provide, onMounted } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
+import WorkpieceViewer from './WorkpieceViewer.vue'
 
 // ---- gearParams store ----
 const gearParams = reactive({
@@ -78,6 +79,11 @@ function nextStep(): void {
   }
 }
 
+// ── 步骤2 齿轮生成 ──
+function onModelReady(glbBase64: string): void {
+  window.dispatchEvent(new CustomEvent('gear:model-ready', { detail: glbBase64 }))
+}
+
 defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, goToStep, togglePanel })
 </script>
 
@@ -138,7 +144,12 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
           <GearParamsPanel @valid-change="onStep1ValidChange" />
         </div>
 
-        <!-- 步骤 2~5 占位 -->
+        <!-- 步骤2 — 工件齿轮生成 -->
+        <div v-else-if="currentStep === 2">
+          <WorkpieceViewer @model-ready="onModelReady" />
+        </div>
+
+        <!-- 步骤 3~5 占位 -->
         <div v-else class="step-placeholder">
           <span class="placeholder-icon">{{ steps[currentStep - 1]?.icon || '📋' }}</span>
           <span class="placeholder-title">{{ steps[currentStep - 1]?.label || '' }}</span>

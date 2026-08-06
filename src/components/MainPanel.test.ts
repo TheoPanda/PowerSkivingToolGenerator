@@ -49,14 +49,13 @@ describe('MainPanel — 步骤内容区', () => {
       expect(body.exists()).toBe(true)
     })
 
-    it('currentStep=2 时显示步骤 2 占位', async () => {
+    it('currentStep=2 时渲染 WorkpieceViewer', async () => {
       wrapper.vm.expanded = true
       wrapper.vm.currentStep = 2
       await wrapper.vm.$nextTick()
 
       const body = wrapper.find('.step-body')
-      expect(body.text()).toContain('包络计算')
-      expect(body.text()).toContain('即将推出')
+      expect(body.text()).toContain('生成齿轮')
     })
 
     it('currentStep=3 时显示步骤 3 占位', async () => {

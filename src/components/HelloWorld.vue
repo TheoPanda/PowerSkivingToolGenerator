@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { ElMessage } from 'element-plus'
 import { fetchHello } from '@/api/index'
 import MainPanel from './MainPanel.vue'
@@ -83,6 +84,7 @@ let rootGroup: THREE.Group | null = null    // 最外层：纯平移
 let tiltGroup: THREE.Group | null = null    // 45° 静态倾斜
 let spinGroup: THREE.Group | null = null     // 持续自旋
 let modelGroup: THREE.Group | null = null    // 内层：Z-up 修正
+let carbideMaterial: THREE.MeshStandardMaterial | null = null  // PBR 材质
 let animationId: number | null = null
 let spinAngle = 0
 const diagonalAxis = new THREE.Vector3(1, 0.35, 0).normalize()  // 左上→右下
@@ -203,7 +205,7 @@ function initThreeJs(): void {
   scene.add(bounceLight)
 
   // ---- 加载滚刀模型 (STL) ----
-  const carbideMaterial = new THREE.MeshStandardMaterial({
+  carbideMaterial = new THREE.MeshStandardMaterial({
     color: 0x5a5854,
     roughness: 0.28,
     metalness: 0.97,
@@ -232,7 +234,8 @@ function initThreeJs(): void {
       camera!.far = dist * 10
       camera!.updateProjectionMatrix()
 
-      const mesh = new THREE.Mesh(geometry, carbideMaterial)
+      const mat: THREE.MeshStandardMaterial = carbideMaterial!
+      const mesh = new THREE.Mesh(geometry, mat)
       mesh.castShadow = true
       mesh.receiveShadow = true
 
@@ -326,10 +329,102 @@ function onPanelToggle(e: Event): void {
   targetOffsetX = detail ? 20 : 0
 }
 
+// ── 齿轮 GLB 加载 ──
+function loadGearModel(glbBase64: string): void {
+  if (!scene) return
+
+  // 解码 base64 → GLB binary
+  const binaryStr: string = atob(glbBase64)
+  const bytes: Uint8Array = new Uint8Array(binaryStr.length)
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i)
+  }
+
+  const gltfLoader = new GLTFLoader()
+  gltfLoader.parse(bytes.buffer, '', (gltf) => {
+    const mesh: THREE.Group = gltf.scene
+
+    // 应用 PBR 材质
+    mesh.traverse((child: THREE.Object3D) => {
+      if (child instanceof THREE.Mesh && carbideMaterial) {
+        child.material = carbideMaterial
+        child.castShadow = true
+        child.receiveShadow = true
+      }
+    })
+
+    // 移除旧模型 (hob)
+    if (rootGroup && scene) {
+      scene.remove(rootGroup)
+      disposeGroup(rootGroup)
+    }
+
+    // 计算包围盒
+    const box = new THREE.Box3().setFromObject(mesh)
+    const size = new THREE.Vector3()
+    box.getSize(size)
+    const maxDim = Math.max(size.x, size.y, size.z)
+    const dist = maxDim * 2.2
+
+    // 居中
+    const cx = (box.max.x + box.min.x) / 2
+    const cy = (box.max.y + box.min.y) / 2
+    const cz = (box.max.z + box.min.z) / 2
+
+    modelGroup = new THREE.Group()
+    mesh.position.set(-cx, -cy, -cz)
+    modelGroup.add(mesh)
+    modelGroup.rotation.x = -Math.PI / 2  // Z-up → Y-up
+    modelGroup.scale.setScalar(1.0)
+
+    spinGroup = new THREE.Group()
+    spinGroup.add(modelGroup)
+
+    tiltGroup = new THREE.Group()
+    tiltGroup.add(spinGroup)
+    tiltGroup.rotateOnWorldAxis(new THREE.Vector3(0, 0, 1), Math.PI / 4)
+
+    rootGroup = new THREE.Group()
+    rootGroup.add(tiltGroup)
+    if (scene) scene.add(rootGroup)
+
+    // 相机适配
+    controls!.target.set(0, 0, 0)
+    camera!.position.set(dist * 0.6, dist * 0.5, dist * 0.7)
+    camera!.near = dist * 0.001
+    camera!.far = dist * 10
+    camera!.updateProjectionMatrix()
+    controls!.update()
+
+    modelLoaded.value = true
+  }, (err: unknown) => {
+    console.error('GLB 加载失败:', err)
+  })
+}
+
+function disposeGroup(group: THREE.Group): void {
+  group.traverse((child: THREE.Object3D) => {
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose()
+      if (Array.isArray(child.material)) {
+        child.material.forEach((m: THREE.Material) => m.dispose())
+      } else if (child.material instanceof THREE.Material) {
+        child.material.dispose()
+      }
+    }
+  })
+}
+
+function onGearModelReady(e: Event): void {
+  const glbBase64: string = (e as CustomEvent).detail as string
+  loadGearModel(glbBase64)
+}
+
 onMounted(() => {
   initThreeJs()
   window.addEventListener('resize', handleResize)
   window.addEventListener('panel:toggle', onPanelToggle)
+  window.addEventListener('gear:model-ready', onGearModelReady)
   callBackend()
 })
 
@@ -337,6 +432,7 @@ onUnmounted(() => {
   disposeThreeJs()
   window.removeEventListener('resize', handleResize)
   window.removeEventListener('panel:toggle', onPanelToggle)
+  window.removeEventListener('gear:model-ready', onGearModelReady)
 })
 </script>
 
