@@ -179,7 +179,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 
 /* ======== 面板主体 ======== */
 .panel-body {
-  width: 280px;
+  width: 320px;
   max-height: 0;
   overflow: hidden auto;
   opacity: 0;

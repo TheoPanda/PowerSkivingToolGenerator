@@ -300,7 +300,8 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  width: 80px;
+  width: 90px;
+  white-space: nowrap;
 }
 
 .glass-field-hint {
