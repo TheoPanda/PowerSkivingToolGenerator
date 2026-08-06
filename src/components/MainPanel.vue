@@ -85,8 +85,8 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   <div class="main-panel-shell" :class="{ open: expanded }">
     <!-- 面板内容 -->
     <div class="panel-body">
-      <!-- 文件操作栏（紧凑） -->
-      <div class="file-bar">
+      <!-- 文件操作栏 -->
+      <div class="panel-block file-bar">
         <button class="file-btn" title="新建项目">
           <svg width="14" height="14" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="4" x2="8" y2="12" stroke="currentColor" stroke-width="1.2"/><line x1="4" y1="8" x2="12" y2="8" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>
@@ -102,8 +102,8 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 
       <div class="panel-divider"></div>
 
-      <!-- 步骤导航（紧凑纵向） -->
-      <div class="step-nav">
+      <!-- 步骤导航 -->
+      <div class="panel-block step-nav">
         <div
           v-for="(step, i) in steps"
           :key="step.id"
@@ -191,16 +191,16 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
     transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
   margin-bottom: 10px;
 
-  /* 蓝色玻璃质感 — 与右侧参数面板一致 */
-  background: rgba(0, 96, 160, 0.09);
+  /* 冷白色玻璃质感 */
+  background: rgba(255, 255, 255, 0.55);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(0, 96, 160, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: 16px;
   box-shadow:
-    0 4px 24px rgba(0, 64, 128, 0.06),
-    0 1px 4px rgba(0, 64, 128, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    0 8px 32px rgba(0, 64, 128, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
   padding: 12px;
 }
 
@@ -253,7 +253,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 .panel-divider {
   height: 1px;
   background: var(--brand-border-light);
-  margin: 16px 0;
+  margin: 10px 0;
 }
 
 /* ======== 步骤导航（紧凑纵向，无连接线） ======== */
