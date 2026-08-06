@@ -20,12 +20,10 @@ interface BackendInfo {
 const backendInfo = ref<BackendInfo | null>(null)
 const backendError = ref<string | null>(null)
 const loading = ref<boolean>(false)
-const panelCollapsed = ref<boolean>(false)
 
 // ---- 登录 ----
 const loggedIn = ref<boolean>(false)
 const welcomeLeaving = ref<boolean>(false)
-const paramPanelReady = ref<boolean>(false)
 const username = ref<string>('')
 const password = ref<string>('')
 const loginError = ref<string>('')
@@ -50,48 +48,11 @@ function doLogin(): void {
     window.dispatchEvent(new CustomEvent('app:login-success'))
     setTimeout(() => {
       loggedIn.value = true
-      setTimeout(() => {
-        paramPanelReady.value = true
-      }, 200)
-    }, 500)
+      }, 500)
   } else {
     loginError.value = '用户名或密码错误'
     password.value = ''
   }
-}
-
-// ---- 面板拖动 ----
-const panelX = ref<number>(16)
-const panelY = ref<number>(16)
-const dragging = ref<boolean>(false)
-let dragStartX = 0
-let dragStartY = 0
-let dragStartPanelX = 0
-let dragStartPanelY = 0
-
-function startDrag(e: MouseEvent): void {
-  if (panelCollapsed.value) return
-  dragging.value = true
-  dragStartX = e.clientX
-  dragStartY = e.clientY
-  dragStartPanelX = panelX.value
-  dragStartPanelY = panelY.value
-  document.addEventListener('mousemove', onDrag)
-  document.addEventListener('mouseup', stopDrag)
-}
-
-function onDrag(e: MouseEvent): void {
-  if (!dragging.value) return
-  const dx = e.clientX - dragStartX
-  const dy = e.clientY - dragStartY
-  panelX.value = Math.max(0, dragStartPanelX + dx)
-  panelY.value = Math.max(0, dragStartPanelY + dy)
-}
-
-function stopDrag(): void {
-  dragging.value = false
-  document.removeEventListener('mousemove', onDrag)
-  document.removeEventListener('mouseup', stopDrag)
 }
 
 async function callBackend(): Promise<void> {
@@ -435,69 +396,6 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 玻璃悬浮参数面板（登录后显示） -->
-    <div
-      v-if="loggedIn"
-      class="glass-panel"
-      :class="{ collapsed: panelCollapsed, dragging: dragging, visible: paramPanelReady }"
-      :style="{ left: panelX + 'px', top: panelY + 'px' }"
-    >
-      <div class="glass-panel-inner">
-        <!-- 折叠按钮 -->
-        <button class="collapse-btn" @click="panelCollapsed = !panelCollapsed" :title="panelCollapsed ? '展开面板' : '收起面板'">
-          {{ panelCollapsed ? '◀' : '▶' }}
-        </button>
-
-        <template v-if="!panelCollapsed">
-          <!-- 标题（可拖动把手） -->
-          <div class="panel-title" @mousedown="startDrag">⋮⋮ 参数面板</div>
-
-          <!-- 后端状态 -->
-          <div class="panel-section">
-            <div class="section-label">
-              后端通信
-              <span class="dot" :class="backendInfo ? 'ok' : backendError ? 'err' : 'wait'"></span>
-            </div>
-            <div v-if="backendInfo" class="section-body">
-              <div class="kv"><span>框架</span><span>{{ backendInfo.framework }}</span></div>
-              <div class="kv"><span>API</span><span>{{ backendInfo.version }}</span></div>
-              <div class="kv"><span>Python</span><span>{{ backendInfo.python_version }}</span></div>
-            </div>
-            <div v-else-if="backendError" class="section-body">
-              <el-alert :title="backendError" type="error" show-icon :closable="false" />
-            </div>
-            <el-button size="small" :loading="loading" @click="callBackend" style="width:100%;margin-top:6px">
-              {{ loading ? '连接中…' : '重新连接' }}
-            </el-button>
-          </div>
-
-          <!-- 渲染参数 -->
-          <div class="panel-section">
-            <div class="section-label">渲染参数</div>
-            <div class="section-body">
-              <div class="kv"><span>材质</span><span>硬质合金 WC-Co</span></div>
-              <div class="kv"><span>粗糙度</span><span>0.28</span></div>
-              <div class="kv"><span>金属度</span><span>0.97</span></div>
-              <div class="kv"><span>照明</span><span>三点布光</span></div>
-            </div>
-          </div>
-
-          <!-- 技术栈 -->
-          <div class="panel-section">
-            <div class="section-label">技术栈</div>
-            <div class="stack-list">
-              <span class="stack-tag">Vue 3</span>
-              <span class="stack-tag">TypeScript</span>
-              <span class="stack-tag">Vite</span>
-              <span class="stack-tag">Element Plus</span>
-              <span class="stack-tag">Three.js</span>
-              <span class="stack-tag">FastAPI</span>
-              <span class="stack-tag">Electron</span>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -701,173 +599,4 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-/* ======== 玻璃悬浮面板 ======== */
-.glass-panel {
-  position: absolute;
-  width: 300px;
-  max-height: calc(100% - 32px);
-  overflow: hidden;
-  border-radius: 18px;
-
-  /* 蓝色玻璃质感 */
-  background: rgba(0, 96, 160, 0.09);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(0, 96, 160, 0.16);
-  box-shadow:
-    0 4px 24px rgba(0, 64, 128, 0.06),
-    0 1px 4px rgba(0, 64, 128, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
-  transition: width 0.3s ease, box-shadow 0.2s, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1),
-              opacity 0.35s ease;
-  z-index: 10;
-  user-select: none;
-
-  /* 初始隐藏 → 登录后弹出 */
-  transform: scale(0.85);
-  opacity: 0;
-}
-
-.glass-panel.visible {
-  transform: scale(1);
-  opacity: 1;
-}
-
-.glass-panel.collapsed {
-  width: 44px;
-}
-
-.glass-panel.dragging {
-  box-shadow:
-    0 12px 40px rgba(0, 64, 128, 0.12),
-    0 2px 8px rgba(0, 64, 128, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
-  transition: width 0.3s ease;
-}
-
-.glass-panel-inner {
-  padding: 16px;
-  overflow-y: auto;
-  max-height: calc(100vh - 130px);
-  position: relative;
-}
-
-.collapsed .glass-panel-inner {
-  padding: 12px 8px;
-  overflow: hidden;
-}
-
-/* 折叠按钮 */
-.collapse-btn {
-  position: absolute;
-  top: 12px;
-  right: 8px;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 96, 160, 0.15);
-  background: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--brand-text-secondary);
-  transition: all 0.2s;
-}
-
-.collapse-btn:hover {
-  background: rgba(255, 255, 255, 0.9);
-  border-color: rgba(0, 0, 0, 0.15);
-}
-
-.collapsed .collapse-btn {
-  position: static;
-  margin: 0 auto;
-}
-
-/* 面板标题 — 可拖动把手 */
-.panel-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--brand-text);
-  margin-bottom: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  letter-spacing: 0.3px;
-  cursor: grab;
-  transition: color 0.15s;
-}
-
-.panel-title:active {
-  cursor: grabbing;
-  color: var(--brand-blue);
-}
-
-/* 区块 */
-.panel-section {
-  margin-bottom: 14px;
-}
-
-.panel-section:last-child {
-  margin-bottom: 0;
-}
-
-.section-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--brand-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* 状态小圆点 */
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.dot.ok   { background: var(--brand-success); box-shadow: 0 0 4px rgba(46,125,50,0.4); }
-.dot.err  { background: var(--brand-danger); }
-.dot.wait { background: #B0B8C0; }
-
-.section-body {
-  font-size: 12px;
-}
-
-/* 键值对 */
-.kv {
-  display: flex;
-  justify-content: space-between;
-  padding: 3px 0;
-  font-size: 12px;
-}
-.kv span:first-child {
-  color: var(--brand-text-secondary);
-}
-.kv span:last-child {
-  color: var(--brand-text);
-  font-weight: 500;
-}
-
-/* 技术栈标签 */
-.stack-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.stack-tag {
-  font-size: 10px;
-  padding: 2px 8px;
-  border-radius: 8px;
-  background: rgba(0, 96, 160, 0.08);
-  color: var(--brand-blue);
-  font-weight: 500;
-  letter-spacing: 0.2px;
-}
 </style>
