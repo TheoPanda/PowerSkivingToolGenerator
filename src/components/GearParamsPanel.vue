@@ -234,7 +234,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             />
             <span style="font-size:10px;color:var(--brand-text-secondary);">°</span>
           </div>
-          <div class="glass-field" style="padding-left:82px;">
+          <div class="glass-field" style="padding-left:88px;">
             <input
               type="range"
               class="glass-slider"
@@ -334,7 +334,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
                 @blur="validateField('x_w')"
               />
             </div>
-            <p v-if="errors.x_w" class="glass-field-hint" style="padding-left:78px;">{{ errors.x_w }}</p>
+            <p v-if="errors.x_w" class="glass-field-hint" style="padding-left:88px;">{{ errors.x_w }}</p>
           </template>
 
           <!-- 公法线 -->
@@ -351,7 +351,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
                 @blur="validateField('W_k')"
               />
             </div>
-            <p v-if="errors.W_k" class="glass-field-hint" style="padding-left:78px;">{{ errors.W_k }}</p>
+            <p v-if="errors.W_k" class="glass-field-hint" style="padding-left:88px;">{{ errors.W_k }}</p>
             <div class="glass-field">
               <label class="glass-field-label">跨齿数 k</label>
               <input
@@ -384,7 +384,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
                 @blur="validateField('M')"
               />
             </div>
-            <p v-if="errors.M" class="glass-field-hint" style="padding-left:78px;">{{ errors.M }}</p>
+            <p v-if="errors.M" class="glass-field-hint" style="padding-left:88px;">{{ errors.M }}</p>
             <div class="glass-field">
               <label class="glass-field-label">量棒径 d_p</label>
               <input
@@ -449,7 +449,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
 }
 
 .k-hint {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--brand-text-secondary);
   cursor: pointer;
   white-space: nowrap;

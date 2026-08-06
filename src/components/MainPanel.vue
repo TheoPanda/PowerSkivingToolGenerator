@@ -244,7 +244,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 }
 
 .project-name {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--brand-text-secondary);
   font-weight: 500;
 }
@@ -280,15 +280,15 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   background: rgba(0, 96, 160, 0.08);
 }
 
-/* 步骤节点（小圆点） */
+/* 步骤节点（圆点） */
 .step-node {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   flex-shrink: 0;
   transition: all 0.3s;
@@ -327,7 +327,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 }
 
 .step-label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--brand-text-secondary);
   transition: color 0.2s;
@@ -421,7 +421,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   max-height: 0;
   opacity: 0;
   overflow: hidden;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--brand-blue);
   text-align: center;
   padding: 0 6px;
