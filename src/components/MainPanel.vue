@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, provide, onMounted } from 'vue'
+import { ref, reactive, provide, onMounted } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
 
 // ---- gearParams store ----
@@ -59,7 +59,6 @@ const step1GuideVisible = ref<boolean>(false)
 
 function goToStep(step: number): void {
   if (step > 1 && !step1Valid.value) {
-    // 步骤 1 未完成，显示引导
     step1GuideVisible.value = true
     setTimeout(() => { step1GuideVisible.value = false }, 3000)
     return
@@ -115,16 +114,11 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
           }"
           @click="goToStep(step.id)"
         >
-          <!-- 连接线 -->
           <div v-if="i < steps.length - 1" class="step-line" :class="{ filled: currentStep > step.id }"></div>
-
-          <!-- 步骤节点 -->
           <div class="step-node">
             <span v-if="currentStep > step.id" class="step-check">✓</span>
             <span v-else class="step-num">{{ step.id }}</span>
           </div>
-
-          <!-- 标签 -->
           <div class="step-info">
             <span class="step-label">{{ step.label }}</span>
             <span class="step-icon">{{ step.icon }}</span>
@@ -132,7 +126,6 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
         </div>
       </div>
 
-      <!-- 分割线 + 步骤内容区 -->
       <div class="panel-divider"></div>
 
       <!-- 引导提示 -->
@@ -177,13 +170,13 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 <style scoped>
 .main-panel-shell {
   position: absolute;
-  bottom: 24px;
+  top: 24px;
   left: 24px;
   z-index: 15;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  perspective: 600px;  /* 3D 翻转透视距离 */
+  perspective: 600px;
 }
 
 /* ======== 面板主体 ======== */
@@ -193,38 +186,30 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   overflow: hidden;
   opacity: 0;
   transform: translateY(20px) scale(0.95);
-  transform-origin: bottom left;
+  transform-origin: top left;
   transition:
     max-height 0.45s cubic-bezier(0.22, 0.61, 0.36, 1),
     opacity 0.35s ease,
     transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
   margin-bottom: 12px;
 
-  /* 玻璃质感 */
-  background: rgba(255, 255, 255, 0.5);
+  /* 蓝色玻璃质感 — 与右侧参数面板一致 */
+  background: rgba(0, 96, 160, 0.09);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 96, 160, 0.16);
   border-radius: 16px;
   box-shadow:
-    0 8px 32px rgba(0, 64, 128, 0.08),
-    0 2px 8px rgba(0, 0, 0, 0.04),
+    0 4px 24px rgba(0, 64, 128, 0.06),
+    0 1px 4px rgba(0, 64, 128, 0.04),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  padding: 16px;
 }
 
 .main-panel-shell.open .panel-body {
-  max-height: 520px;
+  max-height: calc(100vh - 100px);
   opacity: 1;
   transform: translateY(0) scale(1);
-}
-
-/* 内边距 */
-.panel-body {
-  padding: 16px;
-}
-
-.main-panel-shell.open .panel-body {
-  padding: 16px;
 }
 
 /* ======== 文件操作栏 ======== */
@@ -340,8 +325,8 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 }
 
 .step-item.done .step-node {
-  border-color: var(--brand-success);
-  background: var(--brand-success);
+  border-color: var(--brand-blue);
+  background: var(--brand-blue);
   color: white;
 }
 
@@ -399,7 +384,6 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.3s;
 
-  /* 立体效果 */
   box-shadow:
     0 4px 16px rgba(0, 64, 128, 0.12),
     0 1px 3px rgba(0, 0, 0, 0.08),
