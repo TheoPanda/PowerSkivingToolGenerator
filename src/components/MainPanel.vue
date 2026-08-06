@@ -253,7 +253,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 .panel-divider {
   height: 1px;
   background: var(--brand-border-light);
-  margin: 8px 0;
+  margin: 16px 0;
 }
 
 /* ======== 步骤导航（紧凑纵向，无连接线） ======== */

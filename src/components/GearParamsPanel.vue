@@ -437,11 +437,11 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
 .gear-params-panel {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
 .collapse-inner {
-  padding: 4px 2px 4px 6px;
+  padding: 6px 2px 6px 4px;
 }
 
 .glass-collapse-content {

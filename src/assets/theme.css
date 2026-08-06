@@ -125,7 +125,14 @@ body {
 /* ---- 折叠面板 ---- */
 .glass-collapse {
   border: none;
-  background: transparent;
+  background: rgba(0, 96, 160, 0.04);
+  border-radius: 8px;
+  padding: 0 6px;
+  transition: background 0.25s var(--brand-transition-smooth);
+}
+
+.glass-collapse.expanded {
+  background: rgba(0, 96, 160, 0.07);
 }
 
 .glass-collapse-header {
