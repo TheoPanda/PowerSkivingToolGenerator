@@ -121,8 +121,10 @@ def _build_mesh_data(
                 t = j / (n_rf + 1)
                 ang = right_root_ang + t * (nla - right_root_ang)
                 boundary_2d.append((r_f * math.cos(ang), r_f * math.sin(ang)))
-            boundary_2d.append((r_f * math.cos(next_left_root_ang), r_f * math.sin(next_left_root_ang)))
+            # 径向 r_f→r_b (回到下一齿渐开线起点，闭合齿根连接)
+            boundary_2d.append((r_b * math.cos(next_left_root_ang), r_b * math.sin(next_left_root_ang)))
         else:
+            # 渐开线直达 r_f，齿根弧连接即可
             nla = next_left_root_ang
             if nla < right_root_ang:
                 nla += 2.0 * math.pi
