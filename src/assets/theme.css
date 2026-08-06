@@ -197,22 +197,22 @@ body {
 .glass-radio-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
 .glass-radio {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 10px;
   color: var(--brand-text);
   cursor: pointer;
 }
 
 .glass-radio input[type="radio"] {
   accent-color: var(--brand-blue);
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 /* ---- 按钮 ---- */
