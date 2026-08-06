@@ -191,16 +191,15 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
     transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
   margin-bottom: 10px;
 
-  /* 蓝色玻璃质感 */
-  background: rgba(0, 96, 160, 0.10);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(0, 96, 160, 0.16);
-  border-radius: 16px;
+  /* 冷灰白玻璃底 */
+  background: rgba(235, 240, 246, 0.75);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: none;
+  border-radius: 12px;
   box-shadow:
-    0 4px 24px rgba(0, 64, 128, 0.06),
-    0 1px 4px rgba(0, 64, 128, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    0 2px 16px rgba(0, 0, 0, 0.06),
+    0 0 0 0.5px rgba(0, 0, 0, 0.04);
   padding: 12px;
 }
 
@@ -251,8 +250,8 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 
 /* ======== 分割线 ======== */
 .panel-divider {
-  height: 1px;
-  background: var(--brand-border-light);
+  height: 0.5px;
+  background: rgba(0, 0, 0, 0.06);
   margin: 10px 0;
 }
 
@@ -293,22 +292,9 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   flex-shrink: 0;
   transition: all 0.3s;
 
-  border: 1.5px solid var(--brand-border);
+  border: 1.5px solid rgba(0, 0, 0, 0.10);
   color: var(--brand-text-secondary);
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.step-item.active .step-node {
-  border-color: var(--brand-blue);
-  background: var(--brand-blue);
-  color: white;
-  box-shadow: 0 0 8px rgba(0, 96, 160, 0.25);
-}
-
-.step-item.done .step-node {
-  border-color: var(--brand-blue);
-  background: var(--brand-blue);
-  color: white;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .step-num {
