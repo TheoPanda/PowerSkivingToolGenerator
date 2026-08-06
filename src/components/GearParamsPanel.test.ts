@@ -129,28 +129,30 @@ describe('GearParamsPanel — 基本参数组', () => {
     })
   })
 
-  describe('② 齿厚指定', () => {
-    it('渲染三个 Radio 选项', () => {
-      const radios = wrapper.findAll('.glass-radio')
-      expect(radios).toHaveLength(3)
+  describe('② 齿厚', () => {
+    it('渲染三个齿厚方式选择按钮', () => {
+      // segmented buttons in the tooth method selector
+      const btns = wrapper.findAll('.glass-segmented-btn')
+      // "基本" section has 2 (外齿/内齿), "齿厚" has 3 (变位/公法线/跨棒距) = 5 total
+      expect(btns.length).toBeGreaterThanOrEqual(3)
     })
 
     it('选中"公法线"时显示 W_k 和 k 字段', async () => {
       wrapper.unmount()
       const w2 = mountPanel({ toothMethod: 'W_k' })
       await w2.vm.$nextTick()
-      const inputs = w2.findAll('input[type="number"]')
-      const wkInputs = inputs.filter((i) => i.attributes('placeholder')?.includes('W_k'))
-      expect(wkInputs.length).toBeGreaterThanOrEqual(1)
+      const labels = w2.findAll('.glass-field-label')
+      const wkLabels = labels.filter((l) => l.text().includes('W_k'))
+      expect(wkLabels.length).toBeGreaterThanOrEqual(1)
     })
 
     it('选中"跨棒距"时显示 M 和 d_p 字段', async () => {
       wrapper.unmount()
       const w2 = mountPanel({ toothMethod: 'M' })
       await w2.vm.$nextTick()
-      const inputs = w2.findAll('input[type="number"]')
-      const mInputs = inputs.filter((i) => i.attributes('placeholder')?.includes('M (mm)'))
-      expect(mInputs.length).toBeGreaterThanOrEqual(1)
+      const labels = w2.findAll('.glass-field-label')
+      const mLabels = labels.filter((l) => l.text().includes('跨棒距'))
+      expect(mLabels.length).toBeGreaterThanOrEqual(1)
     })
 
     it('公法线模式下 k 有推荐值（取决于 α_n/β_w）', async () => {

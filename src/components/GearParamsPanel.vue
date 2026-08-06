@@ -143,10 +143,10 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
 
 <template>
   <div class="gear-params-panel">
-    <!-- ① 基本参数 -->
+    <!-- ① 基本 -->
     <div class="glass-collapse" :class="{ expanded: expandedSections.basic }">
       <button class="glass-collapse-header" @click="toggleSection('basic')">
-        基本参数
+        基本
         <span class="glass-collapse-arrow">▶</span>
       </button>
       <div class="glass-collapse-content">
@@ -288,142 +288,146 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
       </div>
     </div>
 
-    <!-- ② 齿厚指定 -->
+    <!-- ② 齿厚 -->
     <div class="glass-collapse" :class="{ expanded: expandedSections.tooth }">
       <button class="glass-collapse-header" @click="toggleSection('tooth')">
-        齿厚指定
+        齿厚
         <span class="glass-collapse-arrow">▶</span>
       </button>
       <div class="glass-collapse-content">
         <div class="collapse-inner">
 
-          <div class="glass-radio-group">
-            <label class="glass-radio">
-              <input type="radio" value="x_w" v-model="gearParams.toothMethod" />
-              变位系数 x_w
-            </label>
-
-            <template v-if="gearParams.toothMethod === 'x_w'">
-              <div class="glass-field">
-                <input
-                  v-model.number="gearParams.x_w"
-                  type="number"
-                  step="0.01"
-                  min="-1"
-                  max="1"
-                  class="glass-input"
-                  :class="{ error: errors.x_w }"
-                  @blur="validateField('x_w')"
-                />
-                <p v-if="errors.x_w" class="glass-field-hint">{{ errors.x_w }}</p>
-              </div>
-            </template>
-
-            <label class="glass-radio">
-              <input type="radio" value="W_k" v-model="gearParams.toothMethod" />
-              公法线长度 W_k
-            </label>
-
-            <template v-if="gearParams.toothMethod === 'W_k'">
-              <div class="glass-field">
-                <input
-                  v-model.number="gearParams.W_k"
-                  type="number"
-                  step="0.001"
-                  min="0.001"
-                  class="glass-input"
-                  :class="{ error: errors.W_k }"
-                  placeholder="W_k (mm)"
-                  @blur="validateField('W_k')"
-                />
-                <p v-if="errors.W_k" class="glass-field-hint">{{ errors.W_k }}</p>
-
-                <div style="display:flex;align-items:center;gap:6px;margin-top:6px;">
-                  <label class="glass-field-label" style="margin-bottom:0;">跨齿数 k</label>
-                  <input
-                    v-model.number="gearParams.k_teeth"
-                    type="number"
-                    step="1"
-                    min="1"
-                    class="glass-input"
-                    style="width:60px;text-align:center;"
-                    :placeholder="kRecommended ? String(kRecommended) : '—'"
-                  />
-                  <span
-                    v-if="kRecommended"
-                    style="font-size:10px;color:var(--brand-text-secondary);cursor:pointer;white-space:nowrap;"
-                    @click="gearParams.k_teeth = kRecommended"
-                  >
-                    推荐 {{ kRecommended }}
-                  </span>
-                </div>
-              </div>
-            </template>
-
-            <label class="glass-radio">
-              <input type="radio" value="M" v-model="gearParams.toothMethod" />
-              跨棒距 M
-            </label>
-
-            <template v-if="gearParams.toothMethod === 'M'">
-              <div class="glass-field">
-                <input
-                  v-model.number="gearParams.M"
-                  type="number"
-                  step="0.001"
-                  min="0.001"
-                  class="glass-input"
-                  :class="{ error: errors.M }"
-                  placeholder="M (mm)"
-                  @blur="validateField('M')"
-                />
-                <p v-if="errors.M" class="glass-field-hint">{{ errors.M }}</p>
-
-                <div style="margin-top:6px;">
-                  <label class="glass-field-label">量棒径 d_p</label>
-                  <input
-                    v-model.number="gearParams.d_p"
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    class="glass-input"
-                    placeholder="例：1.68·m_t"
-                  />
-                </div>
-              </div>
-            </template>
+          <!-- 齿厚方式选择（segmented） -->
+          <div class="glass-field">
+            <label class="glass-field-label">齿厚方式</label>
+            <div class="glass-segmented">
+              <button
+                class="glass-segmented-btn"
+                :class="{ active: gearParams.toothMethod === 'x_w' }"
+                @click="gearParams.toothMethod = 'x_w'"
+              >变位</button>
+              <button
+                class="glass-segmented-btn"
+                :class="{ active: gearParams.toothMethod === 'W_k' }"
+                @click="gearParams.toothMethod = 'W_k'"
+              >公法线</button>
+              <button
+                class="glass-segmented-btn"
+                :class="{ active: gearParams.toothMethod === 'M' }"
+                @click="gearParams.toothMethod = 'M'"
+              >跨棒距</button>
+            </div>
           </div>
+
+          <!-- 变位系数 -->
+          <template v-if="gearParams.toothMethod === 'x_w'">
+            <div class="glass-field">
+              <label class="glass-field-label">变位系数 x_w</label>
+              <input
+                v-model.number="gearParams.x_w"
+                type="number"
+                step="0.01"
+                min="-1"
+                max="1"
+                class="glass-input"
+                :class="{ error: errors.x_w }"
+                @blur="validateField('x_w')"
+              />
+            </div>
+            <p v-if="errors.x_w" class="glass-field-hint" style="padding-left:78px;">{{ errors.x_w }}</p>
+          </template>
+
+          <!-- 公法线 -->
+          <template v-if="gearParams.toothMethod === 'W_k'">
+            <div class="glass-field">
+              <label class="glass-field-label">公法线长度 W_k</label>
+              <input
+                v-model.number="gearParams.W_k"
+                type="number"
+                step="0.001"
+                min="0.001"
+                class="glass-input"
+                :class="{ error: errors.W_k }"
+                @blur="validateField('W_k')"
+              />
+            </div>
+            <p v-if="errors.W_k" class="glass-field-hint" style="padding-left:78px;">{{ errors.W_k }}</p>
+            <div class="glass-field">
+              <label class="glass-field-label">跨齿数 k</label>
+              <input
+                v-model.number="gearParams.k_teeth"
+                type="number"
+                step="1"
+                min="1"
+                class="glass-input"
+                :placeholder="kRecommended ? String(kRecommended) : '—'"
+              />
+              <span
+                v-if="kRecommended"
+                class="k-hint"
+                @click="gearParams.k_teeth = kRecommended"
+              >推荐 {{ kRecommended }}</span>
+            </div>
+          </template>
+
+          <!-- 跨棒距 -->
+          <template v-if="gearParams.toothMethod === 'M'">
+            <div class="glass-field">
+              <label class="glass-field-label">跨棒距 M</label>
+              <input
+                v-model.number="gearParams.M"
+                type="number"
+                step="0.001"
+                min="0.001"
+                class="glass-input"
+                :class="{ error: errors.M }"
+                @blur="validateField('M')"
+              />
+            </div>
+            <p v-if="errors.M" class="glass-field-hint" style="padding-left:78px;">{{ errors.M }}</p>
+            <div class="glass-field">
+              <label class="glass-field-label">量棒径 d_p</label>
+              <input
+                v-model.number="gearParams.d_p"
+                type="number"
+                step="0.01"
+                min="0.01"
+                class="glass-input"
+              />
+            </div>
+          </template>
 
         </div>
       </div>
     </div>
 
-    <!-- ③ 高级默认值 -->
+    <!-- ③ 高级 -->
     <div class="glass-collapse" :class="{ expanded: expandedSections.advanced }">
       <button class="glass-collapse-header" @click="toggleSection('advanced')">
-        高级默认值
+        高级
         <span class="glass-collapse-arrow">▶</span>
       </button>
       <div class="glass-collapse-content">
-        <div class="collapse-inner" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;">
+        <div class="collapse-inner">
 
           <div class="glass-field">
-            <label class="glass-field-label">α_n (°)</label>
+            <label class="glass-field-label">压力角 α_n</label>
             <input v-model.number="gearParams.α_n" type="number" step="0.5" class="glass-input" />
+            <span style="font-size:10px;color:var(--brand-text-secondary);">°</span>
           </div>
 
           <div class="glass-field">
-            <label class="glass-field-label">h*_an</label>
+            <label class="glass-field-label">齿顶高系数 h*_an</label>
             <input v-model.number="gearParams.h_an" type="number" step="0.05" class="glass-input" />
           </div>
 
           <div class="glass-field">
-            <label class="glass-field-label">c*_n</label>
+            <label class="glass-field-label">顶隙系数 c*_n</label>
             <input v-model.number="gearParams.c_n" type="number" step="0.05" class="glass-input" />
           </div>
 
           <div class="glass-field">
-            <label class="glass-field-label">ρ*_f</label>
+            <label class="glass-field-label">齿根圆角系数 ρ*_f</label>
             <input v-model.number="gearParams.ρ_f" type="number" step="0.01" class="glass-input" />
           </div>
 
@@ -442,6 +446,18 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
 
 .collapse-inner {
   padding: 4px 4px 4px 12px;
+}
+
+.k-hint {
+  font-size: 9px;
+  color: var(--brand-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.k-hint:hover {
+  color: var(--brand-blue);
 }
 
 .glass-collapse-content {
