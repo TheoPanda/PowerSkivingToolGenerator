@@ -223,28 +223,28 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
           <!-- 螺旋角 -->
           <div class="glass-field">
             <label class="glass-field-label">螺旋角 β_w</label>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <input
-                type="range"
-                class="glass-slider"
-                :value="gearParams.β_w"
-                min="0"
-                max="45"
-                step="0.5"
-                style="flex:1;"
-                @input="gearParams.β_w = parseFloat(($event.target as HTMLInputElement).value)"
-              />
-              <input
-                v-model.number="gearParams.β_w"
-                type="number"
-                step="0.5"
-                min="0"
-                max="45"
-                class="glass-input"
-                style="width:58px;text-align:center;"
-              />
-              <span style="font-size:11px;color:var(--brand-text-secondary);">°</span>
-            </div>
+            <input
+              v-model.number="gearParams.β_w"
+              type="number"
+              step="0.5"
+              min="0"
+              max="45"
+              class="glass-input"
+              style="flex:1;"
+            />
+            <span style="font-size:10px;color:var(--brand-text-secondary);">°</span>
+          </div>
+          <div class="glass-field" style="padding-left:82px;">
+            <input
+              type="range"
+              class="glass-slider"
+              :value="gearParams.β_w"
+              min="0"
+              max="45"
+              step="0.5"
+              style="flex:1;"
+              @input="gearParams.β_w = parseFloat(($event.target as HTMLInputElement).value)"
+            />
           </div>
 
           <!-- 旋向（条件显示） -->
@@ -304,7 +304,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             </label>
 
             <template v-if="gearParams.toothMethod === 'x_w'">
-              <div class="glass-field" style="margin-left:22px;">
+              <div class="glass-field">
                 <input
                   v-model.number="gearParams.x_w"
                   type="number"
@@ -325,7 +325,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             </label>
 
             <template v-if="gearParams.toothMethod === 'W_k'">
-              <div class="glass-field" style="margin-left:22px;">
+              <div class="glass-field">
                 <input
                   v-model.number="gearParams.W_k"
                   type="number"
@@ -366,7 +366,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             </label>
 
             <template v-if="gearParams.toothMethod === 'M'">
-              <div class="glass-field" style="margin-left:22px;">
+              <div class="glass-field">
                 <input
                   v-model.number="gearParams.M"
                   type="number"
@@ -441,7 +441,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
 }
 
 .collapse-inner {
-  padding: 6px 2px 6px 4px;
+  padding: 4px 4px 4px 12px;
 }
 
 .glass-collapse-content {

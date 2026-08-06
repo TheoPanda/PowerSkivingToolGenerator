@@ -284,19 +284,23 @@ body {
   box-shadow: 0 1px 3px rgba(0, 96, 160, 0.3);
 }
 
-/* ---- 表单字段行 ---- */
+/* ---- 表单字段行（左右排列，表格式审阅） ---- */
 .glass-field {
-  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
 .glass-field-label {
   font-size: 10px;
   font-weight: 500;
   color: var(--brand-text-secondary);
-  margin-bottom: 2px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  width: 70px;
 }
 
 .glass-field-hint {
