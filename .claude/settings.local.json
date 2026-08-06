@@ -5,7 +5,29 @@
       "Bash(git init *)",
       "Bash(gh repo *)",
       "Bash(git add *)",
-      "Bash(git commit -m 'Initial commit: project spec, CLAUDE.md, agent skills config *)"
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(conda run *)",
+      "Bash(conda info *)",
+      "Bash(where conda *)",
+      "Bash(cd *)",
+      "Bash(ls *)",
+      "Bash(mkdir *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(pip *)",
+      "Bash(python *)",
+      "Bash(git *)",
+      "Bash(jq *)",
+      "Bash(for *)",
+      "Bash(echo *)",
+      "Read(C:\\Users\\DELL\\**)",
+      "Read(E:\\**)",
+      "Edit(E:\\**)",
+      "Write(E:\\**)"
     ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": false
   }
 }
