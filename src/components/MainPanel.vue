@@ -85,16 +85,16 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   <div class="main-panel-shell" :class="{ open: expanded }">
     <!-- 面板内容 -->
     <div class="panel-body">
-      <!-- 文件操作栏 -->
+      <!-- 文件操作栏（紧凑） -->
       <div class="file-bar">
         <button class="file-btn" title="新建项目">
-          <svg width="16" height="16" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="4" x2="8" y2="12" stroke="currentColor" stroke-width="1.2"/><line x1="4" y1="8" x2="12" y2="8" stroke="currentColor" stroke-width="1.2"/></svg>
+          <svg width="14" height="14" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="4" x2="8" y2="12" stroke="currentColor" stroke-width="1.2"/><line x1="4" y1="8" x2="12" y2="8" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>
         <button class="file-btn" title="打开项目">
-          <svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 4l3-2h6l3 2v9a1 1 0 01-1 1H3a1 1 0 01-1-1V4z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+          <svg width="14" height="14" viewBox="0 0 16 16"><path d="M2 4l3-2h6l3 2v9a1 1 0 01-1 1H3a1 1 0 01-1-1V4z" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>
         <button class="file-btn" title="另存为">
-          <svg width="16" height="16" viewBox="0 0 16 16"><path d="M2 13V3a1 1 0 011-1h7l4 4v7a1 1 0 01-1 1H3a1 1 0 01-1-1z" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="7" x2="8" y2="12" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="10" x2="11" y2="10" stroke="currentColor" stroke-width="1.2"/></svg>
+          <svg width="14" height="14" viewBox="0 0 16 16"><path d="M2 13V3a1 1 0 011-1h7l4 4v7a1 1 0 01-1 1H3a1 1 0 01-1-1z" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="7" x2="8" y2="12" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="10" x2="11" y2="10" stroke="currentColor" stroke-width="1.2"/></svg>
         </button>
         <span class="file-divider"></span>
         <span class="project-name">未命名项目</span>
@@ -102,7 +102,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 
       <div class="panel-divider"></div>
 
-      <!-- 步骤导航（纵向图示化） -->
+      <!-- 步骤导航（紧凑纵向） -->
       <div class="step-nav">
         <div
           v-for="(step, i) in steps"
@@ -114,14 +114,12 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
           }"
           @click="goToStep(step.id)"
         >
-          <div v-if="i < steps.length - 1" class="step-line" :class="{ filled: currentStep > step.id }"></div>
           <div class="step-node">
             <span v-if="currentStep > step.id" class="step-check">✓</span>
             <span v-else class="step-num">{{ step.id }}</span>
           </div>
           <div class="step-info">
             <span class="step-label">{{ step.label }}</span>
-            <span class="step-icon">{{ step.icon }}</span>
           </div>
         </div>
       </div>
@@ -148,12 +146,12 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
         </div>
       </div>
 
-      <!-- "下一步"按钮（步骤 1~4 显示） -->
+      <!-- "下一步"按钮 -->
       <button
         v-if="currentStep < 5"
         class="glass-btn next-step-btn"
         :disabled="currentStep === 1 && !step1Valid"
-        style="width: 100%; margin-top: 10px;"
+        style="width: 100%; margin-top: 8px;"
         @click="nextStep"
       >
         下一步
@@ -170,7 +168,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 <style scoped>
 .main-panel-shell {
   position: absolute;
-  top: 24px;
+  bottom: 24px;
   left: 24px;
   z-index: 15;
   display: flex;
@@ -186,12 +184,12 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   overflow: hidden;
   opacity: 0;
   transform: translateY(20px) scale(0.95);
-  transform-origin: top left;
+  transform-origin: bottom left;
   transition:
     max-height 0.45s cubic-bezier(0.22, 0.61, 0.36, 1),
     opacity 0.35s ease,
     transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 
   /* 蓝色玻璃质感 — 与右侧参数面板一致 */
   background: rgba(0, 96, 160, 0.09);
@@ -203,28 +201,28 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
     0 4px 24px rgba(0, 64, 128, 0.06),
     0 1px 4px rgba(0, 64, 128, 0.04),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
-  padding: 16px;
+  padding: 12px;
 }
 
 .main-panel-shell.open .panel-body {
-  max-height: calc(100vh - 100px);
+  max-height: calc(100vh - 120px);
   opacity: 1;
   transform: translateY(0) scale(1);
 }
 
-/* ======== 文件操作栏 ======== */
+/* ======== 文件操作栏（紧凑） ======== */
 .file-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .file-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: none;
   background: rgba(0, 0, 0, 0.04);
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
   color: var(--brand-text-secondary);
   display: flex;
@@ -240,13 +238,13 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 
 .file-divider {
   width: 1px;
-  height: 18px;
+  height: 14px;
   background: var(--brand-border);
-  margin: 0 4px;
+  margin: 0 2px;
 }
 
 .project-name {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--brand-text-secondary);
   font-weight: 500;
 }
@@ -255,23 +253,22 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 .panel-divider {
   height: 1px;
   background: var(--brand-border-light);
-  margin: 12px 0;
+  margin: 8px 0;
 }
 
-/* ======== 步骤导航（纵向） ======== */
+/* ======== 步骤导航（紧凑纵向，无连接线） ======== */
 .step-nav {
   display: flex;
-  flex-direction: column;
+  gap: 4px;
 }
 
 .step-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 8px;
-  border-radius: 10px;
+  gap: 5px;
+  padding: 3px 6px;
+  border-radius: 6px;
   cursor: pointer;
-  position: relative;
   transition: background 0.15s;
 }
 
@@ -283,36 +280,20 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   background: rgba(0, 96, 160, 0.08);
 }
 
-/* 连接线 */
-.step-line {
-  position: absolute;
-  left: 21px;
-  top: 38px;
-  width: 2px;
-  height: 16px;
-  background: var(--brand-border);
-  z-index: 0;
-}
-
-.step-line.filled {
-  background: var(--brand-blue);
-}
-
-/* 步骤节点（圆点） */
+/* 步骤节点（小圆点） */
 .step-node {
-  width: 28px;
-  height: 28px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 9px;
   font-weight: 700;
   flex-shrink: 0;
-  z-index: 1;
   transition: all 0.3s;
 
-  border: 2px solid var(--brand-border);
+  border: 1.5px solid var(--brand-border);
   color: var(--brand-text-secondary);
   background: rgba(255, 255, 255, 0.6);
 }
@@ -321,7 +302,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   border-color: var(--brand-blue);
   background: var(--brand-blue);
   color: white;
-  box-shadow: 0 0 12px rgba(0, 96, 160, 0.3);
+  box-shadow: 0 0 8px rgba(0, 96, 160, 0.25);
 }
 
 .step-item.done .step-node {
@@ -335,7 +316,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 }
 
 .step-check {
-  font-size: 14px;
+  font-size: 9px;
   line-height: 1;
 }
 
@@ -343,15 +324,14 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 .step-info {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
 }
 
 .step-label {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--brand-text-secondary);
   transition: color 0.2s;
+  white-space: nowrap;
 }
 
 .step-item.active .step-label {
@@ -361,11 +341,6 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 
 .step-item.done .step-label {
   color: var(--brand-text);
-}
-
-.step-icon {
-  font-size: 14px;
-  margin-left: auto;
 }
 
 /* ======== 圆形切换按钮 ======== */
@@ -411,8 +386,8 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 
 /* ======== 步骤内容区 ======== */
 .step-body {
-  max-height: 280px;
-  padding: 4px 0;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ======== 占位内容 ======== */
@@ -421,23 +396,23 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 28px 16px;
-  gap: 8px;
+  padding: 20px 16px;
+  gap: 6px;
 }
 
 .placeholder-icon {
-  font-size: 28px;
-  opacity: 0.5;
+  font-size: 24px;
+  opacity: 0.4;
 }
 
 .placeholder-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--brand-text);
 }
 
 .placeholder-hint {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--brand-text-secondary);
 }
 
@@ -446,19 +421,19 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   max-height: 0;
   opacity: 0;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--brand-blue);
   text-align: center;
-  padding: 0 8px;
+  padding: 0 6px;
   transition: max-height 0.35s cubic-bezier(0.22, 0.61, 0.36, 1),
               opacity 0.3s ease,
               padding 0.3s ease;
 }
 
 .step-guide.visible {
-  max-height: 32px;
+  max-height: 26px;
   opacity: 1;
-  padding: 6px 8px;
+  padding: 4px 6px;
   animation: guide-pulse 0.3s ease-in-out;
 }
 
