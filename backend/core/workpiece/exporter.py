@@ -112,14 +112,14 @@ def _build_mesh_data(
         if r_b > r_f:
             # 径向 r_b→r_f
             boundary_2d.append((r_f * math.cos(right_root_ang), r_f * math.sin(right_root_ang)))
-            # 齿根弧
+            # 齿根弧 (从 right_root_ang → next_left_root_ang, 逆时针)
             nla = next_left_root_ang
             if nla < right_root_ang:
                 nla += 2.0 * math.pi
             n_rf = 5
             for j in range(1, n_rf + 1):
                 t = j / (n_rf + 1)
-                ang = nla - t * (nla - right_root_ang)
+                ang = right_root_ang + t * (nla - right_root_ang)
                 boundary_2d.append((r_f * math.cos(ang), r_f * math.sin(ang)))
             boundary_2d.append((r_f * math.cos(next_left_root_ang), r_f * math.sin(next_left_root_ang)))
         else:
@@ -129,7 +129,7 @@ def _build_mesh_data(
             n_rf = 5
             for j in range(1, n_rf + 1):
                 t = j / (n_rf + 1)
-                ang = nla - t * (nla - right_root_ang)
+                ang = right_root_ang + t * (nla - right_root_ang)
                 boundary_2d.append((r_f * math.cos(ang), r_f * math.sin(ang)))
 
     # ── 三角剖分 ──

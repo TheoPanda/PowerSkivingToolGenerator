@@ -47,16 +47,11 @@ async function generate(): Promise<void> {
 
 <template>
   <div class="workpiece-viewer">
-    <!-- 生成按钮 -->
-    <button
-      class="glass-btn generate-btn"
-      :disabled="generating"
-      :class="{ loading: generating }"
-      @click="generate"
-    >
-      <span v-if="generating" class="spinner"></span>
-      {{ generating ? '正在生成...' : '生成齿轮' }}
-    </button>
+    <!-- 加载状态 -->
+    <div v-if="generating" class="generating-hint">
+      <span class="spinner"></span>
+      正在生成齿轮模型...
+    </div>
 
     <!-- 错误提示 -->
     <div v-if="error" class="error-msg">
@@ -104,18 +99,14 @@ async function generate(): Promise<void> {
   gap: 14px;
 }
 
-.generate-btn {
-  width: 100%;
-  padding: 10px 0;
-  font-size: 14px;
+.generating-hint {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-}
-
-.generate-btn.loading {
-  opacity: 0.7;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--brand-text-secondary, #5C6B7A);
+  padding: 8px 0;
 }
 
 .spinner {
