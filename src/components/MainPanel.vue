@@ -181,7 +181,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 .panel-body {
   width: 280px;
   max-height: 0;
-  overflow: hidden;
+  overflow: hidden auto;
   opacity: 0;
   transform: translateY(20px) scale(0.95);
   transform-origin: bottom left;
@@ -205,7 +205,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 }
 
 .main-panel-shell.open .panel-body {
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 170px);
   opacity: 1;
   transform: translateY(0) scale(1);
 }

@@ -71,10 +71,10 @@ body {
 /* ---- 输入框 ---- */
 .glass-input {
   width: 100%;
-  padding: 8px 10px;
+  padding: 5px 8px;
   border: 1px solid rgba(0, 96, 160, 0.12);
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: 5px;
+  font-size: 11px;
   color: var(--brand-text);
   background: var(--brand-input-bg);
   outline: none;
@@ -98,17 +98,17 @@ body {
 /* ---- Segmented 切换 ---- */
 .glass-segmented {
   display: inline-flex;
-  border-radius: 6px;
+  border-radius: 5px;
   background: rgba(0, 0, 0, 0.04);
-  padding: 2px;
-  gap: 2px;
+  padding: 1px;
+  gap: 1px;
 }
 
 .glass-segmented-btn {
-  padding: 5px 14px;
+  padding: 3px 10px;
   border: none;
-  border-radius: 5px;
-  font-size: 12px;
+  border-radius: 4px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   background: transparent;
@@ -131,13 +131,13 @@ body {
 .glass-collapse-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 4px;
+  gap: 6px;
+  padding: 4px 2px;
   cursor: pointer;
   border: none;
   background: transparent;
   width: 100%;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--brand-text);
   transition: background 0.15s;
@@ -210,12 +210,12 @@ body {
 
 /* ---- 按钮 ---- */
 .glass-btn {
-  padding: 8px 20px;
+  padding: 6px 16px;
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--brand-blue);
   color: #ffffff;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.2s, transform 0.15s;
@@ -239,10 +239,10 @@ body {
 /* ---- 下拉选择 ---- */
 .glass-select {
   width: 100%;
-  padding: 8px 10px;
+  padding: 5px 8px;
   border: 1px solid rgba(0, 96, 160, 0.12);
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: 5px;
+  font-size: 11px;
   color: var(--brand-text);
   background: var(--brand-input-bg);
   outline: none;
@@ -279,23 +279,23 @@ body {
 
 /* ---- 表单字段行 ---- */
 .glass-field {
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .glass-field-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   color: var(--brand-text-secondary);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
 .glass-field-hint {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--brand-danger);
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 /* ---- 步骤内容区滚动条 ---- */

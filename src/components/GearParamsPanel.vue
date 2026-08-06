@@ -405,46 +405,26 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
         <span class="glass-collapse-arrow">▶</span>
       </button>
       <div class="glass-collapse-content">
-        <div class="collapse-inner">
+        <div class="collapse-inner" style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;">
 
           <div class="glass-field">
-            <label class="glass-field-label">法向压力角 α_n</label>
-            <input
-              v-model.number="gearParams.α_n"
-              type="number"
-              step="0.5"
-              class="glass-input"
-            />
+            <label class="glass-field-label">α_n (°)</label>
+            <input v-model.number="gearParams.α_n" type="number" step="0.5" class="glass-input" />
           </div>
 
           <div class="glass-field">
-            <label class="glass-field-label">齿顶高系数 h*_an</label>
-            <input
-              v-model.number="gearParams.h_an"
-              type="number"
-              step="0.05"
-              class="glass-input"
-            />
+            <label class="glass-field-label">h*_an</label>
+            <input v-model.number="gearParams.h_an" type="number" step="0.05" class="glass-input" />
           </div>
 
           <div class="glass-field">
-            <label class="glass-field-label">顶隙系数 c*_n</label>
-            <input
-              v-model.number="gearParams.c_n"
-              type="number"
-              step="0.05"
-              class="glass-input"
-            />
+            <label class="glass-field-label">c*_n</label>
+            <input v-model.number="gearParams.c_n" type="number" step="0.05" class="glass-input" />
           </div>
 
           <div class="glass-field">
-            <label class="glass-field-label">齿根圆角半径系数 ρ*_f</label>
-            <input
-              v-model.number="gearParams.ρ_f"
-              type="number"
-              step="0.01"
-              class="glass-input"
-            />
+            <label class="glass-field-label">ρ*_f</label>
+            <input v-model.number="gearParams.ρ_f" type="number" step="0.01" class="glass-input" />
           </div>
 
         </div>
@@ -457,11 +437,11 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
 .gear-params-panel {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
 .collapse-inner {
-  padding: 8px 4px 8px 10px;
+  padding: 4px 2px 4px 6px;
 }
 
 .glass-collapse-content {
