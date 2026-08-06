@@ -18,6 +18,7 @@ function createWrapper(): VueWrapper<MainPanelInstance> {
     global: {
       stubs: {
         img: true,
+        WorkpieceViewer: true,  // stub to avoid API call on mount
       },
     },
   }) as VueWrapper<MainPanelInstance>
@@ -49,13 +50,14 @@ describe('MainPanel — 步骤内容区', () => {
       expect(body.exists()).toBe(true)
     })
 
-    it('currentStep=2 时渲染 WorkpieceViewer', async () => {
+    it('currentStep=2 时渲染步骤2内容 (非占位)', async () => {
       wrapper.vm.expanded = true
       wrapper.vm.currentStep = 2
       await wrapper.vm.$nextTick()
 
       const body = wrapper.find('.step-body')
-      expect(body.text()).toContain('生成齿轮')
+      // 步骤2 不应显示占位文字
+      expect(body.text()).not.toContain('即将推出')
     })
 
     it('currentStep=3 时显示步骤 3 占位', async () => {

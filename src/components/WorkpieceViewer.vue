@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, inject } from 'vue'
+import { ref, inject, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fetchWorkpiece, type WorkpieceResult, type GearParamsInput } from '../api'
 
@@ -17,6 +17,11 @@ const error = ref<string | null>(null)
 const emit = defineEmits<{
   'model-ready': [glbBase64: string]
 }>()
+
+// ── Auto-generate on mount ──
+onMounted(() => {
+  generate()
+})
 
 // ── Generate ──
 async function generate(): Promise<void> {
