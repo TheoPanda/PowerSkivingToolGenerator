@@ -191,16 +191,16 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
     transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
   margin-bottom: 10px;
 
-  /* 冷白色玻璃质感 */
-  background: rgba(255, 255, 255, 0.55);
+  /* 蓝色玻璃质感 */
+  background: rgba(0, 96, 160, 0.10);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(0, 96, 160, 0.16);
   border-radius: 16px;
   box-shadow:
-    0 8px 32px rgba(0, 64, 128, 0.08),
-    0 2px 8px rgba(0, 0, 0, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    0 4px 24px rgba(0, 64, 128, 0.06),
+    0 1px 4px rgba(0, 64, 128, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
   padding: 12px;
 }
 
