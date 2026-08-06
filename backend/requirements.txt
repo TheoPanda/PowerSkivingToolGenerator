@@ -2,4 +2,6 @@ fastapi>=0.100.0
 uvicorn>=0.23.0
 flask-cors>=4.0.0
 numpy>=1.24.0
-# pythonocc-core  # 几何内核——后续开发阶段安装
+pythonocc-core>=7.9
+pygltflib>=1.16
+httpx

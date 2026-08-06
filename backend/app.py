@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+from core.workpiece.router import router as workpiece_router
+
 app = FastAPI(title="PowerSkivingTool API", version="0.1.0")
 
 # CORS 配置——允许前端跨域请求
@@ -17,6 +19,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册模块路由
+app.include_router(workpiece_router)
 
 
 @app.get("/api/hello")
