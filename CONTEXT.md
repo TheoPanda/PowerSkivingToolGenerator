@@ -1,6 +1,6 @@
 # CONTEXT.md — 车齿刀工具生成器 领域词汇与决策日志
 
-最后更新：2026-08-06（grilling session: 步骤2 工件齿轮生成与 3D 渲染）
+最后更新：2026-08-07（重构: workpiece 包职责清理 ADR-012）
 
 ## 领域词汇
 
@@ -84,6 +84,39 @@
 **决策**: K-0.x 变换库用纯 Python 单元测试（不依赖 OCCT，CI 可跑）；OCCT 构建用集成测试（需要 conda env）；testdata 回归基准在几何端点充足后接入。
 **理由**: 避免"装不上 OCCT 就全红"；纯数学测试快速反馈。
 
+### ADR-012: workpiece 包职责清理 + exporter 切换 OCCT 原生 tessellation
+
+**日期**: 2026-08-07
+**决策**: 
+- K-1.1 渐开线数学迁入 `profile.py`（单一权威），`models.py` 专注数据模型+齿厚
+- `builder.py` 删除 `build_half_period_wire`/`compute_fillet_center` 隔离区（~270 行）
+- **exporter 从 earcut 切换到 OCCT 原生 tessellation**：`builder wire → MakeFace (真正的 TopoDS_Face) → BRepMesh_IncrementalMesh → Triangulation_s → GLB`。端面三角形与 OCCT 实体完全一致。
+- 侧壁由端面 triangulation 边界边挤压生成（顶点与端面共享，保证闭合流形）
+- OCP 7.9.3 downcast bug 绕过：`MakeFace().Face()` 产出原生 `TopoDS_Face`，`Triangulation_s` 直接可用；不能从 solid 遍历面但是可以直接构建面
+- 绕序因齿形而异（r_b>r_f 产 CW，r_f>r_b 产 CCW），通过总符号面积动态检测
+- 移除 `earcut` 依赖
+
+**理由**: 消除并行 3D 表示（之前 builder 产 OCCT 实体、exporter 产 earcut mesh，仅靠 2D 面积比对维系一致性）；渲染模型现在就是 CAD 模型的可视化视图。K-1.1 迁移 + 死代码清理解决了职责倒挂和代码腐化。
+
+### ADR-011: K-1.12 齿根圆角 (方案 A) 条件性落地
+
+**日期**: 2026-08-07
+**决策**: `profile.solve_root_fillet` 一维搜索 + 二分精确化实现双切圆角 (切齿根圆 + 切渐开线, 凹角 CW 弧)；r_b > r_f 且双切有解时启用，无解时回退径向连接线。
+**理由/数学边界**: 双切解存在当且仅当 r_f + ρ_f ≳ r_b (|P−ρ·n| 最小值 √(r_b²+ρ²))。深齿根 (如 m=3/z=20, r_b−r_f=1.94 > ρ=1.14) 方案 A 无解——真实齿根为滚刀展成摆线 = 方案 B (T13 未销项)，回退径向线是诚实占位。用户用例 m=1/z=32 (r_b−r_f=0.285 < ρ=0.38) 有解，过渡弧已渲染。
+
+### ADR-010: profile.py 单一权威轮廓实现
+
+**日期**: 2026-08-07
+**决策**: 端面齿廓数学 (K-1.1/K-1.13 + K-1.11 齿厚) 升格为独立纯数学模块 `profile.py`/`models.py`，以类型化段 (Arc CCW 短弧 + Polyline) 表示；builder (OCCT edges) 与 exporter (mesh) 均为薄消费者。K-1.11 三函数迁 models.py。
+**理由**: 轮廓数学曾内联于两个表示层各一份，右齿面镜像/∓inv(α_t) 相位双份错；OCCT 齿根弧还因 GC_MakeArcOfCircle first>last 调用取到长弧 (探针结论: 该 API 恒 CCW 从 First 到 Last, sense 参数无效)。表示级测试 (闭合/体积/流形) 全绿而形状错——缺形状级测试缝。统一后由 TestProfileShape (镜像/齿厚) + TestCrossRepresentationConsistency (OCCT 面积≈鞋带面积) 把守。
+**注**: 原 `build_half_period_wire` 隔离区已在 ADR-012 中移除。
+
+### ADR-009: earcut 耳切三角剖分替代圆心扇形 (已由 ADR-012 替代)
+
+**日期**: 2026-08-06
+**决策**: ~~端面 cap 用 `earcut`~~ → 2026-08-07 切换为 OCCT 原生 BRepMesh tessellation。
+**理由**: 齿廓非角度单调，圆心扇形剖分产生重叠三角形。earcut 解决了此问题，但引入与 OCCT 实体并行的第二套 3D 表示。ADR-012 将端面三角剖分统一为 OCCT BRepMesh (MakeFace → Triangulation_s)，消除双表示。
+
 ### ADR-008: E1 扩展全量实施
 
 **日期**: 2026-08-06
@@ -101,9 +134,10 @@ backend/core/
 │   └── tests/
 ├── workpiece/           # 模块①：工件齿轮
 │   ├── __init__.py
-│   ├── models.py        # 数据类（GearParams, WorkpieceResult）
-│   ├── builder.py       # OCCT 构建（K-1.1~K-1.14）
-│   ├── exporter.py      # OCCT → GLB 导出
+│   ├── models.py        # 数据模型 + K-1.2 换算 + K-1.11 齿厚反算
+│   ├── profile.py       # K-1.1/K-1.12/K-1.13 端面齿廓纯数学 (单一权威)
+│   ├── builder.py       # profile 段 → OCCT wires → 3D 实体
+│   ├── exporter.py      # builder wire → OCCT BRepMesh → GLB (端面与 CAD 一致)
 │   └── tests/
 ├── envelope/            # 模块②（待建）
 ├── solid/               # 模块③（待建）

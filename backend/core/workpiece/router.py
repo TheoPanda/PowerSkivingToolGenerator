@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
+from core.workpiece.builder import build_gear_model
 from core.workpiece.exporter import export_glb_base64
 from core.workpiece.models import GearParams, WorkpieceResult
 
@@ -102,8 +103,9 @@ async def generate_workpiece(req: GearParamsRequest):
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
 
     try:
-        # 导出 GLB (纯 Python mesh，不依赖 OCCT)
-        glb_base64 = export_glb_base64(p)
+        # 构建唯一几何模型 + 导出 GLB
+        model = build_gear_model(p)
+        glb_base64 = export_glb_base64(model)
 
         # 计算结果
         result = WorkpieceResult.from_gear_params(p)

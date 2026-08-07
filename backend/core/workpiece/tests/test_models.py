@@ -53,7 +53,7 @@ class TestInvoluteProfile:
 
     def test_base_circle_point(self):
         """ξ=0 时渐开线起点在基圆上: (r_b, 0)"""
-        from core.workpiece.models import involute_point
+        from core.workpiece.profile import involute_point
 
         r_b = 50.0
         x, y = involute_point(r_b, xi=0.0)
@@ -62,7 +62,7 @@ class TestInvoluteProfile:
 
     def test_involute_parametric_form(self):
         """验证渐开线公式: x = r_b(cosξ + ξ sinξ), y = r_b(sinξ − ξ cosξ)"""
-        from core.workpiece.models import involute_point
+        from core.workpiece.profile import involute_point
         import math
 
         r_b = 50.0
@@ -75,7 +75,7 @@ class TestInvoluteProfile:
 
     def test_involute_monotonic(self):
         """渐开线随 ξ 增加向外展开"""
-        from core.workpiece.models import involute_point
+        from core.workpiece.profile import involute_point
 
         r_b = 50.0
         _, y1 = involute_point(r_b, 0.0)
@@ -86,7 +86,7 @@ class TestInvoluteProfile:
 
     def test_involute_generates_expected_radius(self):
         """渐开线上任意点半径 r(ξ) = r_b·√(1+ξ²)"""
-        from core.workpiece.models import involute_point
+        from core.workpiece.profile import involute_point
         import math
 
         r_b = 50.0
@@ -98,7 +98,7 @@ class TestInvoluteProfile:
 
     def test_ex1_pinion_involute_start(self):
         """算例1 产形轮基圆 r_b1 = d_b1/2 = 39.728mm"""
-        from core.workpiece.models import involute_point
+        from core.workpiece.profile import involute_point
 
         r_b1 = 79.456 / 2.0  # d_b1 from [23]表3.2
         x, y = involute_point(r_b1, xi=0.0)
@@ -107,7 +107,7 @@ class TestInvoluteProfile:
 
     def test_generate_full_profile(self):
         """生成渐开线点集: 从基圆到齿顶圆"""
-        from core.workpiece.models import generate_involute_points
+        from core.workpiece.profile import generate_involute_points
 
         r_b = 48.0  # 基圆半径
         r_a = 54.0  # 齿顶圆半径

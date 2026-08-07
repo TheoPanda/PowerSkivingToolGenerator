@@ -1,11 +1,13 @@
-"""Module ① 数据模型与纯数学齿廓计算 — 设计书 §4.1.
+"""Module ① 数据模型与齿厚反算 — 设计书 §4.1.
 
 不依赖 OCCT。提供:
   - GearParams: 工件齿轮参数 (与前端 gearParams 对齐)
   - WorkpieceResult: 计算结果
   - normal_to_transverse (K-1.2): 法向→端面参数转换
-  - involute_point (K-1.1): 渐开线单点
-  - generate_involute_points: 渐开线点集
+  - K-1.11 齿厚: compute_tooth_thickness / back_solve_x_w_from_W_k / back_solve_x_w_from_M
+
+ADR-012 (2026-08-07): K-1.1 渐开线数学已迁至 profile.py (单一权威源);
+本模块保留重导出以兼容旧导入路径。
 """
 
 import math
@@ -45,105 +47,123 @@ def normal_to_transverse(
     return (m_t, alpha_t_deg)
 
 
-# ── K-1.1 渐开线廓形 (端面) ────────────────────────────────────────
+# ── K-1.1 渐开线廓形 (端面) — 已迁至 profile.py ─────────────────────
+# ADR-012: 权威实现位于 core.workpiece.profile;
+# 本模块不再重导出以避免循环导入 (profile 依赖 models 的 GearParams)
 
-def involute_point(r_b: float, xi: float) -> tuple[float, float]:
-    """K-1.1 渐开线单点 (端面).
+# ── K-1.11 齿厚与反算 (纯数学) ───────────────────────────────────────
 
-    x = r_b·(cos ξ + ξ·sin ξ)
-    y = r_b·(sin ξ − ξ·cos ξ)
+def compute_tooth_thickness(p: "GearParams") -> float:
+    """K-1.11: 计算端面节圆齿厚 s_t.
 
-    起点 ξ=0 在基圆上: (r_b, 0).
-
-    Args:
-        r_b: 基圆半径 [mm]
-        xi: 展角参数 (roll angle) [rad]
-
-    Returns:
-        (x, y) 渐开线上点坐标 [mm]
-    """
-    cos_xi = math.cos(xi)
-    sin_xi = math.sin(xi)
-
-    x = r_b * (cos_xi + xi * sin_xi)
-    y = r_b * (sin_xi - xi * cos_xi)
-
-    return (x, y)
-
-
-def involute_radius(r_b: float, xi: float) -> float:
-    """渐开线上点的径向距离: r(ξ) = r_b·√(1+ξ²).
+    支持三种齿厚指定方式:
+      - x_w: s_t = π·m_t/2 + 2·x_w·m_n·tan(α_t)
+      - W_k: 通过 back_solve_x_w_from_W_k 反推 x_w
+      - M: 通过 back_solve_x_w_from_M 反推 x_w
 
     Args:
-        r_b: 基圆半径 [mm]
-        xi: 展角参数 [rad]
+        p: 工件齿轮参数
 
     Returns:
-        径向距离 [mm]
+        端面节圆齿厚 s_t [mm]
     """
-    return r_b * math.sqrt(1.0 + xi * xi)
+    m_t, alpha_t_deg = p.to_transverse()
+    alpha_t = math.radians(alpha_t_deg)
+
+    if p.tooth_method == "x_w":
+        x_w = p.x_w
+    elif p.tooth_method == "W_k":
+        if p.W_k is None or p.k_teeth is None:
+            raise ValueError("tooth_method='W_k' 需要提供 W_k 和 k_teeth")
+        x_w = back_solve_x_w_from_W_k(p, p.W_k, p.k_teeth)
+    elif p.tooth_method == "M":
+        if p.M is None or p.d_p is None:
+            raise ValueError("tooth_method='M' 需要提供 M 和 d_p")
+        x_w = back_solve_x_w_from_M(p, p.M, p.d_p)
+    else:
+        raise ValueError(f"未知的齿厚方式: {p.tooth_method}")
+
+    # s_t = π·m_t/2 + 2·x_w·m_n·tan(α_t)
+    s_t = math.pi * m_t / 2.0 + 2.0 * x_w * p.m_n * math.tan(alpha_t)
+    return s_t
 
 
-def xi_at_radius(r_b: float, r: float) -> float:
-    """已知径向距离 r 反求展角 ξ.
+def back_solve_x_w_from_W_k(p: "GearParams", W_k: float, k: int) -> float:
+    """K-1.11: 从公法线长度 W_k 反推变位系数 x_w.
 
-    ξ = √((r/r_b)² − 1)
+    公法线长度:
+      W_k = m_n·cos(α_n)·[(k−0.5)·π + z_w·inv(α_t) + 2·x_w·tan(α_n)]
+
+    其中 inv(α) = tan(α) − α.
 
     Args:
-        r_b: 基圆半径 [mm]
-        r: 目标径向距离 [mm], r ≥ r_b
+        p: 工件齿轮参数 (不含 x_w)
+        W_k: 公法线长度 [mm]
+        k: 跨齿数
 
     Returns:
-        展角 ξ [rad]
-
-    Raises:
-        ValueError: r < r_b (点在基圆内，无渐开线)
+        变位系数 x_w
     """
-    if r < r_b - 1e-12:
-        raise ValueError(f"r={r} < r_b={r_b}: 基圆内无渐开线")
-    if abs(r - r_b) < 1e-12:
-        return 0.0
-    return math.sqrt((r / r_b) ** 2 - 1.0)
+    _, alpha_t_deg = p.to_transverse()
+    alpha_t = math.radians(alpha_t_deg)
+    alpha_n = math.radians(p.alpha_n_deg)
+
+    inv_at = math.tan(alpha_t) - alpha_t
+
+    # W_k = m_n·cos(α_n)·[(k−0.5)·π + z_w·inv(α_t) + 2·x_w·tan(α_n)]
+    # ⇒ x_w = (W_k / (m_n·cos(α_n)) − (k−0.5)·π − z_w·inv(α_t)) / (2·tan(α_n))
+    base = p.m_n * math.cos(alpha_n)
+    term1 = (k - 0.5) * math.pi
+    term2 = p.z_w * inv_at
+    x_w = (W_k / base - term1 - term2) / (2.0 * math.tan(alpha_n))
+
+    return x_w
 
 
-def generate_involute_points(
-    r_b: float,
-    r_a: float,
-    n_points: int,
-    r_f: float | None = None,
-) -> list[tuple[float, float]]:
-    """K-1.1 + K-1.12 生成渐开线齿面点集 (端面).
+def back_solve_x_w_from_M(p: "GearParams", M: float, d_p: float) -> float:
+    """K-1.11: 从跨棒距 M 反推变位系数 x_w (端面近似).
 
-    从基圆 (或齿根圆，取大者) 到齿顶圆，等间距采样。
+    对于直齿轮 (β=0):
+      cos(α_M) = d_b / (M − d_p)  (外齿轮, k_io=+1)
+      inv(α_M) = inv(α_t) + d_p/(m_n·z_w·cos(α_n)) − π/(2·z_w) + 2·x_w·tan(α_n)/z_w
 
     Args:
-        r_b: 基圆半径 [mm]
-        r_a: 齿顶圆半径 [mm]
-        n_points: 采样点数
-        r_f: 齿根圆半径 [mm], 可选。若 r_b > r_f 则从 r_b 开始；
-              否则从 max(r_f, r_b) 开始 (K-1.12 圆角段不由本函数处理)
+        p: 工件齿轮参数 (不含 x_w)
+        M: 跨棒距 [mm]
+        d_p: 量棒直径 [mm]
 
     Returns:
-        [(x, y), ...] 渐开线点集 (从齿根到齿顶)
+        变位系数 x_w
     """
-    if n_points < 2:
-        raise ValueError(f"n_points={n_points} 必须 ≥ 2")
+    m_t, alpha_t_deg = p.to_transverse()
+    alpha_t = math.radians(alpha_t_deg)
+    alpha_n = math.radians(p.alpha_n_deg)
+    d_b = 2.0 * p.base_radius()
 
-    r_start = max(r_b, r_f) if r_f is not None else r_b
+    if p.k_io == 1:
+        # 外齿轮: M = d_b / cos(α_M) + d_p
+        cos_alpha_M = d_b / (M - d_p)
+    else:
+        # 内齿轮: M = d_b / cos(α_M) − d_p
+        cos_alpha_M = d_b / (M + d_p)
 
-    if r_a <= r_start:
-        raise ValueError(f"齿顶圆 r_a={r_a} ≤ 起始半径 r_start={r_start}")
+    if abs(cos_alpha_M) > 1.0:
+        raise ValueError(f"量棒参数不合理: cos(α_M)={cos_alpha_M} 超出 [−1,1]")
 
-    xi_start = xi_at_radius(r_b, r_start)
-    xi_end = xi_at_radius(r_b, r_a)
+    alpha_M = math.acos(cos_alpha_M)
+    inv_alpha_M = math.tan(alpha_M) - alpha_M
+    inv_alpha_t = math.tan(alpha_t) - alpha_t
 
-    points: list[tuple[float, float]] = []
-    for i in range(n_points):
-        t = i / (n_points - 1)
-        xi = xi_start + t * (xi_end - xi_start)
-        points.append(involute_point(r_b, xi))
-
-    return points
+    # inv(α_M) = inv(α_t) + d_p/(m_n·z_w·cos(α_n)) − π/(2·z_w) + 2·x_w·tan(α_n)/z_w
+    # ⇒ x_w = z_w/(2·tan(α_n)) · [inv(α_M) − inv(α_t) − d_p/(m_n·z_w·cos(α_n)) + π/(2·z_w)]
+    term = (
+        inv_alpha_M
+        - inv_alpha_t
+        - d_p / (p.m_n * p.z_w * math.cos(alpha_n))
+        + math.pi / (2.0 * p.z_w)
+    )
+    x_w = p.z_w / (2.0 * math.tan(alpha_n)) * term
+    return x_w
 
 
 # ── 数据模型 ────────────────────────────────────────────────────────

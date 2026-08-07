@@ -57,12 +57,14 @@ class TestGearShapeValidity:
 class TestGearTypeSupport:
     """验证不同齿轮类型的构建."""
 
-    @pytest.mark.skip(reason="OCP 7.9.3: TopoDS_Wire downcast 不支持，ThruSections 暂不可用")
     def test_helical_gear_builds(self):
-        """斜齿轮 (beta=15) 构建 — OCP 限制暂跳过."""
+        """斜齿轮 (beta=15, z=10) — 原生 Wire 直接构建, 无需 downcast.
+
+        z=10 是为了避免 Boolean fuse 41 齿的 O(n²) 耗时。
+        """
         from core.workpiece.builder import build_gear
-        p = GearParams(m_n=2.5, z_w=41, b_w=20.0, beta_w_deg=15.0)
-        shape = build_gear(p)
+        p = GearParams(m_n=2.5, z_w=10, b_w=20.0, beta_w_deg=15.0)
+        shape = build_gear(p, n_slices=6)
         assert not shape.IsNull()
 
     def test_internal_gear_tooth_wire(self):
@@ -87,6 +89,49 @@ class TestGearTypeSupport:
         assert not shape.IsNull()
 
 
+# ── 跨表示一致性 (profile.py 单一权威) ────────────────────────────────
+
+class TestCrossRepresentationConsistency:
+    """OCCT wire 与 mesh 采样两表示必须一致.
+
+    历史教训: 轮廓数学双份实现时, OCCT 齿根弧取到长弧而 mesh 侧正确,
+    无任何测试察觉。面积一致性把守两表示分叉。
+    """
+
+    @pytest.mark.parametrize("params", [
+        dict(m_n=2.5, z_w=41, b_w=20.0),
+        dict(m_n=2.0, z_w=82, b_w=20.0),
+    ])
+    def test_occt_face_area_matches_sampled_polygon(self, params):
+        """OCCT face 面积 ≈ 采样多边形鞋带面积 (相对差 < 1e-3)."""
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+
+        from core.workpiece.builder import _build_full_gear_2d_wire
+        from core.workpiece.profile import sample_profile_points
+
+        p = GearParams(**params)
+        wire = _build_full_gear_2d_wire(p)
+        face = BRepBuilderAPI_MakeFace(wire).Face()
+        props = GProp_GProps()
+        BRepGProp.SurfaceProperties_s(face, props)
+        area_occt = props.Mass()
+
+        pts = sample_profile_points(p)
+        area_poly = 0.0
+        for i in range(len(pts)):
+            x0, y0 = pts[i]
+            x1, y1 = pts[(i + 1) % len(pts)]
+            area_poly += x0 * y1 - x1 * y0
+        area_poly = abs(area_poly) / 2.0
+
+        rel = abs(area_occt - area_poly) / area_poly
+        assert rel < 1e-3, (
+            f"OCCT 面积 {area_occt:.1f} vs 采样多边形 {area_poly:.1f} (相对差 {rel:.2e})"
+        )
+
+
 # ── Tooth thickness back-solve (K-1.11) ──────────────────────────────
 
 class TestToothThicknessBacksolve:
@@ -94,7 +139,7 @@ class TestToothThicknessBacksolve:
 
     def test_from_x_w_direct(self):
         """x_w 直接输入: s_t = pi*m_t/2."""
-        from core.workpiece.builder import compute_tooth_thickness
+        from core.workpiece.models import compute_tooth_thickness
         p = GearParams(m_n=2.5, z_w=41, b_w=20.0, tooth_method="x_w", x_w=0.0)
         s_t = compute_tooth_thickness(p)
         m_t, _ = p.to_transverse()
@@ -103,14 +148,14 @@ class TestToothThicknessBacksolve:
 
     def test_from_x_w_positive_shift(self):
         """正变位 x_w=+0.5: 齿厚 > 标准齿厚."""
-        from core.workpiece.builder import compute_tooth_thickness
+        from core.workpiece.models import compute_tooth_thickness
         p_std = GearParams(m_n=2.5, z_w=41, b_w=20.0, x_w=0.0)
         p_pos = GearParams(m_n=2.5, z_w=41, b_w=20.0, x_w=0.5)
         assert compute_tooth_thickness(p_pos) > compute_tooth_thickness(p_std)
 
     def test_w_k_backsolve_consistency(self):
         """W_k 反算: x_w=0 时反推 x_w ≈ 0."""
-        from core.workpiece.builder import back_solve_x_w_from_W_k
+        from core.workpiece.models import back_solve_x_w_from_W_k
         p = GearParams(m_n=2.5, z_w=41, b_w=20.0)
         m_t, alpha_t_deg = p.to_transverse()
         alpha_t = math.radians(alpha_t_deg)
@@ -123,7 +168,7 @@ class TestToothThicknessBacksolve:
 
     def test_m_backsolve_consistency(self):
         """M 反算: 正向计算 M 再反推 x_w ≈ 原始值."""
-        from core.workpiece.builder import back_solve_x_w_from_M
+        from core.workpiece.models import back_solve_x_w_from_M
         import math
 
         p = GearParams(m_n=2.5, z_w=41, b_w=20.0, x_w=0.2)
@@ -159,7 +204,7 @@ class TestToothThicknessBacksolve:
 
     def test_negative_shift_backsolve(self):
         """负变位 x_w=-0.3: 反算正确."""
-        from core.workpiece.builder import compute_tooth_thickness, back_solve_x_w_from_W_k
+        from core.workpiece.models import compute_tooth_thickness, back_solve_x_w_from_W_k
         p = GearParams(m_n=2.5, z_w=41, b_w=20.0, x_w=-0.3)
         m_t, alpha_t_deg = p.to_transverse()
         alpha_t = math.radians(alpha_t_deg)
