@@ -84,7 +84,8 @@ let rootGroup: THREE.Group | null = null    // 最外层：纯平移
 let tiltGroup: THREE.Group | null = null    // 45° 静态倾斜
 let spinGroup: THREE.Group | null = null     // 持续自旋
 let modelGroup: THREE.Group | null = null    // 内层：Z-up 修正
-let carbideMaterial: THREE.MeshStandardMaterial | null = null  // PBR 材质
+let steelMaterial: THREE.MeshStandardMaterial | null = null    // 不锈钢 PBR 材质 (齿轮)
+let carbideMaterial: THREE.MeshStandardMaterial | null = null  // 硬质合金 PBR 材质 (刀具)
 let animationId: number | null = null
 let spinAngle = 0
 const diagonalAxis = new THREE.Vector3(1, 0.35, 0).normalize()  // 左上→右下
@@ -93,6 +94,20 @@ let currentSpinAxis = verticalAxis.clone()
 let targetSpinAxis = verticalAxis.clone()
 let spinSpeed = 0.006          // 欢迎界面转速
 let userInteracted = false
+let renderRequested = true     // on-demand 渲染标志: 无变化时跳过 render
+
+function requestRender(): void {
+  renderRequested = true
+}
+
+// ---- 渲染模式 (实体 / X-Ray 线框) ----
+type RenderMode = 'solid' | 'xray'
+
+const renderMode = ref<RenderMode>('solid')
+let flatMaterial: THREE.MeshBasicMaterial | null = null      // 线框模式: 单一色实体 (工程图纸)
+let edgeMaterial: THREE.LineBasicMaterial | null = null      // 线框模式: 深色边缘线
+const BG_SOLID = new THREE.Color(0xebeff3)                   // 实体模式背景
+const BG_XRAY = new THREE.Color(0xffffff)                    // 线框模式背景 (图纸白底)
 
 function initThreeJs(): void {
   if (!viewportRef.value) return
@@ -103,9 +118,9 @@ function initThreeJs(): void {
   // 渲染器
   renderer = new THREE.WebGLRenderer({ antialias: true })
   renderer.setSize(width, height)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.shadowMap.type = THREE.PCFShadowMap   // PCFSoft 对集成显卡过重
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.2
   viewportRef.value.appendChild(renderer.domElement)
@@ -169,6 +184,9 @@ function initThreeJs(): void {
     if (controls) controls.autoRotate = false
     controls?.removeEventListener('start', stopAutoRotate)
   }
+  // on-demand 渲染: 交互/相机阻尼变化时请求重绘
+  controls.addEventListener('start', () => { requestRender() })
+  controls.addEventListener('change', () => { requestRender() })
   controls.addEventListener('start', stopAutoRotate)
 
   // 登录后启用交互
@@ -180,8 +198,8 @@ function initThreeJs(): void {
   const keyLight = new THREE.DirectionalLight(0xffeedd, 4.5)
   keyLight.position.set(8, 12, 4)
   keyLight.castShadow = true
-  keyLight.shadow.mapSize.width = 2048
-  keyLight.shadow.mapSize.height = 2048
+  keyLight.shadow.mapSize.width = 1024
+  keyLight.shadow.mapSize.height = 1024
   keyLight.shadow.camera.near = 0.5
   keyLight.shadow.camera.far = 50
   keyLight.shadow.camera.left = -10
@@ -204,12 +222,23 @@ function initThreeJs(): void {
   bounceLight.position.set(0, -1, 2)
   scene.add(bounceLight)
 
-  // ---- 加载滚刀模型 (STL) ----
+  // ---- 刀具材质 — 硬质合金 ----
   carbideMaterial = new THREE.MeshStandardMaterial({
-    color: 0x5a5854,
+    color: 0x5a5854,        // 硬质合金深灰褐
     roughness: 0.28,
     metalness: 0.97,
   })
+
+  // ---- 齿轮材质 — 不锈钢 ----
+  steelMaterial = new THREE.MeshStandardMaterial({
+    color: 0x9a9aa0,        // 不锈钢亮银灰 (冷调)
+    roughness: 0.32,
+    metalness: 0.98,
+  })
+
+  // ---- 线框模式 (工程图纸): 单一色实体 + 深色边缘线 ----
+  flatMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff })   // 纯白, 无光照
+  edgeMaterial = new THREE.LineBasicMaterial({ color: 0x1f2937 })   // 深灰蓝线
 
   const stlLoader = new STLLoader()
   stlLoader.load(
@@ -233,6 +262,10 @@ function initThreeJs(): void {
       camera!.near = dist * 0.001
       camera!.far = dist * 10
       camera!.updateProjectionMatrix()
+
+      // 缩放范围随模型尺寸适配——避免大模型被固定 maxDistance 卡住无法缩小
+      controls!.minDistance = dist * 0.05
+      controls!.maxDistance = dist * 10
 
       const mat: THREE.MeshStandardMaterial = carbideMaterial!
       const mesh = new THREE.Mesh(geometry, mat)
@@ -261,6 +294,8 @@ function initThreeJs(): void {
       controls!.update()
 
       modelLoaded.value = true
+      requestRender()
+      applyRenderMode(renderMode.value)
     },
     (xhr: ProgressEvent) => {
       if (xhr.lengthComputable) {
@@ -274,20 +309,28 @@ function initThreeJs(): void {
   )
 
 
-  // 动画
+  // 动画 (on-demand: 模型静止且相机不动时跳过 render, 让 GPU 空闲)
   function animate(): void {
     animationId = requestAnimationFrame(animate)
+
+    let sceneDirty = false
 
     // 模型缩放平滑过渡
     if (modelGroup) {
       const diff = targetModelScale - modelGroup.scale.x
-      if (Math.abs(diff) > 0.001) modelGroup.scale.setScalar(modelGroup.scale.x + diff * 0.06)
+      if (Math.abs(diff) > 0.001) {
+        modelGroup.scale.setScalar(modelGroup.scale.x + diff * 0.06)
+        sceneDirty = true
+      }
     }
 
     // 模型右移（面板展开时）
     if (rootGroup) {
       const diff = targetOffsetX - rootGroup.position.x
-      if (Math.abs(diff) > 0.05) rootGroup.position.x += diff * 0.08
+      if (Math.abs(diff) > 0.05) {
+        rootGroup.position.x += diff * 0.08
+        sceneDirty = true
+      }
     }
 
     // 模型自旋（绕旋转轴累积旋转）
@@ -297,12 +340,59 @@ function initThreeJs(): void {
         spinSpeed += (0.002 - spinSpeed) * 0.03
       }
       spinGroup.rotateOnWorldAxis(currentSpinAxis, spinSpeed)
+      sceneDirty = true
     }
 
     controls?.update()
-    if (renderer && scene && camera) renderer.render(scene, camera)
+
+    // 仅在模型/相机有变化时重绘
+    if (renderer && scene && camera && (renderRequested || sceneDirty)) {
+      renderRequested = false
+      renderer.render(scene, camera)
+    }
   }
   animate()
+}
+
+// ── 渲染模式切换: 实体 ↔ 遮挡线框 (不透明实体 + 亮色边缘线) ──
+function applyRenderMode(mode: RenderMode): void {
+  renderMode.value = mode
+  if (!scene || !edgeMaterial || !flatMaterial) return
+
+  const edge = edgeMaterial
+  const flat = flatMaterial
+
+  scene.background = mode === 'xray' ? BG_XRAY : BG_SOLID
+
+  scene.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return
+
+    // 记录实体材质 (首次切换时)
+    if (!child.userData.solidMaterial) {
+      child.userData.solidMaterial = child.material
+    }
+
+    // 移除旧边缘线
+    if (child.userData.edgeLine) {
+      child.remove(child.userData.edgeLine)
+      child.userData.edgeLine.geometry?.dispose()
+      child.userData.edgeLine = null
+    }
+
+    if (mode === 'xray') {
+      // 单一色实体 (无 PBR 渲染效果) + 深色边缘线框; 被实体遮挡的边自然隐藏
+      child.material = flat
+      const edges = new THREE.EdgesGeometry(child.geometry, 30)
+      const line = new THREE.LineSegments(edges, edge)
+      line.renderOrder = 2
+      child.add(line)
+      child.userData.edgeLine = line
+    } else {
+      child.material = child.userData.solidMaterial as THREE.Material
+    }
+  })
+
+  requestRender()
 }
 
 function disposeThreeJs(): void {
@@ -311,6 +401,8 @@ function disposeThreeJs(): void {
   if (renderer) { renderer.dispose(); renderer = null }
   if (scene) { scene.clear(); scene = null }
   rootGroup = null; tiltGroup = null; spinGroup = null; modelGroup = null; camera = null
+  if (flatMaterial) { flatMaterial.dispose(); flatMaterial = null }
+  if (edgeMaterial) { edgeMaterial.dispose(); edgeMaterial = null }
 }
 
 function handleResize(): void {
@@ -320,6 +412,7 @@ function handleResize(): void {
   camera.aspect = w / h
   camera.updateProjectionMatrix()
   renderer.setSize(w, h)
+  requestRender()
 }
 
 function onPanelToggle(e: Event): void {
@@ -346,8 +439,8 @@ function loadGearModel(glbBase64: string): void {
 
     // 应用 PBR 材质
     mesh.traverse((child: THREE.Object3D) => {
-      if (child instanceof THREE.Mesh && carbideMaterial) {
-        child.material = carbideMaterial
+      if (child instanceof THREE.Mesh && steelMaterial) {
+        child.material = steelMaterial
         child.castShadow = true
         child.receiveShadow = true
       }
@@ -394,9 +487,15 @@ function loadGearModel(glbBase64: string): void {
     camera!.near = dist * 0.001
     camera!.far = dist * 10
     camera!.updateProjectionMatrix()
+
+    // 缩放范围随模型尺寸适配——允许大齿轮缩到很小看全整体
+    controls!.minDistance = dist * 0.05
+    controls!.maxDistance = dist * 10
     controls!.update()
 
     modelLoaded.value = true
+    requestRender()
+    applyRenderMode(renderMode.value)
   }, (err: unknown) => {
     console.error('GLB 加载失败:', err)
   })
@@ -411,6 +510,9 @@ function disposeGroup(group: THREE.Group): void {
       } else if (child.material instanceof THREE.Material) {
         child.material.dispose()
       }
+    } else if (child instanceof THREE.LineSegments) {
+      // 每个 mesh 独立的 EdgesGeometry; edgeMaterial 共享, 由 disposeThreeJs 统一释放
+      child.geometry.dispose()
     }
   })
 }
@@ -440,6 +542,20 @@ onUnmounted(() => {
   <div class="viewport">
     <!-- 全屏 3D 画布 -->
     <div ref="viewportRef" class="canvas-fullscreen"></div>
+
+    <!-- 渲染模式切换 (右上角) -->
+    <div class="render-toggle">
+      <button
+        class="render-toggle-btn"
+        :class="{ active: renderMode === 'solid' }"
+        @click="applyRenderMode('solid')"
+      >实体</button>
+      <button
+        class="render-toggle-btn"
+        :class="{ active: renderMode === 'xray' }"
+        @click="applyRenderMode('xray')"
+      >线框</button>
+    </div>
 
     <!-- 欢迎界面 -->
     <div v-if="!loggedIn" class="welcome-overlay" :class="{ leaving: welcomeLeaving }">
@@ -506,6 +622,43 @@ onUnmounted(() => {
 .canvas-fullscreen {
   position: absolute;
   inset: 0;
+}
+
+/* ======== 渲染模式切换 (右上角) ======== */
+.render-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 12;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 9px;
+  border: 1px solid var(--brand-border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.render-toggle-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--brand-text-secondary);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.render-toggle-btn:hover {
+  background: rgba(0, 96, 160, 0.08);
+}
+
+.render-toggle-btn.active {
+  background: var(--brand-blue);
+  color: #fff;
 }
 
 /* ======== 欢迎界面 ======== */

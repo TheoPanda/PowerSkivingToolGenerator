@@ -100,7 +100,9 @@ describe('GearParamsPanel — 基本参数组', () => {
     it('非渐开线选项为 disabled', () => {
       const options = wrapper.findAll('.glass-select option')
       const nonInvolute = options.filter(
-        (o) => o.attributes('disabled') !== undefined && o.element.value !== 'involute',
+        (o) =>
+          o.attributes('disabled') !== undefined &&
+          (o.element as HTMLOptionElement).value !== 'involute',
       )
       expect(nonInvolute).toHaveLength(4)
     })

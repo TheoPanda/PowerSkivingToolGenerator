@@ -234,18 +234,6 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             />
             <span style="font-size:10px;color:var(--brand-text-secondary);">°</span>
           </div>
-          <div class="glass-field" style="padding-left:98px;">
-            <input
-              type="range"
-              class="glass-slider"
-              :value="gearParams.β_w"
-              min="0"
-              max="45"
-              step="0.5"
-              style="flex:1;"
-              @input="gearParams.β_w = parseFloat(($event.target as HTMLInputElement).value)"
-            />
-          </div>
 
           <!-- 旋向（条件显示） -->
           <div v-if="gearParams.β_w > 0" class="glass-field">

@@ -345,8 +345,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.6);
-  background: linear-gradient(135deg, #ffffff 0%, #e8ecf0 100%);
+  border: none;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -356,19 +355,42 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
   transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.3s;
 
+  /* 硬币盘体: 环形金属光泽 (conic) + 顶部高光 (radial) */
+  background:
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0) 42%),
+    conic-gradient(
+      #f5f7f9 0deg,
+      #cfd6de 65deg,
+      #f2f5f8 135deg,
+      #b8c1cb 225deg,
+      #e3e8ee 300deg,
+      #f5f7f9 360deg
+    );
+
+  /* 立体厚度 + 币缘浮雕环 */
   box-shadow:
-    0 4px 16px rgba(0, 64, 128, 0.12),
-    0 1px 3px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    inset 0 -2px 4px rgba(0, 0, 0, 0.06);
+    0 1px 1px rgba(255, 255, 255, 0.85),      /* 上缘高光 */
+    0 4px 3px rgba(0, 0, 0, 0.10),            /* 侧边厚度 */
+    0 10px 20px rgba(0, 64, 128, 0.18),       /* 环境投影 */
+    inset 0 0 0 2px rgba(255, 255, 255, 0.5), /* 币缘外环 */
+    inset 0 0 0 5px rgba(255, 255, 255, 0.15),/* 币缘过渡 */
+    inset 0 2px 3px rgba(255, 255, 255, 0.7), /* 顶面高光 */
+    inset 0 -3px 5px rgba(40, 60, 90, 0.22),  /* 底部暗边 */
+    inset 2px 3px 6px rgba(255, 255, 255, 0.55), /* 浮雕凸起 */
+    inset -2px -3px 6px rgba(40, 60, 90, 0.18); /* 浮雕凹陷 */
 }
 
 .toggle-btn:hover {
   box-shadow:
-    0 6px 24px rgba(0, 64, 128, 0.18),
-    0 2px 6px rgba(0, 0, 0, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    inset 0 -2px 4px rgba(0, 0, 0, 0.06);
+    0 2px 2px rgba(255, 255, 255, 0.9),
+    0 6px 6px rgba(0, 0, 0, 0.12),
+    0 14px 28px rgba(0, 64, 128, 0.24),
+    inset 0 0 0 2px rgba(255, 255, 255, 0.55),
+    inset 0 0 0 5px rgba(255, 255, 255, 0.18),
+    inset 0 2px 3px rgba(255, 255, 255, 0.75),
+    inset 0 -3px 5px rgba(40, 60, 90, 0.26),
+    inset 2px 3px 6px rgba(255, 255, 255, 0.6),
+    inset -2px -3px 6px rgba(40, 60, 90, 0.22);
 }
 
 .toggle-btn.spun {

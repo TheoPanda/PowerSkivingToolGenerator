@@ -39,7 +39,7 @@ function closeWin(): void {
 <template>
   <div class="app-container">
     <el-container>
-      <el-header class="app-header" :class="{ visible: showHeader }">
+      <el-header v-if="showHeader" class="app-header" :class="{ visible: showHeader }">
         <img src="/logo.png" alt="Logo" class="header-logo" />
         <div class="window-controls">
           <button class="win-btn" @click="minimizeWin" title="最小化">
@@ -57,9 +57,6 @@ function closeWin(): void {
       <el-main class="app-main">
         <HelloWorld />
       </el-main>
-      <el-footer class="app-footer">
-        <span>PowerSkivingTool Generator · FastAPI + Vue 3 + Three.js + Electron</span>
-      </el-footer>
     </el-container>
   </div>
 </template>
@@ -149,19 +146,6 @@ function closeWin(): void {
   padding: 0;
   overflow: hidden;
   position: relative;
-}
-
-/* ======== 底部 ======== */
-.app-footer {
-  text-align: center;
-  color: var(--brand-text-secondary);
-  font-size: 11px;
-  padding: 6px 0;
-  border-top: 1px solid var(--brand-border);
-  background: var(--brand-white);
-  flex-shrink: 0;
-  height: 32px;
-  line-height: 20px;
 }
 
 /* ======== Element Plus 主题覆盖 ======== */
