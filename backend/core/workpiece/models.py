@@ -190,6 +190,10 @@ class GearParams:
     h_an: float = 1.0   # 齿顶高系数
     c_n: float = 0.25   # 顶隙系数
     rho_f: float = 0.38 # 齿根圆角半径系数 (ρ_f = ρ*_f·m_n)
+    rho_tip: float = 0.0  # 齿顶倒圆系数 ρ*_tip (默认 0 = 锐角齿顶; >0 为预留能力, ADR-013 缺口)
+
+    # 齿厚指定 (三选一, E1)
+    tooth_method: str = "x_w"  # "x_w" | "W_k" | "M"
 
     # 齿厚指定 (三选一, E1)
     tooth_method: str = "x_w"  # "x_w" | "W_k" | "M"
@@ -215,6 +219,8 @@ class GearParams:
             raise ValueError(f"螺旋角 β_w={self.beta_w_deg} 必须 ≥ 0 (U7)")
         if self.tooth_method not in ("x_w", "W_k", "M"):
             raise ValueError(f"齿厚方式 tooth_method='{self.tooth_method}' 无效")
+        if self.rho_tip < 0:
+            raise ValueError(f"齿顶倒圆系数 ρ*_tip={self.rho_tip} 必须 ≥ 0 (ADR-013 缺口)")
 
     def to_transverse(self) -> tuple[float, float]:
         """K-1.2 法向→端面参数转换.
@@ -256,6 +262,14 @@ class GearParams:
         """齿根圆直径 d_f [mm]."""
         m_t, _ = self.to_transverse()
         return m_t * self.z_w - 2.0 * (self.h_an + self.c_n) * self.m_n
+
+    def tip_fillet_radius(self) -> float:
+        """齿顶倒圆半径 ρ_tip = ρ*_tip·m_n [mm].
+
+        默认 ρ*_tip=0 → 锐角齿顶 (与现 3D 网格一致)。
+        >0 为预留能力 (ADR-013 齿顶倒圆缺口)，未销项不得当已验证公式使用。
+        """
+        return self.rho_tip * self.m_n
 
 
 @dataclass

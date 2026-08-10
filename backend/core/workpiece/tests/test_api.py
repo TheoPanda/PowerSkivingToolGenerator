@@ -126,6 +126,41 @@ class TestWorkpieceEndpoint:
         response = client.post("/api/workpiece/generate", json=payload)
         assert response.status_code == 200
 
+    def test_response_contains_spec(self, client):
+        """合法参数 → 响应含非空 spec.params.outputs / spec.single_tooth.segments / spec.outline.teeth."""
+        payload = {
+            "m_n": 2.5, "z_w": 41, "b_w": 20.0,
+        }
+        response = client.post("/api/workpiece/generate", json=payload)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "spec" in data
+        spec = data["spec"]
+
+        # params.inputs / params.outputs
+        assert len(spec["params"]["inputs"]) > 0
+        assert len(spec["params"]["outputs"]) > 0
+        out_keys = {o["key"] for o in spec["params"]["outputs"]}
+        for k in ("d_pw", "d_a", "d_f", "d_b", "m_t", "alpha_t_deg",
+                  "s_t", "s_n", "p_t", "h_a", "h_f", "h",
+                  "rho_f_actual", "rho_tip_actual"):
+            assert k in out_keys
+
+        # single_tooth.segments
+        segs = spec["single_tooth"]["segments"]
+        assert len(segs) > 0
+        assert all(s in ("arc", "polyline") for s in (x["type"] for x in segs))
+        assert "annotations" in spec["single_tooth"]
+        assert len(spec["single_tooth"]["annotations"]) == 7
+
+        # outline.points / outline.teeth / outline.circles
+        assert len(spec["outline"]["points"]) > 0
+        assert len(spec["outline"]["teeth"]) == 41  # z_w
+        assert set(spec["outline"]["circles"].keys()) == {
+            "tip_radius", "root_radius", "pitch_radius", "base_radius",
+        }
+
     def test_result_values_consistent(self, client):
         """计算结果自洽: d_a = m_t*z_w + 2*h_an*m_n."""
         payload = {

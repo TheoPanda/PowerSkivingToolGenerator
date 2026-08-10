@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 from core.workpiece.builder import build_gear_model
 from core.workpiece.exporter import export_glb_base64
 from core.workpiece.models import GearParams, WorkpieceResult
+from core.workpiece.spec import build_spec
 
 
 router = APIRouter(prefix="/api", tags=["workpiece"])
@@ -39,6 +40,7 @@ class GearParamsRequest(BaseModel):
     h_an: float = Field(1.0)
     c_n: float = Field(0.25)
     rho_f: float = Field(0.38)
+    rho_tip: float = Field(0.0, ge=0.0, description="齿顶倒圆系数 (默认 0 = 锐角齿顶, ADR-013 缺口)")
     x_w: float = Field(0.0)
 
     # 齿厚指定 (三选一)
@@ -75,6 +77,7 @@ class GearParamsRequest(BaseModel):
             h_an=self.h_an,
             c_n=self.c_n,
             rho_f=self.rho_f,
+            rho_tip=self.rho_tip,
             x_w=self.x_w,
             tooth_method=self.tooth_method,
             W_k=self.W_k,
@@ -88,6 +91,7 @@ class WorkpieceResponse(BaseModel):
     """POST /api/workpiece/generate 响应体."""
     result: dict
     model_glb_base64: str
+    spec: dict  # 齿轮规格呈现 (params + single_tooth + outline), 与 GLB 同一次计算
 
 
 @router.post("/workpiece/generate", response_model=WorkpieceResponse)
@@ -110,9 +114,14 @@ async def generate_workpiece(req: GearParamsRequest):
         # 计算结果
         result = WorkpieceResult.from_gear_params(p)
 
+        # 齿轮规格呈现: 用同一 GearParams 实例、同一次计算产出 spec,
+        # 保证与 GLB / result 几何 ±0.0001mm 一致 (后端 spec 纯数学, 无 OCCT)。
+        spec = build_spec(p)
+
         return {
             "result": result.to_dict(),
             "model_glb_base64": glb_base64,
+            "spec": spec,
         }
     except NotImplementedError as e:
         raise HTTPException(status_code=501, detail={"error": str(e), "code": 501})

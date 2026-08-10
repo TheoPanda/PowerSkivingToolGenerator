@@ -297,7 +297,20 @@ def _tooth_open_segments(
     Returns:
         (segs, t_root_right, t_root_left, right_root_ang, next_left_root_ang)
         后两个角为左右齿根圆切点极角 (供齿根弧闭合用)
+
+    Raises:
+        NotImplementedError: p.rho_tip > 0 (ADR-013 齿顶倒圆缺口，未销不得当已验证公式)
     """
+    # ADR-013 (2026-08-10): 齿顶倒圆为缺口项。设计书第3章参数字典只定义齿根圆角
+    # 系数 ρ*_f，无齿顶倒圆系数；当前齿形为锐角齿顶 (ρ*_tip=0，默认)。
+    # >0 为预留能力，但轮廓数学尚未验证 — 缺口未销项不得当已验证公式使用。
+    # 此处显式 raise 阻止把占位路径当成品输出，默认 0 走原路径零变化。
+    if p.rho_tip > 0:
+        raise NotImplementedError(
+            "ADR-013: 齿顶倒圆 ρ*_tip>0 为缺口项 (设计书无齿顶倒圆公式)，尚未实现，"
+            f"当前仅支持默认 ρ*_tip=0 (锐角齿顶)"
+        )
+
     z_w = p.z_w
     r_a = p.tip_radius()
     r_b = p.base_radius()
@@ -431,6 +444,28 @@ def gear_profile_segments(
         for i in range(p.z_w)
         for seg in tooth_segments(p, i, n_involute, n_tip, n_root)
     ]
+
+
+def neighborhood_segments(p: GearParams, n: int = 3) -> list[Segment]:
+    """以第 0 齿为中心的 n 齿**连续**齿廓段（开放链，CCW 遍历）.
+
+    每齿开放段（含齿根过渡圆角 ρ*_f·m_n，K-1.12/ISO 53）+ 齿根连接弧
+    （右齿根 → 下一齿左齿根），首尾开放不闭合——即「三齿连成一体」的廓形。
+
+    Args:
+        p: 齿轮参数
+        n: 齿数（默认 3：左 1 + 目标 + 右 1）
+    """
+    z = p.z_w
+    half = (n - 1) // 2
+    segs: list[Segment] = []
+    for j in range(-half, half + 1):
+        idx = j % z
+        open_segs, conn, *_ = _tooth_open_segments(p, idx, n_involute=40)
+        segs.extend(open_segs)
+        if j < half:
+            segs.extend(conn)
+    return segs
 
 
 def single_tooth_segments(
