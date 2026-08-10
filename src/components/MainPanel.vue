@@ -2,29 +2,11 @@
 import { ref, reactive, provide, onMounted } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
 import WorkpieceViewer from './WorkpieceViewer.vue'
+import { createGearParams, gearParamsKey, type GearParams } from '../composables/useGearParams'
 
-// ---- gearParams store ----
-const gearParams = reactive({
-  profile_type: 'involute' as string,
-  k_io: 1,
-  m_n: null as number | null,
-  z_w: null as number | null,
-  β_w: 0,
-  j_w: 1,
-  b_w: null as number | null,
-  toothMethod: 'x_w' as string,
-  x_w: 0,
-  W_k: null as number | null,
-  k_teeth: null as number | null,
-  M: null as number | null,
-  d_p: null as number | null,
-  α_n: 20,
-  h_an: 1,
-  c_n: 0.25,
-  ρ_f: 0.38,
-})
-
-provide('gearParams', gearParams)
+// ---- gearParams store（单一 schema 模块提供默认值） ----
+const gearParams = reactive<GearParams>(createGearParams())
+provide(gearParamsKey, gearParams)
 
 // ---- 面板状态 ----
 const expanded = ref<boolean>(false)

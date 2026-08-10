@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { ref, inject, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { fetchWorkpiece, type WorkpieceResult, type GearParamsInput } from '../api'
+import { fetchWorkpiece } from '../api'
+import { gearParamsKey } from '../composables/useGearParams'
+import { setWorkpieceResult } from '../composables/useWorkpieceState'
 
-// ── Inject gearParams from MainPanel ──
-const gearParams = inject<GearParamsInput>('gearParams')
+// ── Inject gearParams from MainPanel（类型化键） ──
+const gearParams = inject(gearParamsKey)
 if (!gearParams) throw new Error('WorkpieceViewer: gearParams not provided')
 
 // ── State ──
 const generating = ref<boolean>(false)
-const result = ref<WorkpieceResult | null>(null)
 const glbBase64 = ref<string | null>(null)
 const error = ref<string | null>(null)
 
@@ -24,15 +25,16 @@ onMounted(() => {
 })
 
 // ── Generate ──
+// 结果/spec 写入全局单例（useWorkpieceState），由独立 ResultPanel 消费展示；
+// 生成期间不清空旧结果（面板保持上次有效值，新结果到达时自动更新并唤起面板）。
 async function generate(): Promise<void> {
   generating.value = true
   error.value = null
-  result.value = null
 
   try {
     const response = await fetchWorkpiece(gearParams!)
-    result.value = response.result
     glbBase64.value = response.model_glb_base64
+    setWorkpieceResult(response.result, response.spec)
     emit('model-ready', response.model_glb_base64)
     ElMessage.success('齿轮模型已生成')
   } catch (e: unknown) {
@@ -59,36 +61,7 @@ async function generate(): Promise<void> {
       <button class="glass-btn retry-btn" @click="generate">重试</button>
     </div>
 
-    <!-- 计算结果摘要 -->
-    <div v-if="result" class="result-summary panel-block">
-      <div class="result-title">计算结果</div>
-      <div class="result-table">
-        <div class="result-row">
-          <span class="result-label">齿顶圆 d_a</span>
-          <span class="result-value">{{ result.d_a.toFixed(2) }} mm</span>
-        </div>
-        <div class="result-row">
-          <span class="result-label">齿根圆 d_f</span>
-          <span class="result-value">{{ result.d_f.toFixed(2) }} mm</span>
-        </div>
-        <div class="result-row">
-          <span class="result-label">基圆半径 r_b</span>
-          <span class="result-value">{{ result.r_b.toFixed(3) }} mm</span>
-        </div>
-        <div class="result-row">
-          <span class="result-label">节圆半径 r_pw</span>
-          <span class="result-value">{{ result.r_pw.toFixed(3) }} mm</span>
-        </div>
-        <div class="result-row">
-          <span class="result-label">端面模数 m_t</span>
-          <span class="result-value">{{ result.m_t.toFixed(3) }} mm</span>
-        </div>
-        <div class="result-row">
-          <span class="result-label">端面压力角 α_t</span>
-          <span class="result-value">{{ result.alpha_t_deg.toFixed(2) }}°</span>
-        </div>
-      </div>
-    </div>
+    <!-- 计算结果摘要与「查看齿轮规格」已移入独立 ResultPanel（全局单例消费） -->
   </div>
 </template>
 
@@ -132,36 +105,5 @@ async function generate(): Promise<void> {
   margin-left: 8px;
   padding: 2px 10px;
   font-size: 12px;
-}
-
-.result-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--brand-text, #1A2332);
-  margin-bottom: 10px;
-}
-
-.result-table {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.result-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.result-label {
-  font-size: 12px;
-  color: var(--brand-text-secondary, #5C6B7A);
-}
-
-.result-value {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--brand-text, #1A2332);
-  font-variant-numeric: tabular-nums;
 }
 </style>

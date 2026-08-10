@@ -7,26 +7,7 @@ import { mount, VueWrapper } from '@vue/test-utils'
 import { ref, reactive, type Ref } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
 import type { ComponentPublicInstance } from 'vue'
-
-interface GearParams {
-  profile_type: string
-  k_io: number
-  m_n: number | null
-  z_w: number | null
-  β_w: number
-  j_w: number
-  b_w: number | null
-  toothMethod: string
-  x_w: number
-  W_k: number | null
-  k_teeth: number | null
-  M: number | null
-  d_p: number | null
-  α_n: number
-  h_an: number
-  c_n: number
-  ρ_f: number
-}
+import type { GearParams } from '../composables/useGearParams'
 
 function defaultParams(): GearParams {
   return {
@@ -47,6 +28,7 @@ function defaultParams(): GearParams {
     h_an: 1,
     c_n: 0.25,
     ρ_f: 0.38,
+    rho_tip: 0,
   }
 }
 

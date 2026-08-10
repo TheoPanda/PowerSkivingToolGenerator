@@ -5,6 +5,7 @@
  */
 
 import { contextBridge, ipcRenderer } from 'electron'
+import type { SpecPayload } from '../src/api/spec-types'
 
 export interface ElectronAPI {
   openFileDialog: (options?: Record<string, unknown>) => Promise<string[] | null>
@@ -16,6 +17,10 @@ export interface ElectronAPI {
   expandWindow: () => Promise<void>
   isMaximized: () => Promise<boolean>
   onMaximizeChange: (callback: (maximized: boolean) => void) => void
+  // 齿轮规格独立窗口（spec 跨 IPC 缝类型化，架构审查 C5）
+  openSpecWindow: (spec: SpecPayload) => Promise<void>
+  getSpecData: () => Promise<SpecPayload | null>
+  onSpecData: (callback: (spec: SpecPayload) => void) => void
 }
 
 const electronAPI: ElectronAPI = {
@@ -53,6 +58,17 @@ const electronAPI: ElectronAPI = {
 
   onMaximizeChange: (callback: (maximized: boolean) => void): void => {
     ipcRenderer.on('window:maximizeChange', (_event, maximized: boolean) => callback(maximized))
+  },
+
+  // 齿轮规格独立窗口
+  openSpecWindow: (spec: SpecPayload): Promise<void> => {
+    return ipcRenderer.invoke('spec:open', spec)
+  },
+  getSpecData: (): Promise<SpecPayload | null> => {
+    return ipcRenderer.invoke('spec:getData')
+  },
+  onSpecData: (callback: (spec: SpecPayload) => void): void => {
+    ipcRenderer.on('spec:data', (_event, spec: SpecPayload) => callback(spec))
   },
 }
 

@@ -60,6 +60,15 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    // 多页入口：主窗口 index.html + 齿轮规格独立窗口 spec.html
+    build: {
+      rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          spec: resolve(__dirname, 'spec.html'),
+        },
+      },
+    },
     test: {
       root: __dirname,
       environment: 'jsdom',

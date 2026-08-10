@@ -2,6 +2,7 @@
  * 后端 HTTP 请求封装
  * 前后端通信统一使用 HTTP，以便未来迁移至 Web 端
  */
+import { toPayload, type GearParams } from '../composables/useGearParams'
 
 const BASE_URL: string = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5199'
 
@@ -18,26 +19,6 @@ interface HealthResponse {
   status: string
 }
 
-/** 前端 gearParams 数据类型 (与 MainPanel reactive 对齐). */
-export interface GearParamsInput {
-  profile_type: string
-  k_io: number
-  m_n: number | null
-  z_w: number | null
-  β_w: number
-  j_w: number
-  b_w: number | null
-  toothMethod: string
-  x_w: number
-  W_k: number | null
-  k_teeth: number | null
-  M: number | null
-  d_p: number | null
-  α_n: number
-  h_an: number
-  c_n: number
-  ρ_f: number
-}
 
 /** 后端 WorkpieceResult 返回类型. */
 export interface WorkpieceResult {
@@ -50,10 +31,15 @@ export interface WorkpieceResult {
   z_w: number
 }
 
+// 齿轮规格 spec 类型统一来自 spec-types.ts（纯类型，渲染/主进程/preload 三方共享，架构审查 C5）
+import type { SpecPayload } from './spec-types'
+export * from './spec-types'
+
 /** POST /api/workpiece/generate 响应类型. */
 export interface WorkpieceResponse {
   result: WorkpieceResult
   model_glb_base64: string
+  spec: SpecPayload
 }
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -83,31 +69,11 @@ export async function fetchHealth(): Promise<HealthResponse> {
 
 /**
  * 提交齿轮参数并获取 GLB 模型.
- * 将前端 camelCase 映射到后端 snake_case.
+ * camelCase→snake_case 映射由 useGearParams 模块的 toPayload 统一负责（单一 schema 源）。
  */
-export async function fetchWorkpiece(params: GearParamsInput): Promise<WorkpieceResponse> {
-  const payload: Record<string, unknown> = {
-    profile_type: params.profile_type,
-    k_io: params.k_io,
-    m_n: params.m_n,
-    z_w: params.z_w,
-    beta_w_deg: params.β_w,
-    j_w: params.j_w,
-    b_w: params.b_w,
-    tooth_method: params.toothMethod,
-    x_w: params.x_w,
-    W_k: params.W_k,
-    k_teeth: params.k_teeth,
-    M: params.M,
-    d_p: params.d_p,
-    alpha_n_deg: params.α_n,
-    h_an: params.h_an,
-    c_n: params.c_n,
-    rho_f: params.ρ_f,
-  }
-
+export async function fetchWorkpiece(params: GearParams): Promise<WorkpieceResponse> {
   return request<WorkpieceResponse>('/api/workpiece/generate', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(toPayload(params)),
   })
 }

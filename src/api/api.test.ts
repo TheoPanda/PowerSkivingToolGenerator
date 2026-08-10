@@ -2,9 +2,10 @@
  * fetchWorkpiece API 客户端测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchWorkpiece, type GearParamsInput } from './index'
+import { fetchWorkpiece } from './index'
+import type { GearParams } from '../composables/useGearParams'
 
-const mockParams: GearParamsInput = {
+const mockParams: GearParams = {
   profile_type: 'involute',
   k_io: 1,
   m_n: 2.5,
@@ -22,6 +23,7 @@ const mockParams: GearParamsInput = {
   h_an: 1,
   c_n: 0.25,
   ρ_f: 0.38,
+  rho_tip: 0,
 }
 
 const mockResponse = {
@@ -35,6 +37,13 @@ const mockResponse = {
     z_w: 41,
   },
   model_glb_base64: 'Z2xURg==',
+  spec: {
+    params: { inputs: [], outputs: [] },
+    single_tooth: { segments: [], center_line: { from_angle_deg: 0, to_angle_deg: 0 }, pitch_line: { r: 0 }, annotations: {
+      tooth_thickness: { value: 0 }, circular_pitch: { value: 0 }, tip_fillet: { value: 0 }, root_fillet: { value: 0 }, addendum: { value: 0 }, dedendum: { value: 0 }, whole_depth: { value: 0 },
+    } },
+    outline: { points: [], teeth: [], circles: { tip_radius: 0, root_radius: 0, pitch_radius: 0 } },
+  },
 }
 
 describe('fetchWorkpiece', () => {
@@ -61,6 +70,8 @@ describe('fetchWorkpiece', () => {
     expect(body.m_n).toBe(2.5)
     expect(body.z_w).toBe(41)
     expect(body.beta_w_deg).toBe(0)
+    // rho_tip 透传
+    expect(body.rho_tip).toBe(0)
   })
 
   it('returns typed response on success', async () => {

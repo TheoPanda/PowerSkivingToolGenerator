@@ -5,6 +5,7 @@
 
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
+import type { SpecPayload } from '../src/api/spec-types'
 import { PythonManager } from './python-manager'
 
 // 开发模式判断
@@ -14,6 +15,10 @@ const preloadPath: string = join(__dirname, 'preload.js')
 
 let mainWindow: BrowserWindow | null = null
 let pythonManager: PythonManager | null = null
+
+// 齿轮规格独立窗口（单独 BrowserWindow，非 DOM 覆盖层）
+let specWindow: BrowserWindow | null = null
+let pendingSpec: SpecPayload | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -41,11 +46,71 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    specWindow?.close()
   })
 
   // 最大化/还原状态变化 → 通知渲染进程更新按钮图标
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximizeChange', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximizeChange', false))
+}
+
+/**
+ * 打开/聚焦齿轮规格独立窗口，并把 spec 数据推给它.
+ * 窗口加载完成后经 did-finish-load 发送 spec:data；已打开则聚焦并直接重发.
+ *
+ * 关闭后重开的健壮性：
+ *  - 窗口处于「关闭中」但 isDestroyed() 尚未为 true 时，仍按存活处理会占用引用 → 用本地
+ *    win 引用 + closed 时仅当仍是当前窗口才清空，避免残留濒死引用导致后续无法重建。
+ *  - 已销毁的窗口引用显式置 null 后重建。
+ */
+function openSpecWindow(spec: SpecPayload): void {
+  pendingSpec = spec
+  if (specWindow) {
+    if (!specWindow.isDestroyed() && !specWindow.webContents.isDestroyed()) {
+      if (specWindow.isMinimized()) specWindow.restore()
+      specWindow.focus()
+      try {
+        specWindow.webContents.send('spec:data', spec)
+      } catch {
+        /* 窗口正在关闭，忽略发送失败 */
+      }
+      return
+    }
+    specWindow = null
+  }
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 900,
+    minHeight: 620,
+    title: '齿轮规格',
+    parent: mainWindow ?? undefined,
+    autoHideMenuBar: true, // 默认不显示 File 等菜单栏
+    webPreferences: {
+      preload: preloadPath,
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  })
+  // 彻底移除本窗口的菜单栏
+  win.removeMenu()
+  specWindow = win
+  // close（关闭开始）即清引用，避免「关闭中」点击按钮时仍命中聚焦分支而不重建窗口
+  win.on('close', () => {
+    if (specWindow === win) specWindow = null
+  })
+  win.on('closed', () => {
+    if (specWindow === win) specWindow = null
+  })
+  win.on('show', () => win.focus())
+  if (isDev) {
+    win.loadURL('http://localhost:5173/spec.html')
+  } else {
+    win.loadFile(join(__dirname, '../dist/spec.html'))
+  }
+  win.webContents.once('did-finish-load', () => {
+    if (!win.isDestroyed()) win.webContents.send('spec:data', pendingSpec)
+  })
 }
 
 // IPC: 文件对话框
@@ -60,6 +125,12 @@ ipcMain.handle('dialog:saveFile', async (_event, options) => {
   const result = await dialog.showSaveDialog(mainWindow, options)
   return result.canceled ? null : result.filePath
 })
+
+// IPC: 齿轮规格独立窗口
+ipcMain.handle('spec:open', (_event, spec: SpecPayload) => {
+  openSpecWindow(spec)
+})
+ipcMain.handle('spec:getData', () => pendingSpec)
 
 // IPC: 窗口动态扩展——主进程逐帧响应
 ipcMain.handle('window:expand', async () => {

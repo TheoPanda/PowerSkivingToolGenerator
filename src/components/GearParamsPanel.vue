@@ -1,32 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch, type Ref } from 'vue'
-
-// ---- 类型 ----
-interface GearParams {
-  profile_type: string
-  k_io: number
-  m_n: number | null
-  z_w: number | null
-  β_w: number
-  j_w: number
-  b_w: number | null
-  toothMethod: string
-  x_w: number
-  W_k: number | null
-  k_teeth: number | null
-  M: number | null
-  d_p: number | null
-  α_n: number
-  h_an: number
-  c_n: number
-  ρ_f: number
-}
+import { gearParamsKey, type GearParams } from '../composables/useGearParams'
 
 const emit = defineEmits<{
   (e: 'valid-change', isValid: boolean): void
 }>()
 
-const gearParams = inject<GearParams>('gearParams')
+const gearParams = inject(gearParamsKey)
 if (!gearParams) {
   throw new Error('GearParamsPanel: 必须在 MainPanel 中使用 (provide gearParams)')
 }
