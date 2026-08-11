@@ -248,6 +248,19 @@ class TestCalibrationCase1:
         m_t, _ = p.to_transverse()
         assert abs(outputs["s_t"] - (math.pi * m_t / 2.0)) <= 1e-9
 
+    def test_chord_thickness_outputs(self):
+        """弦齿厚 sc = 2·r_pw·sin(s_t/(2·r_pw)), 小于弧齿厚 s_t; 法向弦齿厚 = sc·cosβ."""
+        p = GearParams(m_n=2.5, z_w=41, b_w=20.0, beta_w_deg=15.0)
+        outputs = {o["key"]: o["value"] for o in build_spec(p)["params"]["outputs"]}
+        s_t = outputs["s_t"]
+        r_pw = p.pitch_radius()
+        expected_chord = 2.0 * r_pw * math.sin(s_t / (2.0 * r_pw))
+        assert abs(outputs["s_t_chord"] - expected_chord) < 1e-9
+        assert outputs["s_t_chord"] < s_t, "弦齿厚应小于弧齿厚"
+        expected_n = expected_chord * math.cos(math.radians(p.beta_w_deg))
+        assert abs(outputs["s_n_chord"] - expected_n) < 1e-9
+        assert "s_n" in outputs, "法向弧齿厚 s_n 应存在"
+
 
 # ── teeth 切分自洽 ──────────────────────────────────────────────────
 

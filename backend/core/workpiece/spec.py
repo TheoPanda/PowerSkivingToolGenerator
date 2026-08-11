@@ -107,7 +107,12 @@ OUTPUT_ITEM_SPECS: list[tuple[str, str, str, object, str]] = [
     ("m_t", "端面模数", "m_t", lambda p: p.to_transverse()[0], "mm"),
     ("alpha_t_deg", "端面压力角", "α_t", lambda p: p.to_transverse()[1], "°"),
     ("s_t", "分度圆弧齿厚", "s_t", lambda p: models.compute_tooth_thickness(p), "mm"),
-    ("s_n", "法向齿厚", "s_n", lambda p: models.compute_tooth_thickness(p)
+    ("s_n", "法向弧齿厚", "s_n", lambda p: models.compute_tooth_thickness(p)
+        * math.cos(math.radians(p.beta_w_deg)), "mm"),
+    ("s_t_chord", "分度圆弦齿厚", "s_c", lambda p: 2.0 * p.pitch_radius()
+        * math.sin(models.compute_tooth_thickness(p) / (2.0 * p.pitch_radius())), "mm"),
+    ("s_n_chord", "法向弦齿厚", "s_cn", lambda p: 2.0 * p.pitch_radius()
+        * math.sin(models.compute_tooth_thickness(p) / (2.0 * p.pitch_radius()))
         * math.cos(math.radians(p.beta_w_deg)), "mm"),
     ("p_t", "端面齿距", "p_t", lambda p: math.pi * p.to_transverse()[0], "mm"),
     ("h_a", "齿顶高", "h_a", lambda p: p.h_an * p.m_n, "mm"),
