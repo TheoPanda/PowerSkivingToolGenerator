@@ -20,7 +20,6 @@ xi_at_radius / generate_involute_points) 从 models.py 迁入本模块——
 profile.py 是渐开线齿廓的单一权威源，models.py 仅保留数据模型与齿厚反算。
 """
 
-import dataclasses
 import math
 from dataclasses import dataclass
 
@@ -302,7 +301,7 @@ def _ang_diff(a: float, b: float) -> float:
 
 
 def _solve_tip_fillet(
-    p: GearParams,
+    rho: float,
     r_b: float,
     r_a: float,
     xi_start: float,
@@ -312,7 +311,7 @@ def _solve_tip_fillet(
     mirror: int,
     n_bisect: int = 200,
 ) -> tuple[float, tuple[float, float], tuple[float, float], tuple[float, float]] | None:
-    """凸角齿顶圆角双切求解: 切齿面渐开线 + 切齿顶圆, 半径 ρ=ρ*_tip·m_n.
+    """凸角齿顶圆角双切求解: 切齿面渐开线 + 切齿顶圆, 半径 rho [mm].
 
     在旋转 (ca,sa) 帧内求解。mirror=+1 左齿面 (模板不镜像), −1 右齿面 (模板 y 镜像)。
     齿侧法向 (沿 xi 增大, 齿侧): 左 (−sin ξ, cos ξ), 右 (−sin ξ, −cos ξ)。
@@ -321,7 +320,6 @@ def _solve_tip_fillet(
     Returns:
         (xi_f, center, flank_tangent, tip_tangent)。None: 无解 (ρ ≥ r_a−r_b 等), 调用方收敛为锐齿顶。
     """
-    rho = p.rho_tip * p.m_n
     if rho <= 0.0 or rho >= r_a:
         return None
     target = r_a - rho
@@ -427,8 +425,8 @@ def _max_feasible_by_search(req: float, builds, n: int = 40) -> float:
     return best
 
 
-def _tip_round_middle_at(
-    p: GearParams,
+def _tip_build_at(
+    value_mm: float,
     r_b: float,
     r_a: float,
     xi_start: float,
@@ -439,21 +437,24 @@ def _tip_round_middle_at(
     sin_la: float,
     cos_ra: float,
     sin_ra: float,
+    solve_side,
+    build_mid,
 ) -> list[Segment] | None:
-    """给定 p.rho_tip 的齿顶圆角中间段 (None = 无解/重叠)."""
-    rho = p.rho_tip * p.m_n
-    if rho <= 0:
-        return None
-    sol_l = _solve_tip_fillet(p, r_b, r_a, xi_start, xi_end, cos_la, sin_la, mirror=1)
-    sol_r = _solve_tip_fillet(p, r_b, r_a, xi_start, xi_end, cos_ra, sin_ra, mirror=-1)
+    """给定齿顶处理尺寸 value_mm 的中间段 (None = 无解/重叠).
+
+    solve_side(value_mm, r_b, r_a, xi_start, xi_end, ca, sa, mirror) → (xi_f, f, t, extra) | None
+    build_mid(f_l, t_l, ex_l, f_r, t_r, ex_r, a_l, a_r, value_mm, r_a) → 中间两段 + 齿顶弧
+    """
+    sol_l = solve_side(value_mm, r_b, r_a, xi_start, xi_end, cos_la, sin_la, mirror=1)
+    sol_r = solve_side(value_mm, r_b, r_a, xi_start, xi_end, cos_ra, sin_ra, mirror=-1)
     if sol_l is None or sol_r is None:
         return None
-    xi_f_l, c_l, f_l, t_l = sol_l
-    xi_f_r, c_r, f_r, t_r = sol_r
+    xi_f_l, f_l, t_l, ex_l = sol_l
+    xi_f_r, f_r, t_r, ex_r = sol_r
     a_l = math.atan2(t_l[1], t_l[0])
     a_r = _ccw_unwrap(a_l, math.atan2(t_r[1], t_r[0]))
     if a_r - a_l <= 1e-9:
-        return None  # 两圆角在齿顶弧上重叠
+        return None  # 两侧处理在齿顶弧上重叠
     n_inv = len(left_pts) - 1
     left_trim = tuple(
         _rot(involute_point(r_b, xi), cos_la, sin_la) for xi in _linspace(xi_start, xi_f_l, n_inv)
@@ -462,15 +463,84 @@ def _tip_round_middle_at(
         _rot((involute_point(r_b, xi)[0], -involute_point(r_b, xi)[1]), cos_ra, sin_ra)
         for xi in _linspace(xi_start, xi_f_r, n_inv)
     )
-    tx_l, ty_l = _rot((math.cos(xi_f_l), math.sin(xi_f_l)), cos_la, sin_la)
-    tan_l = math.atan2(ty_l, tx_l)
-    return [
-        Polyline(left_trim),
-        _fillet_arc(f_l, t_l, c_l, rho, tan_l),
-        Arc(r_a, a_l, a_r),
-        _fillet_arc(t_r, f_r, c_r, rho, a_r + math.pi / 2.0),
-        Polyline(tuple(reversed(right_trim))),
-    ]
+    mid = build_mid(f_l, t_l, ex_l, f_r, t_r, ex_r, a_l, a_r, value_mm, r_a)
+    if mid is None:
+        return None
+    return [Polyline(left_trim), *mid, Polyline(tuple(reversed(right_trim)))]
+
+
+def _tip_feasible_mm(
+    req_mm: float,
+    r_b: float,
+    r_a: float,
+    xi_start: float,
+    xi_end: float,
+    left_pts: tuple,
+    right_pts: tuple,
+    cos_la: float,
+    sin_la: float,
+    cos_ra: float,
+    sin_ra: float,
+    solve_side,
+    build_mid,
+) -> float:
+    """齿顶处理最大可行尺寸 [mm]: 请求可行则原值, 否则二分收敛 (Q8)."""
+    if req_mm <= 0:
+        return 0.0
+    builds = lambda v: _tip_build_at(v, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                                     cos_la, sin_la, cos_ra, sin_ra, solve_side, build_mid) is not None
+    return _max_feasible_by_search(req_mm, builds)
+
+
+def _tip_middle(
+    req_mm: float,
+    r_b: float,
+    r_a: float,
+    xi_start: float,
+    xi_end: float,
+    left_pts: tuple,
+    right_pts: tuple,
+    cos_la: float,
+    sin_la: float,
+    cos_ra: float,
+    sin_ra: float,
+    solve_side,
+    build_mid,
+) -> list[Segment] | None:
+    """齿顶处理中间段, 超限自动收敛 (Q8)."""
+    if req_mm <= 0:
+        return None
+    v_use = _tip_feasible_mm(req_mm, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                             cos_la, sin_la, cos_ra, sin_ra, solve_side, build_mid)
+    if v_use <= 0:
+        return None
+    return _tip_build_at(v_use, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                         cos_la, sin_la, cos_ra, sin_ra, solve_side, build_mid)
+
+
+# ── round 策略对 (凸角双切圆角) ───────────────────────────────────────
+
+def _round_side(
+    value_mm: float, r_b: float, r_a: float, xi_start: float, xi_end: float,
+    ca: float, sa: float, mirror: int,
+) -> tuple[float, tuple, tuple, tuple] | None:
+    """齿顶圆角单侧: (xi_f, f, t, (center, 齿面切线角))."""
+    sol = _solve_tip_fillet(value_mm, r_b, r_a, xi_start, xi_end, ca, sa, mirror)
+    if sol is None:
+        return None
+    xi_f, c, f, t = sol
+    tx, ty = _rot((math.cos(xi_f), math.sin(xi_f)), ca, sa)
+    if mirror < 0:
+        ty = -ty
+    return xi_f, f, t, (c, math.atan2(ty, tx))
+
+
+def _round_mid(f_l, t_l, ex_l, f_r, t_r, ex_r, a_l, a_r, v, r_a) -> list[Segment]:
+    c_l, tan_l = ex_l
+    c_r, _ = ex_r
+    return [_fillet_arc(f_l, t_l, c_l, v, tan_l),
+            Arc(r_a, a_l, a_r),
+            _fillet_arc(t_r, f_r, c_r, v, a_r + math.pi / 2.0)]
 
 
 def _tip_round_middle(
@@ -486,21 +556,9 @@ def _tip_round_middle(
     cos_ra: float,
     sin_ra: float,
 ) -> list[Segment] | None:
-    """齿顶圆角中间段, 超限自动收敛 (Q8): 请求不可行则收敛到最大可行半径."""
-    if p.rho_tip <= 0:
-        return None
-
-    def builds(rho_mm: float) -> bool:
-        p2 = dataclasses.replace(p, rho_tip=rho_mm / p.m_n)
-        return _tip_round_middle_at(p2, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
-                                    cos_la, sin_la, cos_ra, sin_ra) is not None
-
-    rho_use = _max_feasible_by_search(p.rho_tip * p.m_n, builds)
-    if rho_use <= 0:
-        return None
-    return _tip_round_middle_at(dataclasses.replace(p, rho_tip=rho_use / p.m_n),
-                                r_b, r_a, xi_start, xi_end, left_pts, right_pts,
-                                cos_la, sin_la, cos_ra, sin_ra)
+    """齿顶圆角中间段, 超限自动收敛 (Q8)."""
+    return _tip_middle(p.rho_tip * p.m_n, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                       cos_la, sin_la, cos_ra, sin_ra, _round_side, _round_mid)
 
 
 def tip_fillet_actual_mm(p: GearParams) -> float:
@@ -511,13 +569,8 @@ def tip_fillet_actual_mm(p: GearParams) -> float:
     left_pts = tuple(_rot(involute_point(r_b, xi), c_la, s_la) for xi in _linspace(xi_start, xi_end, n))
     right_pts = tuple(_rot((involute_point(r_b, xi)[0], -involute_point(r_b, xi)[1]), c_ra, s_ra)
                       for xi in _linspace(xi_start, xi_end, n))
-
-    def builds(rho_mm: float) -> bool:
-        p2 = dataclasses.replace(p, rho_tip=rho_mm / p.m_n)
-        return _tip_round_middle_at(p2, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
-                                    c_la, s_la, c_ra, s_ra) is not None
-
-    return _max_feasible_by_search(p.rho_tip * p.m_n, builds)
+    return _tip_feasible_mm(p.rho_tip * p.m_n, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                            c_la, s_la, c_ra, s_ra, _round_side, _round_mid)
 
 
 def _ray_circle(
@@ -541,17 +594,16 @@ def _ray_circle(
 
 
 def _solve_tip_chamfer_side(
-    p: GearParams,
+    c: float,
     r_b: float,
     r_a: float,
     xi_start: float,
     xi_end: float,
-    c: float,
     ca: float,
     sa: float,
     mirror: int,
 ) -> tuple[float, tuple[float, float], tuple[float, float]] | None:
-    """单侧齿顶倒角: 沿齿面量 c·mₙ 得 P_f, 过 P_f 画与齿面切线 45° 线, 交齿顶圆.
+    """单侧齿顶倒角: 沿齿面量 c [mm] 得 P_f, 过 P_f 画与齿面切线 45° 线, 交齿顶圆.
 
     渐开线弧长 s(ξ) = (r_b/2)(ξ_end² − ξ²); 从角点回退 c 得 ξ_f。
     倒角线方向 = 齿面切线 ±45° (mirror=+1 左齿面齿侧 +45°, −1 右齿面 −45°)。
@@ -586,48 +638,22 @@ def _solve_tip_chamfer_side(
     return xi_f, f, inter
 
 
-def _tip_chamfer_middle_at(
-    p: GearParams,
-    r_b: float,
-    r_a: float,
-    xi_start: float,
-    xi_end: float,
-    left_pts: tuple,
-    right_pts: tuple,
-    cos_la: float,
-    sin_la: float,
-    cos_ra: float,
-    sin_ra: float,
-) -> list[Segment] | None:
-    """给定 p.chamfer_tip 的齿顶倒角中间段 (None = 无解/重叠)."""
-    c = p.chamfer_tip * p.m_n
-    if c <= 0:
+# ── chamfer 策略对 (45° 沿齿面) ──────────────────────────────────────
+
+def _chamfer_side(
+    value_mm: float, r_b: float, r_a: float, xi_start: float, xi_end: float,
+    ca: float, sa: float, mirror: int,
+) -> tuple[float, tuple, tuple, None] | None:
+    """齿顶倒角单侧: (xi_f, f, t, None)."""
+    sol = _solve_tip_chamfer_side(value_mm, r_b, r_a, xi_start, xi_end, ca, sa, mirror)
+    if sol is None:
         return None
-    sol_l = _solve_tip_chamfer_side(p, r_b, r_a, xi_start, xi_end, c, cos_la, sin_la, mirror=1)
-    sol_r = _solve_tip_chamfer_side(p, r_b, r_a, xi_start, xi_end, c, cos_ra, sin_ra, mirror=-1)
-    if sol_l is None or sol_r is None:
-        return None
-    xi_f_l, f_l, t_l = sol_l
-    xi_f_r, f_r, t_r = sol_r
-    a_l = math.atan2(t_l[1], t_l[0])
-    a_r = _ccw_unwrap(a_l, math.atan2(t_r[1], t_r[0]))
-    if a_r - a_l <= 1e-9:
-        return None  # 两倒角在齿顶弧上重叠
-    n_inv = len(left_pts) - 1
-    left_trim = tuple(
-        _rot(involute_point(r_b, xi), cos_la, sin_la) for xi in _linspace(xi_start, xi_f_l, n_inv)
-    )
-    right_trim = tuple(
-        _rot((involute_point(r_b, xi)[0], -involute_point(r_b, xi)[1]), cos_ra, sin_ra)
-        for xi in _linspace(xi_start, xi_f_r, n_inv)
-    )
-    return [
-        Polyline(left_trim),
-        Polyline((f_l, t_l)),
-        Arc(r_a, a_l, a_r),
-        Polyline((t_r, f_r)),
-        Polyline(tuple(reversed(right_trim))),
-    ]
+    xi_f, f, t = sol
+    return xi_f, f, t, None
+
+
+def _chamfer_mid(f_l, t_l, ex_l, f_r, t_r, ex_r, a_l, a_r, v, r_a) -> list[Segment]:
+    return [Polyline((f_l, t_l)), Arc(r_a, a_l, a_r), Polyline((t_r, f_r))]
 
 
 def _tip_chamfer_middle(
@@ -643,21 +669,9 @@ def _tip_chamfer_middle(
     cos_ra: float,
     sin_ra: float,
 ) -> list[Segment] | None:
-    """齿顶倒角中间段, 超限自动收敛 (Q8): 请求不可行则收敛到最大可行尺寸."""
-    if p.chamfer_tip <= 0:
-        return None
-
-    def builds(c_mm: float) -> bool:
-        p2 = dataclasses.replace(p, chamfer_tip=c_mm / p.m_n)
-        return _tip_chamfer_middle_at(p2, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
-                                      cos_la, sin_la, cos_ra, sin_ra) is not None
-
-    c_use = _max_feasible_by_search(p.chamfer_tip * p.m_n, builds)
-    if c_use <= 0:
-        return None
-    return _tip_chamfer_middle_at(dataclasses.replace(p, chamfer_tip=c_use / p.m_n),
-                                  r_b, r_a, xi_start, xi_end, left_pts, right_pts,
-                                  cos_la, sin_la, cos_ra, sin_ra)
+    """齿顶倒角中间段, 超限自动收敛 (Q8)."""
+    return _tip_middle(p.chamfer_tip * p.m_n, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                       cos_la, sin_la, cos_ra, sin_ra, _chamfer_side, _chamfer_mid)
 
 
 def tip_chamfer_actual_mm(p: GearParams) -> float:
@@ -668,13 +682,8 @@ def tip_chamfer_actual_mm(p: GearParams) -> float:
     left_pts = tuple(_rot(involute_point(r_b, xi), c_la, s_la) for xi in _linspace(xi_start, xi_end, n))
     right_pts = tuple(_rot((involute_point(r_b, xi)[0], -involute_point(r_b, xi)[1]), c_ra, s_ra)
                       for xi in _linspace(xi_start, xi_end, n))
-
-    def builds(c_mm: float) -> bool:
-        p2 = dataclasses.replace(p, chamfer_tip=c_mm / p.m_n)
-        return _tip_chamfer_middle_at(p2, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
-                                      c_la, s_la, c_ra, s_ra) is not None
-
-    return _max_feasible_by_search(p.chamfer_tip * p.m_n, builds)
+    return _tip_feasible_mm(p.chamfer_tip * p.m_n, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                            c_la, s_la, c_ra, s_ra, _chamfer_side, _chamfer_mid)
 
 
 def _tooth_open_segments(
