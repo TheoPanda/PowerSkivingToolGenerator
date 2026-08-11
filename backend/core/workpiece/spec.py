@@ -89,6 +89,7 @@ INPUT_ITEMS: list[dict] = [
     ("c_n", "顶隙系数", "c_n*", lambda p: p.c_n, ""),
     ("rho_f", "齿根圆角系数", "ρ*_f", lambda p: p.rho_f, ""),
     ("rho_tip", "齿顶倒圆系数", "ρ*_tip", lambda p: p.rho_tip, ""),
+    ("root_fillet", "齿根圆角", "root_fillet", lambda p: p.root_fillet, ""),
     ("tooth_method", "齿厚方式", "tooth_method", lambda p: p.tooth_method, ""),
 ]
 
@@ -112,7 +113,7 @@ OUTPUT_ITEM_SPECS: list[tuple[str, str, str, object, str]] = [
 ]
 
 
-def _item(key: str, label: str, symbol: str, value: float | str, unit: str) -> dict:
+def _item(key: str, label: str, symbol: str, value: float | str | bool, unit: str) -> dict:
     """组装单项 {key, label, symbol, value, unit}."""
     return {"key": key, "label": label, "symbol": symbol, "value": value, "unit": unit}
 

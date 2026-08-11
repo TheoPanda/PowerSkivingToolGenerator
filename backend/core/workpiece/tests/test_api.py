@@ -17,6 +17,12 @@ def client():
     return TestClient(app)
 
 
+def _fillet_arc_count(spec: dict) -> int:
+    """spec.single_tooth.segments 中顺时针（齿根圆角）弧的段数."""
+    segs = spec["single_tooth"]["segments"]
+    return sum(1 for s in segs if s["type"] == "arc" and s.get("clockwise") is True)
+
+
 class TestWorkpieceEndpoint:
     """POST /api/workpiece/generate 契约验证."""
 
@@ -160,6 +166,34 @@ class TestWorkpieceEndpoint:
         assert set(spec["outline"]["circles"].keys()) == {
             "tip_radius", "root_radius", "pitch_radius", "base_radius",
         }
+
+    def test_root_fillet_false_removes_fillet_and_registers_input(self, client):
+        """root_fillet=false → spec.single_tooth.segments 无顺时针圆角弧 (锐齿根), 且输入项注册."""
+        payload = {
+            "m_n": 2.5, "z_w": 41, "b_w": 20.0,
+            "root_fillet": False,
+        }
+        response = client.post("/api/workpiece/generate", json=payload)
+        assert response.status_code == 200
+
+        data = response.json()
+        n = _fillet_arc_count(data["spec"])
+        assert n == 0, f"root_fillet=false 不应有齿根圆角弧, 实得 {n}"
+
+        in_keys = {i["key"] for i in data["spec"]["params"]["inputs"]}
+        assert "root_fillet" in in_keys, "spec.params.inputs 应注册 root_fillet"
+
+    def test_root_fillet_omitted_defaults_true(self, client):
+        """省略 root_fillet → 默认 true (向后兼容, 圆角保留)."""
+        payload = {
+            "m_n": 2.5, "z_w": 41, "b_w": 20.0,
+        }
+        response = client.post("/api/workpiece/generate", json=payload)
+        assert response.status_code == 200
+
+        data = response.json()
+        n = _fillet_arc_count(data["spec"])
+        assert n == 2, f"默认 root_fillet 应保留左右两段齿根圆角弧, 实得 {n}"
 
     def test_result_values_consistent(self, client):
         """计算结果自洽: d_a = m_t*z_w + 2*h_an*m_n."""

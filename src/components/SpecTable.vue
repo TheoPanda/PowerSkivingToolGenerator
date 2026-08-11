@@ -28,6 +28,7 @@ const TERMS: Record<string, string> = {
   c_n: '顶隙系数 c*，齿底高含顶隙',
   rho_f: '齿根圆角系数 ρ*f，齿根圆角半径 = ρ*f·mn',
   rho_tip: '齿顶倒圆系数 ρ*tip（缺项目，默认 0 锐角齿顶）',
+  root_fillet: '齿根圆角开关（开 = 齿根圆角生效；关 = 锐齿根）',
   tooth_method: '齿厚方式（x_w 变位 / W_k 公法线 / M 跨棒距）',
   d_pw: '分度圆直径 dpw = 2·pitch_radius()',
   d_a: '齿顶圆直径 da = tip_diameter()',
@@ -57,9 +58,15 @@ const selectedKey = ref<RowKey | null>(null)
 function selectRow(row: RowLike): void {
   selectedKey.value = rowKey(row)
 }
-function fmt(value: number, unit: string): string {
+/** 布尔开关显示为「开/关」，数值原样字符串化. */
+function valStr(value: number | boolean): string {
+  if (typeof value === 'boolean') return value ? '开' : '关'
+  return `${value}`
+}
+function fmt(value: number | boolean, unit: string): string {
+  if (typeof value === 'boolean') return valStr(value)
   if (unit === '°') return `${value.toFixed(1)}°`
-  if (unit === '' || unit === '—') return `${value}`
+  if (unit === '' || unit === '—') return valStr(value)
   return `${value.toFixed(3)}${unit}`
 }
 
@@ -67,7 +74,7 @@ interface RowLike {
   key: string
   label: string
   symbol: string
-  value: number
+  value: number | boolean
   unit: string
   group: 'input' | 'output'
 }
@@ -88,7 +95,7 @@ async function copySelected(): Promise<void> {
     ElMessage.warning('请先选中一行')
     return
   }
-  const text = `${target.symbol || target.label}\t${target.value}`
+  const text = `${target.symbol || target.label}\t${valStr(target.value)}`
   try {
     await navigator.clipboard.writeText(text)
     ElMessage.success(`已复制 ${target.symbol || target.label}`)
@@ -99,7 +106,7 @@ async function copySelected(): Promise<void> {
 
 /** 全表复制（参数名\t值 每行一次输出）— 规格书验收：复制按钮输出 Tab 分隔文本. */
 async function copyAll(): Promise<void> {
-  const lines = allRows().map((r) => `${r.symbol || r.label}\t${r.value}`)
+  const lines = allRows().map((r) => `${r.symbol || r.label}\t${valStr(r.value)}`)
   const text = lines.join('\n')
   try {
     await navigator.clipboard.writeText(text)

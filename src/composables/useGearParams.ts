@@ -31,6 +31,7 @@ export interface GearParams {
   c_n: number
   ρ_f: number
   rho_tip: number
+  root_fillet: boolean
 }
 
 /** 提供给后端的 wire 载荷（snake_case，与 POST /api/workpiece/generate 请求体对齐）. */
@@ -53,6 +54,7 @@ export interface WorkpieceRequestPayload {
   c_n: number
   rho_f: number
   rho_tip: number
+  root_fillet: boolean
 }
 
 /** 默认参数（含 rho_tip = 0 锐角齿顶，与 ADR-013 一致；m_n/z_w/b_w 待用户填写为 null）. */
@@ -76,6 +78,7 @@ export function createGearParams(): GearParams {
     c_n: 0.25,
     ρ_f: 0.38,
     rho_tip: 0,
+    root_fillet: true,
   }
 }
 
@@ -103,5 +106,6 @@ export function toPayload(p: GearParams): WorkpieceRequestPayload {
     c_n: p.c_n,
     rho_f: p.ρ_f,
     rho_tip: p.rho_tip,
+    root_fillet: p.root_fillet,
   }
 }

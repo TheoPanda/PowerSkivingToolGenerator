@@ -29,11 +29,12 @@ function defaultParams(): GearParams {
     c_n: 0.25,
     ρ_f: 0.38,
     rho_tip: 0,
+    root_fillet: true,
   }
 }
 
 type GearParamsPanelInstance = ComponentPublicInstance & {
-  expandedSections: { basic: boolean; tooth: boolean; advanced: boolean }
+  expandedSections: { basic: boolean; tooth: boolean; advanced: boolean; decoration: boolean }
   kRecommended: number | null
   isValid: boolean
   toggleSection: (section: 'basic' | 'tooth' | 'advanced') => void
@@ -58,9 +59,9 @@ describe('GearParamsPanel — 基本参数组', () => {
   })
 
   describe('组件结构', () => {
-    it('渲染三个折叠面板标题', () => {
+    it('渲染四个折叠面板标题（含「齿顶/齿根修饰」）', () => {
       const headers = wrapper.findAll('.glass-collapse-header')
-      expect(headers).toHaveLength(3)
+      expect(headers).toHaveLength(4)
     })
 
     it('基本参数和齿厚指定默认展开', () => {
@@ -160,6 +161,35 @@ describe('GearParamsPanel — 基本参数组', () => {
       await w2.vm.$nextTick()
       // 需要触发一次校验更新
       expect(w2.vm.isValid).toBe(true)
+    })
+  })
+
+  describe('④ 齿顶/齿根修饰', () => {
+    it('齿根圆角勾选与 store.root_fillet 双向绑定', async () => {
+      const gearParams = reactive<GearParams>({ ...defaultParams(), root_fillet: true })
+      const w = mount(GearParamsPanel, { global: { provide: { gearParams } } })
+      const checkbox = w.find('input[type="checkbox"]')
+      expect(checkbox.exists()).toBe(true)
+      expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+      await checkbox.setValue(false)
+      expect(gearParams.root_fillet).toBe(false)
+      await checkbox.setValue(true)
+      expect(gearParams.root_fillet).toBe(true)
+    })
+
+    it('ρ*_f 输入在新板块内（已从「高级」移入）', () => {
+      const labels = wrapper.findAll('.glass-field-label')
+      const rfLabels = labels.filter((l) => l.text().includes('齿根圆角系数'))
+      expect(rfLabels.length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('取消勾选后 ρ*_f 输入隐藏（条件显示）', async () => {
+      wrapper.unmount()
+      const w2 = mountPanel({ root_fillet: false })
+      await w2.vm.$nextTick()
+      const labels = w2.findAll('.glass-field-label')
+      const rfLabels = labels.filter((l) => l.text().includes('齿根圆角系数'))
+      expect(rfLabels).toHaveLength(0)
     })
   })
 })

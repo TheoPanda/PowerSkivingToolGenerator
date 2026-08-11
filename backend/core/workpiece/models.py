@@ -191,6 +191,7 @@ class GearParams:
     c_n: float = 0.25   # 顶隙系数
     rho_f: float = 0.38 # 齿根圆角半径系数 (ρ_f = ρ*_f·m_n)
     rho_tip: float = 0.0  # 齿顶倒圆系数 ρ*_tip (默认 0 = 锐角齿顶; >0 为预留能力, ADR-013 缺口)
+    root_fillet: bool = True  # 齿根圆角开关 (默认开; False = 锐齿根, 无圆角段, 走径向回退)
 
     # 齿厚指定 (三选一, E1)
     tooth_method: str = "x_w"  # "x_w" | "W_k" | "M"

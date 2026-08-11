@@ -41,6 +41,7 @@ class GearParamsRequest(BaseModel):
     c_n: float = Field(0.25)
     rho_f: float = Field(0.38)
     rho_tip: float = Field(0.0, ge=0.0, description="齿顶倒圆系数 (默认 0 = 锐角齿顶, ADR-013 缺口)")
+    root_fillet: bool = Field(True, description="齿根圆角开关 (默认开; False = 锐齿根, ADR-014)")
     x_w: float = Field(0.0)
 
     # 齿厚指定 (三选一)
@@ -78,6 +79,7 @@ class GearParamsRequest(BaseModel):
             c_n=self.c_n,
             rho_f=self.rho_f,
             rho_tip=self.rho_tip,
+            root_fillet=self.root_fillet,
             x_w=self.x_w,
             tooth_method=self.tooth_method,
             W_k=self.W_k,

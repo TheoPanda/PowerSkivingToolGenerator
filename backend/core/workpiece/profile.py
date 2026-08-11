@@ -327,7 +327,9 @@ def _tooth_open_segments(
 
     r_f = p.root_radius()
     fil: RootFillet | None = None
-    if r_b > r_f:
+    # ADR-014 (2026-08-11): 齿根圆角开关。root_fillet=False 时跳过双切求解,
+    # 走无圆角径向回退路径 (锐齿根)。默认 True 恒等价原条件, 零变化。
+    if p.root_fillet and r_b > r_f:
         try:
             fil = solve_root_fillet(p)
         except ValueError:

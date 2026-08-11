@@ -16,9 +16,10 @@ const expandedSections = ref({
   basic: true,
   tooth: true,
   advanced: false,
+  decoration: false,
 })
 
-function toggleSection(section: 'basic' | 'tooth' | 'advanced'): void {
+function toggleSection(section: 'basic' | 'tooth' | 'advanced' | 'decoration'): void {
   expandedSections.value[section] = !expandedSections.value[section]
 }
 
@@ -394,7 +395,31 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             <input v-model.number="gearParams.c_n" type="number" step="0.05" class="glass-input" />
           </div>
 
+        </div>
+      </div>
+    </div>
+
+    <!-- ④ 齿顶/齿根修饰 -->
+    <div class="glass-collapse" :class="{ expanded: expandedSections.decoration }">
+      <button class="glass-collapse-header" @click="toggleSection('decoration')">
+        齿顶/齿根修饰
+        <span class="glass-collapse-arrow">▶</span>
+      </button>
+      <div class="glass-collapse-content">
+        <div class="collapse-inner">
+
+          <!-- 齿根圆角开关 -->
           <div class="glass-field">
+            <label class="glass-field-label">齿根圆角</label>
+            <input
+              v-model="gearParams.root_fillet"
+              type="checkbox"
+              class="glass-checkbox"
+            />
+          </div>
+
+          <!-- 齿根圆角系数（勾选时显示） -->
+          <div v-if="gearParams.root_fillet" class="glass-field">
             <label class="glass-field-label">齿根圆角系数 ρ*_f</label>
             <input v-model.number="gearParams.ρ_f" type="number" step="0.01" class="glass-input" />
           </div>
@@ -426,6 +451,14 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
 
 .k-hint:hover {
   color: var(--brand-blue);
+}
+
+.glass-checkbox {
+  accent-color: var(--brand-blue);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .glass-collapse-content {

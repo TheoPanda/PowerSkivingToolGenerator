@@ -83,12 +83,12 @@ export interface OutlineSpec {
   circles: OutlineCircles
 }
 
-/** 参数规格表的一行. */
+/** 参数规格表的一行（value 为数值或布尔开关，如 root_fillet）. */
 export interface ParamRow {
   key: string
   label: string
   symbol: string
-  value: number
+  value: number | boolean
   unit: string
 }
 
