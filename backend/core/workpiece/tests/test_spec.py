@@ -202,15 +202,24 @@ class TestRhoTipZeroBaseline:
             f"root_fillet=false 时 rho_f_actual 应归零, 实得 {outputs['rho_f_actual']}"
 
     def test_root_fillet_nominal_zero_when_not_constructible(self):
-        """r_b < r_f (无根切, 圆角不可构) → rho_f_actual 与标注为 0, 不报名义 ρ_f·mₙ."""
-        p = GearParams(m_n=2.0, z_w=82, b_w=20.0)  # root_fillet 默认 true
-        assert p.base_radius() < p.root_radius(), "z=82 应 r_b < r_f"
+        """深齿根 (r_b−r_f > ρ, 无双切解) → rho_f_actual 与标注为 0, 不报名义 ρ_f·mₙ."""
+        p = GearParams(m_n=3.0, z_w=20, b_w=15.0)  # root_fillet 默认 true
+        assert p.base_radius() - p.root_radius() > p.rho_f * p.m_n, "z=20/m=3 应深齿根无解"
         spec = build_spec(p)
         ann = spec["single_tooth"]["annotations"]["root_fillet"]
         assert ann["value"] == 0, f"不可构时标注应归零, 实得 {ann['value']}"
         outputs = {o["key"]: o["value"] for o in spec["params"]["outputs"]}
         assert outputs["rho_f_actual"] == 0, \
             f"不可构时 rho_f_actual 应归零, 实得 {outputs['rho_f_actual']}"
+
+    def test_root_fillet_constructible_when_rb_le_rf(self):
+        """r_b <= r_f (高齿数) 圆角可构 → rho_f_actual 报实际半径, 非 0."""
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0)
+        assert p.base_radius() < p.root_radius(), "z=82 应 r_b < r_f"
+        spec = build_spec(p)
+        outputs = {o["key"]: o["value"] for o in spec["params"]["outputs"]}
+        assert outputs["rho_f_actual"] > 0, \
+            f"r_b<=r_f 可构圆角, rho_f_actual 应 >0, 实得 {outputs['rho_f_actual']}"
 
     def test_rho_tip_round_adds_fillets(self):
         """tip_mode='round' 时 rho_tip>0 生成齿顶圆角弧 (不抛错)."""

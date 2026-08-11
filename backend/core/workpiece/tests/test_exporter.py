@@ -222,12 +222,19 @@ class TestRootFillet:
         assert abs(math.hypot(*fil.tang_root_t) - p.root_radius()) < 1e-9
         assert math.hypot(*fil.tang_inv_t) >= p.base_radius() - 1e-9
 
-    def test_no_fillet_when_rb_le_rf(self):
-        from core.workpiece.profile import Arc, gear_profile_segments
+    def test_fillet_present_when_rb_le_rf(self):
+        """r_b <= r_f (无根切高齿数): 齿面-齿根圆连接角圆角双切解仍存在 (K-1.12 扩展)."""
+        from core.workpiece.profile import Arc, gear_profile_segments, sample_profile_points
         p = GearParams(m_n=2.5, z_w=60, b_w=20.0)
         assert p.root_radius() > p.base_radius()
         segs = gear_profile_segments(p)
-        assert not any(isinstance(s, Arc) and s.clockwise for s in segs)
+        n_fillet = sum(1 for s in segs if isinstance(s, Arc) and s.clockwise)
+        assert n_fillet == 2 * p.z_w, f"圆角弧数 {n_fillet} != 2*z_w"
+        boundary = sample_profile_points(p)
+        r_f, r_a = p.root_radius(), p.tip_radius()
+        for x, y in boundary:
+            r = math.hypot(x, y)
+            assert r_f - 1e-6 <= r <= r_a + 1e-6, f"采样点半径 {r} 越界"
 
     def test_radial_fallback_when_no_double_tangent(self):
         from core.workpiece.profile import Arc, gear_profile_segments

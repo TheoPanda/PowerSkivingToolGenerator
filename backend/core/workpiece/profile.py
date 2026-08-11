@@ -195,24 +195,24 @@ def solve_root_fillet(p: GearParams, n_search: int = 200) -> RootFillet:
     右齿面由调用方镜像获得。
 
     Args:
-        p: 齿轮参数 (要求 r_b > r_f)
+        p: 齿轮参数
         n_search: 搜索采样数
 
     Returns:
         RootFillet
 
     Raises:
-        ValueError: r_b <= r_f (无需圆角) 或搜索不收敛
+        ValueError: 双切圆角无解 (深齿根等, 需方案 B 摆线) 或搜索不收敛
     """
     r_b = p.base_radius()
     r_f = p.root_radius()
     rho = p.rho_f * p.m_n
 
-    if r_b <= r_f:
-        raise ValueError(f"r_b={r_b:.3f} <= r_f={r_f:.3f}: 渐开线直达齿根, 无需圆角")
-
     target = r_f + rho
-    xi_max = xi_at_radius(r_b, min(r_b * 1.5, r_f + 3.0 * rho))
+    # 搜索起点: r_b > r_f (有根切) 时齿面从基圆起始 (ξ=0); r_b <= r_f (无根切,
+    # 高齿数) 时齿面从齿根圆起始——齿面与齿根圆在连接处成角, 双切圆角仍可解。
+    xi_start = 0.0 if r_b > r_f else xi_at_radius(r_b, r_f)
+    xi_max = max(xi_start + 1e-9, xi_at_radius(r_b, min(r_b * 1.5, r_f + 3.0 * rho)))
 
     def center_at(xi: float) -> tuple[float, float]:
         """凹角侧候选圆心: C = P − rho·n, n = (−sin ξ, cos ξ)."""
@@ -227,12 +227,12 @@ def solve_root_fillet(p: GearParams, n_search: int = 200) -> RootFillet:
     # 解存在条件 ≈ r_f + rho > r_b (|P−rho·n| 最小值 √(r_b²+rho²) 在 ξ=0);
     # 深齿根 (r_b − r_f > rho 量级) 无双切解 —— 真实齿根为滚刀摆线
     # (方案 B, T13 未销项), 调用方回退径向连接线。
-    step = xi_max / n_search
+    step = (xi_max - xi_start) / n_search
     bracket: tuple[float, float] | None = None
     prev_xi: float | None = None
     prev_r: float | None = None
     for i in range(n_search + 1):
-        xi = xi_max * i / n_search
+        xi = xi_start + (xi_max - xi_start) * i / n_search
         cx, cy = center_at(xi)
         px, py = involute_point(r_b, xi)
         if math.atan2(cy, cx) < math.atan2(py, px):
@@ -267,10 +267,8 @@ def solve_root_fillet(p: GearParams, n_search: int = 200) -> RootFillet:
 
 
 def root_fillet_actual_mm(p: GearParams) -> float:
-    """齿根圆角实际半径 [mm]: 开关关 / 无圆角解时 0, 否则 ρ_f·mₙ (与几何一致)."""
+    """齿根圆角实际半径 [mm]: 开关关 / 无双切解时 0, 否则 ρ_f·mₙ (与几何一致)."""
     if not p.root_fillet:
-        return 0.0
-    if p.base_radius() <= p.root_radius():
         return 0.0
     try:
         solve_root_fillet(p)
@@ -404,7 +402,7 @@ def _tooth0_tip_context(p: GearParams, n_involute: int = 40):
     r_f = p.root_radius()
     xi_end = xi_at_radius(r_b, r_a)
     fil = None
-    if p.root_fillet and r_b > r_f:
+    if p.root_fillet:
         try:
             fil = solve_root_fillet(p)
         except ValueError:
@@ -729,9 +727,10 @@ def _tooth_open_segments(
 
     r_f = p.root_radius()
     fil: RootFillet | None = None
-    # ADR-014 (2026-08-11): 齿根圆角开关。root_fillet=False 时跳过双切求解,
-    # 走无圆角径向回退路径 (锐齿根)。默认 True 恒等价原条件, 零变化。
-    if p.root_fillet and r_b > r_f:
+    # ADR-014: 齿根圆角开关。root_fillet=False 时跳过双切求解 (锐齿根)。
+    # solve_root_fillet 已支持 r_b<=r_f (无根切高齿数: 齿面-齿根圆连接角圆角);
+    # 深齿根无双切解时抛 ValueError → 回退径向连接线 (方案 B/T13 未销项)。
+    if p.root_fillet:
         try:
             fil = solve_root_fillet(p)
         except ValueError:
