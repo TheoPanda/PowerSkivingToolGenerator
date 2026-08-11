@@ -266,6 +266,19 @@ def solve_root_fillet(p: GearParams, n_search: int = 200) -> RootFillet:
     return RootFillet(xi_f=xi0, center_t=center_t, tang_inv_t=tang_inv_t, tang_root_t=tang_root_t)
 
 
+def root_fillet_actual_mm(p: GearParams) -> float:
+    """齿根圆角实际半径 [mm]: 开关关 / 无圆角解时 0, 否则 ρ_f·mₙ (与几何一致)."""
+    if not p.root_fillet:
+        return 0.0
+    if p.base_radius() <= p.root_radius():
+        return 0.0
+    try:
+        solve_root_fillet(p)
+    except ValueError:
+        return 0.0
+    return p.rho_f * p.m_n
+
+
 # ── 廓形段构建 ───────────────────────────────────────────────────────
 
 
