@@ -112,7 +112,7 @@ OUTPUT_ITEM_SPECS: list[tuple[str, str, str, object, str]] = [
     ("h_a", "齿顶高", "h_a", lambda p: p.h_an * p.m_n, "mm"),
     ("h_f", "齿底高", "h_f", lambda p: (p.h_an + p.c_n) * p.m_n, "mm"),
     ("h", "齿全高", "h", lambda p: (p.h_an + p.c_n) * p.m_n + p.h_an * p.m_n, "mm"),
-    ("rho_f_actual", "齿根圆角半径", "ρ_f", lambda p: p.rho_f * p.m_n, "mm"),
+    ("rho_f_actual", "齿根圆角半径", "ρ_f", lambda p: (p.rho_f * p.m_n if p.root_fillet else 0.0), "mm"),
     ("rho_tip_actual", "齿顶倒圆半径", "ρ_tip", lambda p: tip_fillet_actual_mm(p), "mm"),
     ("chamfer_actual", "齿顶倒角尺寸", "c*_tip", lambda p: tip_chamfer_actual_mm(p), "mm"),
 ]
@@ -160,7 +160,7 @@ def single_tooth_spec(p: GearParams) -> dict:
     h_f = (p.h_an + p.c_n) * p.m_n
     h = h_a + h_f
     rho_tip = tip_fillet_actual_mm(p)
-    rho_f = p.rho_f * p.m_n
+    rho_f = p.rho_f * p.m_n if p.root_fillet else 0.0  # root_fillet=false 锐齿根不标圆角
     # 齿顶标注随 tip_mode: round→实际圆角半径, chamfer→实际倒角尺寸 (C×45°), none→0
     if p.tip_mode == "chamfer":
         tip_ann = {"value": tip_chamfer_actual_mm(p), "label": "齿顶倒角", "symbol": "c*_tip"}

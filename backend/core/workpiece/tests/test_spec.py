@@ -191,6 +191,16 @@ class TestRhoTipZeroBaseline:
         assert spec["outline"]["points"] == ref["outline"]["points"], \
             "tip_mode=none 时 rho_tip>0 不得改变几何"
 
+    def test_root_fillet_disabled_zeroes_annotation_and_output(self):
+        """root_fillet=false → root_fillet 标注与 rho_f_actual 归零 (锐齿根不标圆角)."""
+        p = GearParams(m_n=2.5, z_w=41, b_w=20.0, root_fillet=False)
+        spec = build_spec(p)
+        ann = spec["single_tooth"]["annotations"]["root_fillet"]
+        assert ann["value"] == 0, f"root_fillet=false 时标注应归零, 实得 {ann['value']}"
+        outputs = {o["key"]: o["value"] for o in spec["params"]["outputs"]}
+        assert outputs["rho_f_actual"] == 0, \
+            f"root_fillet=false 时 rho_f_actual 应归零, 实得 {outputs['rho_f_actual']}"
+
     def test_rho_tip_round_adds_fillets(self):
         """tip_mode='round' 时 rho_tip>0 生成齿顶圆角弧 (不抛错)."""
         p = GearParams(m_n=2.5, z_w=41, b_w=20.0, tip_mode="round", rho_tip=0.2)

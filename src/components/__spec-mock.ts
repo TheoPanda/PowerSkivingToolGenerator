@@ -63,7 +63,7 @@ export function mockSpec(): SpecPayload {
         tooth_thickness: { value: 3.927, label: '齿厚', symbol: 's_t' },
         circular_pitch: { value: 7.854, label: '齿距', symbol: 'p_t' },
         tip_fillet: { value: 0.38, label: '齿顶倒圆', symbol: 'ρ_tip' },
-        root_fillet: { value: 0, label: '齿根倒圆', symbol: 'ρ_f' },
+        root_fillet: { value: 0.95, label: '齿根倒圆', symbol: 'ρ_f' },
         addendum: { value: 2.5, label: '齿顶高', symbol: 'h_a' },
         dedendum: { value: 3.125, label: '齿底高', symbol: 'h_f' },
         whole_depth: { value: 5.625, label: '齿全高', symbol: 'h' },

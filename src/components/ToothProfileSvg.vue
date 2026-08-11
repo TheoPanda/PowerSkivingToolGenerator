@@ -352,17 +352,19 @@ const annotations = computed<Anno[]>(() => {
         : `齿顶R${a.tip_fillet.value.toFixed(2)}`,
     })
   }
-  // 7) 齿根圆角：靠近中间齿齿根右侧
-  const rootHalf = Math.atan(Math.sin(phase.value / 2) * (pitchR.value / rRoot.value))
-  const rootRightX = mapX(rRoot.value * Math.sin(rootHalf))
-  list.push({
-    role: 'root_fillet',
-    kind: 'line',
-    line: { x1: rootRightX + 8, y1: rootY.value, x2: rootRightX + 40, y2: rootY.value },
-    textX: rootRightX + 24,
-    textY: rootY.value + 14,
-    text: `齿根R${a.root_fillet.value.toFixed(2)}`,
-  })
+  // 7) 齿根圆角：value>0 才标注 (root_fillet=false 锐齿根不标)
+  if (a.root_fillet.value > 0) {
+    const rootHalf = Math.atan(Math.sin(phase.value / 2) * (pitchR.value / rRoot.value))
+    const rootRightX = mapX(rRoot.value * Math.sin(rootHalf))
+    list.push({
+      role: 'root_fillet',
+      kind: 'line',
+      line: { x1: rootRightX + 8, y1: rootY.value, x2: rootRightX + 40, y2: rootY.value },
+      textX: rootRightX + 24,
+      textY: rootY.value + 14,
+      text: `齿根R${a.root_fillet.value.toFixed(2)}`,
+    })
+  }
 
   return list
 })

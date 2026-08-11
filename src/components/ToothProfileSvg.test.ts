@@ -46,6 +46,14 @@ describe('ToothProfileSvg', () => {
     expect(roles).not.toContain('tip_fillet')
   })
 
+  it('root_fillet=false（value=0）时不渲染齿根标注', () => {
+    const spec = mockSpec()
+    spec.single_tooth.annotations.root_fillet = { value: 0 }
+    const wrapper = mount(ToothProfileSvg, { props: { singleTooth: spec.single_tooth } })
+    const roles = wrapper.findAll('.annotation-g').map((g) => g.attributes('data-role'))
+    expect(roles).not.toContain('root_fillet')
+  })
+
   it('渲染齿廓 outline path', () => {
     const wrapper = mount(ToothProfileSvg, {
       props: { singleTooth: mockSpec().single_tooth },
