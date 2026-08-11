@@ -201,16 +201,16 @@ class TestRhoTipZeroBaseline:
         assert outputs["rho_f_actual"] == 0, \
             f"root_fillet=false 时 rho_f_actual 应归零, 实得 {outputs['rho_f_actual']}"
 
-    def test_deep_root_enlarged_fillet_in_output(self):
-        """深齿根圆角半径放大 → rho_f_actual 与标注报实际放大半径 (> 名义 ρ_f·mₙ)."""
-        p = GearParams(m_n=3.0, z_w=20, b_w=15.0)  # root_fillet 默认 true, 深下切放大
-        assert p.base_radius() - p.root_radius() > p.rho_f * p.m_n, "z=20/m=3 应深齿根"
+    def test_root_fillet_nominal_zero_when_not_constructible(self):
+        """深齿根 (r_b−r_f > ρ, 无双切解) → rho_f_actual 与标注为 0, 不报名义 ρ_f·mₙ."""
+        p = GearParams(m_n=3.0, z_w=20, b_w=15.0)  # root_fillet 默认 true
+        assert p.base_radius() - p.root_radius() > p.rho_f * p.m_n, "z=20/m=3 应深齿根无解"
         spec = build_spec(p)
         ann = spec["single_tooth"]["annotations"]["root_fillet"]
-        assert ann["value"] > p.rho_f * p.m_n, f"深下切应放大标注, 实得 {ann['value']}"
+        assert ann["value"] == 0, f"不可构时标注应归零, 实得 {ann['value']}"
         outputs = {o["key"]: o["value"] for o in spec["params"]["outputs"]}
-        assert outputs["rho_f_actual"] > p.rho_f * p.m_n, \
-            f"深下切 rho_f_actual 应放大, 实得 {outputs['rho_f_actual']}"
+        assert outputs["rho_f_actual"] == 0, \
+            f"不可构时 rho_f_actual 应归零, 实得 {outputs['rho_f_actual']}"
 
     def test_root_fillet_constructible_when_rb_le_rf(self):
         """r_b <= r_f (高齿数) 圆角可构 → rho_f_actual 报实际半径, 非 0."""

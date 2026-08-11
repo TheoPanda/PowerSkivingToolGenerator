@@ -236,24 +236,16 @@ class TestRootFillet:
             r = math.hypot(x, y)
             assert r_f - 1e-6 <= r <= r_a + 1e-6, f"采样点半径 {r} 越界"
 
-    def test_deep_root_gets_enlarged_fillet(self):
-        """深齿根 (r_b−r_f > ρ): 方案 A 半径放大到最小可行, 仍有双切圆角 (填死区)."""
-        from core.workpiece.profile import Arc, gear_profile_segments, sample_profile_points, solve_root_fillet
+    def test_radial_fallback_when_no_double_tangent(self):
+        from core.workpiece.profile import Arc, gear_profile_segments
         p = GearParams(m_n=3.0, z_w=20, b_w=15.0)
         assert p.base_radius() - p.root_radius() > p.rho_f * p.m_n
-        fil = solve_root_fillet(p)
-        assert fil.rho > p.rho_f * p.m_n, f"深下切应放大半径, 实得 {fil.rho}"
         segs = gear_profile_segments(p)
-        n_fillet = sum(1 for s in segs if isinstance(s, Arc) and s.clockwise)
-        assert n_fillet == 2 * p.z_w, f"圆角弧数 {n_fillet} != 2*z_w"
+        assert not any(isinstance(s, Arc) and s.clockwise for s in segs)
         boundary = sample_profile_points(p)
         orig = {(round(x, 7), round(y, 7)) for x, y in boundary}
         refl = {(round(x, 7), round(-y, 7)) for x, y in boundary}
-        assert not (refl - orig), "放大圆角破坏镜像对称"
-        r_f, r_a = p.root_radius(), p.tip_radius()
-        for x, y in boundary:
-            r = math.hypot(x, y)
-            assert r_f - 1e-6 <= r <= r_a + 1e-6, f"采样点半径 {r} 越界"
+        assert not (refl - orig), "回退路径破坏镜像对称"
 
     def test_no_fillet_when_root_fillet_disabled(self):
         """root_fillet=False 强制锐齿根（无圆角弧），回退几何保持对称与连续."""

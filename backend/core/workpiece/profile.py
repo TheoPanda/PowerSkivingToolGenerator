@@ -180,14 +180,12 @@ class RootFillet:
     center_t: 圆角圆心
     tang_inv_t: 渐开线切点 (= involute_point(r_b, xi_f))
     tang_root_t: 齿根圆切点 (在圆心-原点连线上, 半径 r_f)
-    rho: 实际圆角半径 [mm] (深下切时放大到最小可行双切半径, 方案 A 扩展)
     """
 
     xi_f: float
     center_t: tuple[float, float]
     tang_inv_t: tuple[float, float]
     tang_root_t: tuple[float, float]
-    rho: float
 
 
 def solve_root_fillet(p: GearParams, n_search: int = 200) -> RootFillet:
@@ -208,15 +206,7 @@ def solve_root_fillet(p: GearParams, n_search: int = 200) -> RootFillet:
     """
     r_b = p.base_radius()
     r_f = p.root_radius()
-    rho_req = p.rho_f * p.m_n
-    # 方案 A 扩展 (填死区): r_b > r_f 且请求半径太小塞不下时, 放大到最小可行双切半径.
-    # 双切解存在条件 √(r_b²+ρ²) ≤ r_f+ρ ⟺ ρ ≥ (r_b²−r_f²)/(2r_f).
-    # 放大后仍是真正的双切圆角 (方案 A), 只是实际半径 > 请求值; 可解范围零变化。
-    if r_b > r_f:
-        rho_min = (r_b * r_b - r_f * r_f) / (2.0 * r_f)
-        rho = max(rho_req, rho_min * 1.001)
-    else:
-        rho = rho_req
+    rho = p.rho_f * p.m_n
 
     target = r_f + rho
     # 搜索起点: r_b > r_f (有根切) 时齿面从基圆起始 (ξ=0); r_b <= r_f (无根切,
@@ -273,18 +263,18 @@ def solve_root_fillet(p: GearParams, n_search: int = 200) -> RootFillet:
     scale = r_f / target
     tang_root_t = (center_t[0] * scale, center_t[1] * scale)
 
-    return RootFillet(xi_f=xi0, center_t=center_t, tang_inv_t=tang_inv_t, tang_root_t=tang_root_t, rho=rho)
+    return RootFillet(xi_f=xi0, center_t=center_t, tang_inv_t=tang_inv_t, tang_root_t=tang_root_t)
 
 
 def root_fillet_actual_mm(p: GearParams) -> float:
-    """齿根圆角实际半径 [mm]: 开关关 / 无双切解时 0, 否则实际 ρ (深下切时放大)."""
+    """齿根圆角实际半径 [mm]: 开关关 / 无双切解时 0, 否则 ρ_f·mₙ (与几何一致)."""
     if not p.root_fillet:
         return 0.0
     try:
-        fil = solve_root_fillet(p)
+        solve_root_fillet(p)
     except ValueError:
         return 0.0
-    return fil.rho
+    return p.rho_f * p.m_n
 
 
 # ── 廓形段构建 ───────────────────────────────────────────────────────
@@ -775,7 +765,7 @@ def _tooth_open_segments(
         ti_l = _rot(fil.tang_inv_t, cos_la, sin_la)
         a0 = math.atan2(tr_l[1] - c_l[1], tr_l[0] - c_l[0])
         a1 = _cw_unwrap(a0, math.atan2(ti_l[1] - c_l[1], ti_l[0] - c_l[0]))
-        segs.append(Arc(fil.rho, a0, a1, center=c_l, clockwise=True))
+        segs.append(Arc(p.rho_f * p.m_n, a0, a1, center=c_l, clockwise=True))
 
     # T02/T03 (ADR-014): 齿顶处理。默认 tip_mode='none' 走原路径零变化;
     # round/chamfer 由 _tip_*_middle 返回中间段, 无解时回退锐齿顶。
@@ -806,7 +796,7 @@ def _tooth_open_segments(
         tr_r = _rot((fil.tang_root_t[0], -fil.tang_root_t[1]), cos_ra, sin_ra)
         a0 = math.atan2(ti_r[1] - c_r[1], ti_r[0] - c_r[0])
         a1 = _cw_unwrap(a0, math.atan2(tr_r[1] - c_r[1], tr_r[0] - c_r[0]))
-        segs.append(Arc(fil.rho, a0, a1, center=c_r, clockwise=True))
+        segs.append(Arc(p.rho_f * p.m_n, a0, a1, center=c_r, clockwise=True))
         t_root_right, t_root_left = tr_r, tr_l
         right_root_ang = math.atan2(tr_r[1], tr_r[0])
         next_left_root_ang = math.atan2(tr_l[1], tr_l[0]) + pitch_angle
