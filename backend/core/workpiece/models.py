@@ -228,6 +228,16 @@ class GearParams:
             raise ValueError(f"tip_mode='{self.tip_mode}' 无效 (应为 none/chamfer/round)")
         if self.chamfer_tip < 0:
             raise ValueError(f"齿顶倒角系数 chamfer_tip={self.chamfer_tip} 必须 ≥ 0")
+        # 齿厚可行性 (K-1.11): s_t < π·m_t, 否则相邻齿重叠 (齿厚/公法线参数物理不可能)
+        try:
+            _s_t = compute_tooth_thickness(self)
+        except ValueError:
+            _s_t = None  # 反算失败留调用方处理
+        if _s_t is not None and _s_t >= math.pi * self.to_transverse()[0]:
+            raise ValueError(
+                f"齿厚 s_t={_s_t:.3f}mm ≥ 齿距 π·m_t={math.pi * self.to_transverse()[0]:.3f}mm, "
+                f"相邻齿重叠 — 齿厚方式参数不合理 (如公法线 W_k 对当前 m/z 过大)"
+            )
 
     def to_transverse(self) -> tuple[float, float]:
         """K-1.2 法向→端面参数转换.

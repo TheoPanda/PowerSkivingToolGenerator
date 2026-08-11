@@ -248,6 +248,17 @@ class TestWorkpieceEndpoint:
         ann = data["spec"]["single_tooth"]["annotations"]["tip_fillet"]
         assert ann["label"] == "齿顶倒角", f"chamfer 模式标注应为齿顶倒角, 实得 {ann['label']}"
 
+    def test_overlapping_tooth_thickness_returns_400(self, client):
+        """W_k 过大 → 齿厚≥齿距 (相邻齿重叠) → 400 校验错误, 非 500."""
+        payload = {
+            "m_n": 0.175, "z_w": 10, "b_w": 5.0,
+            "tooth_method": "W_k", "W_k": 4.5683, "k_teeth": 2,
+            "root_fillet": False,
+        }
+        response = client.post("/api/workpiece/generate", json=payload)
+        assert response.status_code == 400, f"应 400, 实得 {response.status_code}"
+        assert "相邻齿重叠" in response.json()["detail"]["error"]
+
     def test_result_values_consistent(self, client):
         """计算结果自洽: d_a = m_t*z_w + 2*h_an*m_n."""
         payload = {
