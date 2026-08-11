@@ -67,6 +67,14 @@ class TestGearTypeSupport:
         shape = build_gear(p, n_slices=6)
         assert not shape.IsNull()
 
+    def test_helical_gear_with_tip_round_builds(self):
+        """斜齿轮 + 齿顶圆角: 逐截面携带, ThruSections 放样正常 (ADR-014)."""
+        from core.workpiece.builder import build_gear
+        p = GearParams(m_n=2.5, z_w=10, b_w=20.0, beta_w_deg=15.0,
+                       tip_mode="round", rho_tip=0.2)
+        shape = build_gear(p, n_slices=6)
+        assert not shape.IsNull()
+
     def test_internal_gear_tooth_wire(self):
         """内齿轮 (k_io=-1) 单齿 wire 构建闭合."""
         from core.workpiece.builder import build_full_tooth_wire

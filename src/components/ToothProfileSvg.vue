@@ -336,17 +336,22 @@ const annotations = computed<Anno[]>(() => {
     noArrows: true,
   })
 
-  // 6) 齿顶圆角：靠近中间齿（目标齿）齿顶右侧，短尺寸线
-  const tipHalf = a.tooth_thickness.value / (2 * rTip.value)
-  const tipRightX = mapX(rTip.value * Math.sin(tipHalf))
-  list.push({
-    role: 'tip_fillet',
-    kind: 'line',
-    line: { x1: tipRightX + 8, y1: tipY.value, x2: tipRightX + 40, y2: tipY.value },
-    textX: tipRightX + 24,
-    textY: tipY.value - 9,
-    text: `齿顶R${a.tip_fillet.value.toFixed(2)}`,
-  })
+  // 6) 齿顶圆角/倒角：value>0 才标注 (tip_mode=none 或 ρ=0 时锐角齿顶, 不显示)
+  if (a.tip_fillet.value > 0) {
+    const tipHalf = a.tooth_thickness.value / (2 * rTip.value)
+    const tipRightX = mapX(rTip.value * Math.sin(tipHalf))
+    const isChamfer = a.tip_fillet.label === '齿顶倒角'
+    list.push({
+      role: 'tip_fillet',
+      kind: 'line',
+      line: { x1: tipRightX + 8, y1: tipY.value, x2: tipRightX + 40, y2: tipY.value },
+      textX: tipRightX + 24,
+      textY: tipY.value - 9,
+      text: isChamfer
+        ? `齿顶倒角 C${a.tip_fillet.value.toFixed(2)}×45°`
+        : `齿顶R${a.tip_fillet.value.toFixed(2)}`,
+    })
+  }
   // 7) 齿根圆角：靠近中间齿齿根右侧
   const rootHalf = Math.atan(Math.sin(phase.value / 2) * (pitchR.value / rRoot.value))
   const rootRightX = mapX(rRoot.value * Math.sin(rootHalf))

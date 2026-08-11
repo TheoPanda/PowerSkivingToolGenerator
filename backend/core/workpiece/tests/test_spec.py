@@ -183,11 +183,26 @@ class TestRhoTipZeroBaseline:
         for a, b in zip(spec["single_tooth"]["segments"], ref):
             assert a == b
 
-    def test_rho_tip_positive_raises_not_implemented(self):
-        """ADR-013 缺口: ρ*_tip>0 走占位路径应显式 raise, 不得当成品输出."""
-        p = GearParams(m_n=2.5, z_w=41, b_w=20.0, rho_tip=0.2)
-        with pytest.raises(NotImplementedError):
-            build_spec(p)
+    def test_rho_tip_ignored_when_mode_none(self):
+        """tip_mode='none' (默认) 时 rho_tip>0 被忽略, 零变化不抛错 (ADR-014 销项)."""
+        p = GearParams(m_n=2.5, z_w=41, b_w=20.0, rho_tip=0.2)  # tip_mode 默认 none
+        spec = build_spec(p)  # 不抛错
+        ref = build_spec(GearParams(m_n=2.5, z_w=41, b_w=20.0))
+        assert spec["outline"]["points"] == ref["outline"]["points"], \
+            "tip_mode=none 时 rho_tip>0 不得改变几何"
+
+    def test_rho_tip_round_adds_fillets(self):
+        """tip_mode='round' 时 rho_tip>0 生成齿顶圆角弧 (不抛错)."""
+        p = GearParams(m_n=2.5, z_w=41, b_w=20.0, tip_mode="round", rho_tip=0.2)
+        spec = build_spec(p)
+        segs = spec["single_tooth"]["segments"]
+        rho = p.rho_tip * p.m_n
+        n_fillet = sum(
+            1 for s in segs
+            if s["type"] == "arc" and abs(s["radius"] - rho) < 1e-9
+            and s["center"] != [0.0, 0.0]
+        )
+        assert n_fillet >= 2, f"齿顶圆角弧应 ≥2, 实得 {n_fillet}"
 
 
 # ── 定标算例1 ───────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, inject, watch, type Ref } from 'vue'
 import { gearParamsKey, type GearParams } from '../composables/useGearParams'
+import { workpieceState } from '../composables/useWorkpieceState'
 
 const emit = defineEmits<{
   (e: 'valid-change', isValid: boolean): void
@@ -22,6 +23,40 @@ const expandedSections = ref({
 function toggleSection(section: 'basic' | 'tooth' | 'advanced' | 'decoration'): void {
   expandedSections.value[section] = !expandedSections.value[section]
 }
+
+// ---- 齿顶处理收敛软提示 (ADR-014) ----
+// 实际值经全局单例 workpieceState.spec 回灌 (最后一次生成的 outputs)。
+// 请求系数超齿顶弧可容纳上限 → 后端收敛, actual < 请求时信息色提示「已取最接近请求值」。
+const tipRoundActual = computed<number | null>(() => {
+  const row = workpieceState.spec?.params.outputs.find((o) => o.key === 'rho_tip_actual')
+  return row && typeof row.value === 'number' ? row.value : null
+})
+const tipRoundConverged = computed<boolean>(() => {
+  const p = gearParams!
+  if (p.tip_mode !== 'round' || p.m_n == null || p.m_n <= 0 || p.rho_tip <= 0) return false
+  if (tipRoundActual.value == null) return false
+  return tipRoundActual.value < p.rho_tip * p.m_n - 1e-9
+})
+const tipRoundActualCoeff = computed<string>(() => {
+  const p = gearParams!
+  if (tipRoundActual.value == null || p.m_n == null || p.m_n <= 0) return '0'
+  return (tipRoundActual.value / p.m_n).toFixed(3)
+})
+const tipChamferActual = computed<number | null>(() => {
+  const row = workpieceState.spec?.params.outputs.find((o) => o.key === 'chamfer_actual')
+  return row && typeof row.value === 'number' ? row.value : null
+})
+const tipChamferConverged = computed<boolean>(() => {
+  const p = gearParams!
+  if (p.tip_mode !== 'chamfer' || p.m_n == null || p.m_n <= 0 || p.chamfer_tip <= 0) return false
+  if (tipChamferActual.value == null) return false
+  return tipChamferActual.value < p.chamfer_tip * p.m_n - 1e-9
+})
+const tipChamferActualCoeff = computed<string>(() => {
+  const p = gearParams!
+  if (tipChamferActual.value == null || p.m_n == null || p.m_n <= 0) return '0'
+  return (tipChamferActual.value / p.m_n).toFixed(3)
+})
 
 // ---- 齿形类型选项 ----
 const profileOptions = [
@@ -407,6 +442,50 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
       </button>
       <div class="glass-collapse-content">
         <div class="collapse-inner">
+
+          <!-- 齿顶处理（三态：无/倒角/圆角） -->
+          <div class="glass-field">
+            <label class="glass-field-label">齿顶处理</label>
+            <div class="glass-segmented">
+              <button
+                class="glass-segmented-btn"
+                :class="{ active: gearParams.tip_mode === 'none' }"
+                @click="gearParams.tip_mode = 'none'"
+              >无</button>
+              <button
+                class="glass-segmented-btn"
+                :class="{ active: gearParams.tip_mode === 'chamfer' }"
+                @click="gearParams.tip_mode = 'chamfer'"
+              >倒角</button>
+              <button
+                class="glass-segmented-btn"
+                :class="{ active: gearParams.tip_mode === 'round' }"
+                @click="gearParams.tip_mode = 'round'"
+              >圆角</button>
+            </div>
+          </div>
+
+          <!-- 齿顶圆角系数（圆角模式）+ 收敛软提示 -->
+          <template v-if="gearParams.tip_mode === 'round'">
+            <div class="glass-field">
+              <label class="glass-field-label">齿顶圆角系数 ρ*_tip</label>
+              <input v-model.number="gearParams.rho_tip" type="number" step="0.01" min="0" class="glass-input" />
+            </div>
+            <p v-if="tipRoundConverged" class="glass-field-hint" style="padding-left:98px;">
+              已取最接近请求值 {{ tipRoundActualCoeff }}
+            </p>
+          </template>
+
+          <!-- 齿顶倒角系数（倒角模式）+ 收敛软提示 -->
+          <template v-if="gearParams.tip_mode === 'chamfer'">
+            <div class="glass-field">
+              <label class="glass-field-label">齿顶倒角系数 c*_tip</label>
+              <input v-model.number="gearParams.chamfer_tip" type="number" step="0.01" min="0" class="glass-input" />
+            </div>
+            <p v-if="tipChamferConverged" class="glass-field-hint" style="padding-left:98px;">
+              已取最接近请求值 {{ tipChamferActualCoeff }}
+            </p>
+          </template>
 
           <!-- 齿根圆角开关 -->
           <div class="glass-field">

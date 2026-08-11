@@ -195,6 +195,59 @@ class TestWorkpieceEndpoint:
         n = _fillet_arc_count(data["spec"])
         assert n == 2, f"默认 root_fillet 应保留左右两段齿根圆角弧, 实得 {n}"
 
+    def test_tip_mode_round_adds_fillet_and_registers_input(self, client):
+        """tip_mode='round' + rho_tip>0 → spec 段含齿顶圆角弧, 输入项注册."""
+        payload = {
+            "m_n": 2.5, "z_w": 41, "b_w": 20.0,
+            "tip_mode": "round", "rho_tip": 0.2,
+        }
+        response = client.post("/api/workpiece/generate", json=payload)
+        assert response.status_code == 200
+
+        data = response.json()
+        segs = data["spec"]["single_tooth"]["segments"]
+        rho = 0.2 * 2.5
+        n_fillet = sum(
+            1 for s in segs
+            if s["type"] == "arc" and abs(s["radius"] - rho) < 1e-9
+            and s["center"] != [0.0, 0.0]
+        )
+        assert n_fillet >= 2, f"齿顶圆角弧应 ≥2, 实得 {n_fillet}"
+
+        in_keys = {i["key"] for i in data["spec"]["params"]["inputs"]}
+        assert "tip_mode" in in_keys, "spec.params.inputs 应注册 tip_mode"
+        assert "chamfer_tip" in in_keys, "spec.params.inputs 应注册 chamfer_tip"
+
+    def test_tip_mode_omitted_defaults_none(self, client):
+        """省略 tip_mode → 默认 none (向后兼容)."""
+        payload = {"m_n": 2.5, "z_w": 41, "b_w": 20.0}
+        response = client.post("/api/workpiece/generate", json=payload)
+        assert response.status_code == 200
+        assert response.json()["result"]["z_w"] == 41
+
+    def test_tip_mode_chamfer_adds_chamfer_and_output(self, client):
+        """tip_mode='chamfer' → spec 段含倒角直线, chamfer_actual 输出, 标注随模式."""
+        payload = {
+            "m_n": 2.5, "z_w": 41, "b_w": 20.0,
+            "tip_mode": "chamfer", "chamfer_tip": 0.15,
+        }
+        response = client.post("/api/workpiece/generate", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        segs = data["spec"]["single_tooth"]["segments"]
+        r_a = data["spec"]["outline"]["circles"]["tip_radius"]
+        tip_arcs = [s for s in segs if s["type"] == "arc"
+                    and abs(s["radius"] - r_a) < 1e-9 and s["center"] == [0.0, 0.0]]
+        assert len(tip_arcs) == 1, f"齿顶弧应 1 段, 实得 {len(tip_arcs)}"
+        idx = segs.index(tip_arcs[0])
+        assert segs[idx - 1]["type"] == "polyline" and len(segs[idx - 1]["points"]) == 2
+        assert segs[idx + 1]["type"] == "polyline" and len(segs[idx + 1]["points"]) == 2
+
+        out_keys = {o["key"] for o in data["spec"]["params"]["outputs"]}
+        assert "chamfer_actual" in out_keys, "spec.params.outputs 应含 chamfer_actual"
+        ann = data["spec"]["single_tooth"]["annotations"]["tip_fillet"]
+        assert ann["label"] == "齿顶倒角", f"chamfer 模式标注应为齿顶倒角, 实得 {ann['label']}"
+
     def test_result_values_consistent(self, client):
         """计算结果自洽: d_a = m_t*z_w + 2*h_an*m_n."""
         payload = {

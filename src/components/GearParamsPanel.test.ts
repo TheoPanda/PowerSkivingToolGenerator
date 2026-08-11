@@ -8,6 +8,8 @@ import { ref, reactive, type Ref } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
 import type { ComponentPublicInstance } from 'vue'
 import type { GearParams } from '../composables/useGearParams'
+import { workpieceState } from '../composables/useWorkpieceState'
+import type { SpecPayload } from '../api'
 
 function defaultParams(): GearParams {
   return {
@@ -30,6 +32,8 @@ function defaultParams(): GearParams {
     ρ_f: 0.38,
     rho_tip: 0,
     root_fillet: true,
+    tip_mode: 'none',
+    chamfer_tip: 0,
   }
 }
 
@@ -161,6 +165,86 @@ describe('GearParamsPanel — 基本参数组', () => {
       await w2.vm.$nextTick()
       // 需要触发一次校验更新
       expect(w2.vm.isValid).toBe(true)
+    })
+  })
+
+  describe('④ 齿顶处理三态 + 收敛提示', () => {
+    it('渲染 无/倒角/圆角 三态分段控件', () => {
+      const btns = wrapper.findAll('.glass-segmented-btn').map((b) => b.text())
+      expect(btns).toContain('无')
+      expect(btns).toContain('倒角')
+      expect(btns).toContain('圆角')
+    })
+
+    it('默认无模式: 圆角/倒角输入均不显示', () => {
+      const labels = wrapper.findAll('.glass-field-label').map((l) => l.text())
+      expect(labels.some((t) => t.includes('齿顶圆角系数'))).toBe(false)
+      expect(labels.some((t) => t.includes('齿顶倒角系数'))).toBe(false)
+    })
+
+    it('选「圆角」显示 rho_tip 输入', async () => {
+      wrapper.unmount()
+      const w2 = mountPanel({ tip_mode: 'round' })
+      await w2.vm.$nextTick()
+      const labels = w2.findAll('.glass-field-label').map((l) => l.text())
+      expect(labels.some((t) => t.includes('齿顶圆角系数'))).toBe(true)
+    })
+
+    it('选「倒角」显示 chamfer_tip 输入', async () => {
+      wrapper.unmount()
+      const w2 = mountPanel({ tip_mode: 'chamfer' })
+      await w2.vm.$nextTick()
+      const labels = w2.findAll('.glass-field-label').map((l) => l.text())
+      expect(labels.some((t) => t.includes('齿顶倒角系数'))).toBe(true)
+    })
+
+    it('收敛软提示: actual < 请求时显示, 相等时隐藏', async () => {
+      // 全局 spec: rho_tip_actual=0.5mm (m_n=2.5 → 系数 0.2)
+      workpieceState.spec = {
+        params: {
+          inputs: [],
+          outputs: [{ key: 'rho_tip_actual', value: 0.5, label: '', symbol: '', unit: '' }],
+        },
+        single_tooth: {} as SpecPayload['single_tooth'],
+        outline: {} as SpecPayload['outline'],
+      } as SpecPayload
+      try {
+        wrapper.unmount()
+        // 请求 0.3 (> actual 0.2) → 收敛提示显示
+        const wConv = mountPanel({ tip_mode: 'round', m_n: 2.5, rho_tip: 0.3 })
+        await wConv.vm.$nextTick()
+        const convHint = wConv.findAll('.glass-field-hint').find((h) => h.text().includes('已取最接近请求值'))
+        expect(convHint).toBeTruthy()
+        // 请求 0.2 (== actual) → 隐藏
+        wConv.unmount()
+        const wEq = mountPanel({ tip_mode: 'round', m_n: 2.5, rho_tip: 0.2 })
+        await wEq.vm.$nextTick()
+        const eqHint = wEq.findAll('.glass-field-hint').find((h) => h.text().includes('已取最接近请求值'))
+        expect(eqHint).toBeFalsy()
+      } finally {
+        workpieceState.spec = null
+      }
+    })
+
+    it('倒角收敛软提示: actual < 请求时显示', async () => {
+      workpieceState.spec = {
+        params: {
+          inputs: [],
+          outputs: [{ key: 'chamfer_actual', value: 0.3, label: '', symbol: '', unit: '' }],
+        },
+        single_tooth: {} as SpecPayload['single_tooth'],
+        outline: {} as SpecPayload['outline'],
+      } as SpecPayload
+      try {
+        wrapper.unmount()
+        // 请求 0.5×2.5=1.25mm > actual 0.3mm → 收敛提示显示
+        const w = mountPanel({ tip_mode: 'chamfer', m_n: 2.5, chamfer_tip: 0.5 })
+        await w.vm.$nextTick()
+        const hint = w.findAll('.glass-field-hint').find((h) => h.text().includes('已取最接近请求值'))
+        expect(hint).toBeTruthy()
+      } finally {
+        workpieceState.spec = null
+      }
     })
   })
 

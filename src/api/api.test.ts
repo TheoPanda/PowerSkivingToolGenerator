@@ -25,6 +25,8 @@ const mockParams: GearParams = {
   ρ_f: 0.38,
   rho_tip: 0,
   root_fillet: true,
+  tip_mode: 'none',
+  chamfer_tip: 0,
 }
 
 const mockResponse = {

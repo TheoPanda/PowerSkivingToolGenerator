@@ -30,6 +30,22 @@ describe('ToothProfileSvg', () => {
     )
   })
 
+  it('齿顶倒角标注显示 C×45°（label=齿顶倒角，ADR-014）', () => {
+    const spec = mockSpec()
+    spec.single_tooth.annotations.tip_fillet = { value: 0.3, label: '齿顶倒角' }
+    const wrapper = mount(ToothProfileSvg, { props: { singleTooth: spec.single_tooth } })
+    const texts = wrapper.findAll('text').map((t) => t.text())
+    expect(texts.some((s) => s.includes('C0.30×45°'))).toBe(true)
+  })
+
+  it('tip_mode=none（value=0）时不渲染齿顶标注', () => {
+    const spec = mockSpec()
+    spec.single_tooth.annotations.tip_fillet = { value: 0 }
+    const wrapper = mount(ToothProfileSvg, { props: { singleTooth: spec.single_tooth } })
+    const roles = wrapper.findAll('.annotation-g').map((g) => g.attributes('data-role'))
+    expect(roles).not.toContain('tip_fillet')
+  })
+
   it('渲染齿廓 outline path', () => {
     const wrapper = mount(ToothProfileSvg, {
       props: { singleTooth: mockSpec().single_tooth },
@@ -103,7 +119,7 @@ function realSpec(): SingleToothSpec {
     annotations: {
       tooth_thickness: { value: 3.927 },
       circular_pitch: { value: 7.854 },
-      tip_fillet: { value: 0 },
+      tip_fillet: { value: 0.38 },
       root_fillet: { value: 0.95 },
       addendum: { value: 2.5 },
       dedendum: { value: 3.125 },
@@ -145,7 +161,7 @@ function realSpec2(): SingleToothSpec {
     annotations: {
       tooth_thickness: { value: sT },
       circular_pitch: { value: Math.PI * m },
-      tip_fillet: { value: 0 },
+      tip_fillet: { value: 0.38 },
       root_fillet: { value: 0.4 * m },
       addendum: { value: m },
       dedendum: { value: 1.25 * m },

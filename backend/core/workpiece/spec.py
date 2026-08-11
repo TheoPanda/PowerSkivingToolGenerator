@@ -20,6 +20,8 @@ from core.workpiece.profile import (
     single_tooth_segments,
     neighborhood_segments,
     sample_profile_points,
+    tip_fillet_actual_mm,
+    tip_chamfer_actual_mm,
 )
 
 
@@ -90,6 +92,8 @@ INPUT_ITEMS: list[dict] = [
     ("rho_f", "齿根圆角系数", "ρ*_f", lambda p: p.rho_f, ""),
     ("rho_tip", "齿顶倒圆系数", "ρ*_tip", lambda p: p.rho_tip, ""),
     ("root_fillet", "齿根圆角", "root_fillet", lambda p: p.root_fillet, ""),
+    ("tip_mode", "齿顶处理", "tip_mode", lambda p: p.tip_mode, ""),
+    ("chamfer_tip", "齿顶倒角系数", "c*_tip", lambda p: p.chamfer_tip, ""),
     ("tooth_method", "齿厚方式", "tooth_method", lambda p: p.tooth_method, ""),
 ]
 
@@ -109,7 +113,8 @@ OUTPUT_ITEM_SPECS: list[tuple[str, str, str, object, str]] = [
     ("h_f", "齿底高", "h_f", lambda p: (p.h_an + p.c_n) * p.m_n, "mm"),
     ("h", "齿全高", "h", lambda p: (p.h_an + p.c_n) * p.m_n + p.h_an * p.m_n, "mm"),
     ("rho_f_actual", "齿根圆角半径", "ρ_f", lambda p: p.rho_f * p.m_n, "mm"),
-    ("rho_tip_actual", "齿顶倒圆半径", "ρ_tip", lambda p: p.tip_fillet_radius(), "mm"),
+    ("rho_tip_actual", "齿顶倒圆半径", "ρ_tip", lambda p: tip_fillet_actual_mm(p), "mm"),
+    ("chamfer_actual", "齿顶倒角尺寸", "c*_tip", lambda p: tip_chamfer_actual_mm(p), "mm"),
 ]
 
 
@@ -154,8 +159,13 @@ def single_tooth_spec(p: GearParams) -> dict:
     h_a = p.h_an * p.m_n
     h_f = (p.h_an + p.c_n) * p.m_n
     h = h_a + h_f
-    rho_tip = p.tip_fillet_radius()
+    rho_tip = tip_fillet_actual_mm(p)
     rho_f = p.rho_f * p.m_n
+    # 齿顶标注随 tip_mode: round→实际圆角半径, chamfer→实际倒角尺寸 (C×45°), none→0
+    if p.tip_mode == "chamfer":
+        tip_ann = {"value": tip_chamfer_actual_mm(p), "label": "齿顶倒角", "symbol": "c*_tip"}
+    else:
+        tip_ann = {"value": rho_tip, "label": "齿顶圆角", "symbol": "ρ_tip"}
 
     # 标注：每项只出 value/label/symbol。弧角/半径等定位几何由前端（画图者）推导，
     # 后端不再重复输出——此前序列化的 r/a0_deg/a1_deg/center 前端从未消费（死几何），
@@ -163,7 +173,7 @@ def single_tooth_spec(p: GearParams) -> dict:
     annotations = {
         "tooth_thickness": {"value": s_t, "label": "齿厚", "symbol": "s_t"},
         "circular_pitch": {"value": p_t, "label": "齿距", "symbol": "p_t"},
-        "tip_fillet": {"value": rho_tip, "label": "齿顶圆角", "symbol": "ρ_tip"},
+        "tip_fillet": tip_ann,
         "root_fillet": {"value": rho_f, "label": "齿根圆角", "symbol": "ρ_f"},
         "addendum": {"value": h_a, "label": "齿顶高", "symbol": "h_a"},
         "dedendum": {"value": h_f, "label": "齿底高", "symbol": "h_f"},

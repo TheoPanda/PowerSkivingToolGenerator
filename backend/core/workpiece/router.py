@@ -42,6 +42,8 @@ class GearParamsRequest(BaseModel):
     rho_f: float = Field(0.38)
     rho_tip: float = Field(0.0, ge=0.0, description="齿顶倒圆系数 (默认 0 = 锐角齿顶, ADR-013 缺口)")
     root_fillet: bool = Field(True, description="齿根圆角开关 (默认开; False = 锐齿根, ADR-014)")
+    tip_mode: str = Field("none", description="齿顶处理: none/chamfer/round (ADR-014)")
+    chamfer_tip: float = Field(0.0, ge=0.0, description="齿顶倒角尺寸系数 ×m_n (45°, ADR-014)")
     x_w: float = Field(0.0)
 
     # 齿厚指定 (三选一)
@@ -80,6 +82,8 @@ class GearParamsRequest(BaseModel):
             rho_f=self.rho_f,
             rho_tip=self.rho_tip,
             root_fillet=self.root_fillet,
+            tip_mode=self.tip_mode,
+            chamfer_tip=self.chamfer_tip,
             x_w=self.x_w,
             tooth_method=self.tooth_method,
             W_k=self.W_k,

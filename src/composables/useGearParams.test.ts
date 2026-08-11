@@ -31,10 +31,14 @@ describe('useGearParams — 单一 schema', () => {
         'ρ_f',
         'rho_tip',
         'root_fillet',
+        'tip_mode',
+        'chamfer_tip',
       ].sort(),
     )
     expect(p.rho_tip).toBe(0) // ADR-013 锐角齿顶默认
     expect(p.root_fillet).toBe(true) // ADR-014 齿根圆角默认开
+    expect(p.tip_mode).toBe('none') // ADR-014 齿顶处理默认无
+    expect(p.chamfer_tip).toBe(0)
     expect(p.toothMethod).toBe('x_w')
   })
 
@@ -61,6 +65,8 @@ describe('useGearParams — 单一 schema', () => {
       rho_f: 0.4,
       rho_tip: 0,
       root_fillet: true,
+      tip_mode: 'none',
+      chamfer_tip: 0,
     })
   })
 

@@ -20,6 +20,7 @@ xi_at_radius / generate_involute_points) 从 models.py 迁入本模块——
 profile.py 是渐开线齿廓的单一权威源，models.py 仅保留数据模型与齿厚反算。
 """
 
+import dataclasses
 import math
 from dataclasses import dataclass
 
@@ -284,6 +285,398 @@ def _ccw_unwrap(a0: float, a1: float) -> float:
     return a0 + d
 
 
+# ── T02/T03: 齿顶处理 (ADR-014 产品扩展) ─────────────────────────────
+# 齿顶圆角/倒角不在设计书参数字典 (ADR-013 缺口), 默认 tip_mode='none' 零变化。
+# 圆角 = 凸角双切 (切齿面渐开线 + 切齿顶圆), 与 solve_root_fillet 对称;
+# 倒角 = 沿齿面量 c·mₙ、过切点画与齿面切线 45° 线、交齿顶弧 (构造唯一)。
+
+
+def _linspace(a: float, b: float, n: int) -> list[float]:
+    """n+1 个从 a 到 b 的等间距点."""
+    return [a + (b - a) * i / n for i in range(n + 1)]
+
+
+def _ang_diff(a: float, b: float) -> float:
+    """两角最小差绝对值 (0..π)."""
+    return abs((a - b + math.pi) % (2.0 * math.pi) - math.pi)
+
+
+def _solve_tip_fillet(
+    p: GearParams,
+    r_b: float,
+    r_a: float,
+    xi_start: float,
+    xi_end: float,
+    ca: float,
+    sa: float,
+    mirror: int,
+    n_bisect: int = 200,
+) -> tuple[float, tuple[float, float], tuple[float, float], tuple[float, float]] | None:
+    """凸角齿顶圆角双切求解: 切齿面渐开线 + 切齿顶圆, 半径 ρ=ρ*_tip·m_n.
+
+    在旋转 (ca,sa) 帧内求解。mirror=+1 左齿面 (模板不镜像), −1 右齿面 (模板 y 镜像)。
+    齿侧法向 (沿 xi 增大, 齿侧): 左 (−sin ξ, cos ξ), 右 (−sin ξ, −cos ξ)。
+    |C|² 在 ξ=ρ/r_b 处最小 (=r_b); 解位于 [max(xi_start, ρ/r_b), xi_end]。
+
+    Returns:
+        (xi_f, center, flank_tangent, tip_tangent)。None: 无解 (ρ ≥ r_a−r_b 等), 调用方收敛为锐齿顶。
+    """
+    rho = p.rho_tip * p.m_n
+    if rho <= 0.0 or rho >= r_a:
+        return None
+    target = r_a - rho
+    if target < 0.0:
+        return None
+
+    def pt(xi: float) -> tuple[float, float]:
+        x, y = involute_point(r_b, xi)
+        if mirror < 0:
+            y = -y
+        return _rot((x, y), ca, sa)
+
+    def normal(xi: float) -> tuple[float, float]:
+        nx, ny = -math.sin(xi), math.cos(xi)
+        if mirror < 0:
+            ny = -ny
+        return _rot((nx, ny), ca, sa)
+
+    def resid(xi: float) -> float:
+        px, py = pt(xi)
+        nx, ny = normal(xi)
+        return math.hypot(px + rho * nx, py + rho * ny) - target
+
+    lo = max(xi_start, rho / r_b)
+    hi = xi_end
+    r_lo, r_hi = resid(lo), resid(hi)
+    if r_lo >= 0.0 or r_hi <= 0.0:
+        return None
+    for _ in range(n_bisect):
+        mid = 0.5 * (lo + hi)
+        if resid(mid) > 0.0:
+            hi = mid
+        else:
+            lo = mid
+    xi_f = 0.5 * (lo + hi)
+    px, py = pt(xi_f)
+    nx, ny = normal(xi_f)
+    c = (px + rho * nx, py + rho * ny)
+    norm_c = math.hypot(*c)
+    t = (c[0] * r_a / norm_c, c[1] * r_a / norm_c)
+    return xi_f, c, (px, py), t
+
+
+def _fillet_arc(
+    a_pt: tuple[float, float],
+    b_pt: tuple[float, float],
+    c: tuple[float, float],
+    rho: float,
+    tangent_at_start: float,
+) -> Arc:
+    """圆角弧 (a_pt→b_pt 绕 c, 半径 rho), 选起点切线 = tangent_at_start 的弧向 (G1)."""
+    a_A = math.atan2(a_pt[1] - c[1], a_pt[0] - c[0])
+    a_B = math.atan2(b_pt[1] - c[1], b_pt[0] - c[0])
+    d_ccw = _ang_diff(a_A + math.pi / 2.0, tangent_at_start)
+    d_cw = _ang_diff(a_A - math.pi / 2.0, tangent_at_start)
+    if d_ccw <= d_cw:
+        return Arc(rho, a_A, _ccw_unwrap(a_A, a_B), center=c, clockwise=False)
+    return Arc(rho, a_A, _cw_unwrap(a_A, a_B), center=c, clockwise=True)
+
+
+def _tooth0_tip_context(p: GearParams, n_involute: int = 40):
+    """tooth0 齿顶处理上下文: 半径/展角区间/齿面旋转角 (供收敛与 actual 计算).
+
+    Returns:
+        (r_b, r_a, xi_start, xi_end, cos_la, sin_la, cos_ra, sin_ra, n_involute)
+    """
+    r_b = p.base_radius()
+    r_a = p.tip_radius()
+    r_f = p.root_radius()
+    xi_end = xi_at_radius(r_b, r_a)
+    fil = None
+    if p.root_fillet and r_b > r_f:
+        try:
+            fil = solve_root_fillet(p)
+        except ValueError:
+            fil = None
+    if fil is not None:
+        xi_start = fil.xi_f
+    elif r_f > r_b:
+        xi_start = xi_at_radius(r_b, r_f)
+    else:
+        xi_start = 0.0
+    half = tooth_thickness_half_angle(p)
+    inv_at = involute_phase(p)
+    la = -half - inv_at
+    ra = half + inv_at
+    return (r_b, r_a, xi_start, xi_end,
+            math.cos(la), math.sin(la), math.cos(ra), math.sin(ra), n_involute)
+
+
+def _max_feasible_by_search(req: float, builds, n: int = 40) -> float:
+    """二分求 builds(c) 成立的最大 c ∈ (0, req]; builds(0)=False (c≤0 视为无解), 下限 0."""
+    if builds(req):
+        return req
+    lo, hi, best = 0.0, req, 0.0
+    for _ in range(n):
+        mid = 0.5 * (lo + hi)
+        if builds(mid):
+            best = mid
+            lo = mid
+        else:
+            hi = mid
+    return best
+
+
+def _tip_round_middle_at(
+    p: GearParams,
+    r_b: float,
+    r_a: float,
+    xi_start: float,
+    xi_end: float,
+    left_pts: tuple,
+    right_pts: tuple,
+    cos_la: float,
+    sin_la: float,
+    cos_ra: float,
+    sin_ra: float,
+) -> list[Segment] | None:
+    """给定 p.rho_tip 的齿顶圆角中间段 (None = 无解/重叠)."""
+    rho = p.rho_tip * p.m_n
+    if rho <= 0:
+        return None
+    sol_l = _solve_tip_fillet(p, r_b, r_a, xi_start, xi_end, cos_la, sin_la, mirror=1)
+    sol_r = _solve_tip_fillet(p, r_b, r_a, xi_start, xi_end, cos_ra, sin_ra, mirror=-1)
+    if sol_l is None or sol_r is None:
+        return None
+    xi_f_l, c_l, f_l, t_l = sol_l
+    xi_f_r, c_r, f_r, t_r = sol_r
+    a_l = math.atan2(t_l[1], t_l[0])
+    a_r = _ccw_unwrap(a_l, math.atan2(t_r[1], t_r[0]))
+    if a_r - a_l <= 1e-9:
+        return None  # 两圆角在齿顶弧上重叠
+    n_inv = len(left_pts) - 1
+    left_trim = tuple(
+        _rot(involute_point(r_b, xi), cos_la, sin_la) for xi in _linspace(xi_start, xi_f_l, n_inv)
+    )
+    right_trim = tuple(
+        _rot((involute_point(r_b, xi)[0], -involute_point(r_b, xi)[1]), cos_ra, sin_ra)
+        for xi in _linspace(xi_start, xi_f_r, n_inv)
+    )
+    tx_l, ty_l = _rot((math.cos(xi_f_l), math.sin(xi_f_l)), cos_la, sin_la)
+    tan_l = math.atan2(ty_l, tx_l)
+    return [
+        Polyline(left_trim),
+        _fillet_arc(f_l, t_l, c_l, rho, tan_l),
+        Arc(r_a, a_l, a_r),
+        _fillet_arc(t_r, f_r, c_r, rho, a_r + math.pi / 2.0),
+        Polyline(tuple(reversed(right_trim))),
+    ]
+
+
+def _tip_round_middle(
+    p: GearParams,
+    r_b: float,
+    r_a: float,
+    xi_start: float,
+    xi_end: float,
+    left_pts: tuple,
+    right_pts: tuple,
+    cos_la: float,
+    sin_la: float,
+    cos_ra: float,
+    sin_ra: float,
+) -> list[Segment] | None:
+    """齿顶圆角中间段, 超限自动收敛 (Q8): 请求不可行则收敛到最大可行半径."""
+    if p.rho_tip <= 0:
+        return None
+
+    def builds(rho_mm: float) -> bool:
+        p2 = dataclasses.replace(p, rho_tip=rho_mm / p.m_n)
+        return _tip_round_middle_at(p2, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                                    cos_la, sin_la, cos_ra, sin_ra) is not None
+
+    rho_use = _max_feasible_by_search(p.rho_tip * p.m_n, builds)
+    if rho_use <= 0:
+        return None
+    return _tip_round_middle_at(dataclasses.replace(p, rho_tip=rho_use / p.m_n),
+                                r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                                cos_la, sin_la, cos_ra, sin_ra)
+
+
+def tip_fillet_actual_mm(p: GearParams) -> float:
+    """齿顶圆角实际半径 [mm]: 请求可行则原值, 否则收敛到最大可行 (Q8)."""
+    if p.tip_mode != "round" or p.rho_tip <= 0:
+        return 0.0
+    r_b, r_a, xi_start, xi_end, c_la, s_la, c_ra, s_ra, n = _tooth0_tip_context(p)
+    left_pts = tuple(_rot(involute_point(r_b, xi), c_la, s_la) for xi in _linspace(xi_start, xi_end, n))
+    right_pts = tuple(_rot((involute_point(r_b, xi)[0], -involute_point(r_b, xi)[1]), c_ra, s_ra)
+                      for xi in _linspace(xi_start, xi_end, n))
+
+    def builds(rho_mm: float) -> bool:
+        p2 = dataclasses.replace(p, rho_tip=rho_mm / p.m_n)
+        return _tip_round_middle_at(p2, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                                    c_la, s_la, c_ra, s_ra) is not None
+
+    return _max_feasible_by_search(p.rho_tip * p.m_n, builds)
+
+
+def _ray_circle(
+    f: tuple[float, float],
+    d: tuple[float, float],
+    r_a: float,
+) -> tuple[float, float] | None:
+    """射线 f + t·d 与圆心原点半径 r_a 圆的第一个交点 (t>0), 无则 None."""
+    a = d[0] * d[0] + d[1] * d[1]
+    b = 2.0 * (f[0] * d[0] + f[1] * d[1])
+    cc = f[0] * f[0] + f[1] * f[1] - r_a * r_a
+    disc = b * b - 4.0 * a * cc
+    if disc < 0:
+        return None
+    sq = math.sqrt(disc)
+    ts = [t for t in ((-b - sq) / (2.0 * a), (-b + sq) / (2.0 * a)) if t > 1e-9]
+    if not ts:
+        return None
+    t = min(ts)
+    return (f[0] + t * d[0], f[1] + t * d[1])
+
+
+def _solve_tip_chamfer_side(
+    p: GearParams,
+    r_b: float,
+    r_a: float,
+    xi_start: float,
+    xi_end: float,
+    c: float,
+    ca: float,
+    sa: float,
+    mirror: int,
+) -> tuple[float, tuple[float, float], tuple[float, float]] | None:
+    """单侧齿顶倒角: 沿齿面量 c·mₙ 得 P_f, 过 P_f 画与齿面切线 45° 线, 交齿顶圆.
+
+    渐开线弧长 s(ξ) = (r_b/2)(ξ_end² − ξ²); 从角点回退 c 得 ξ_f。
+    倒角线方向 = 齿面切线 ±45° (mirror=+1 左齿面齿侧 +45°, −1 右齿面 −45°)。
+
+    Returns:
+        (xi_f, P_f, P_t) 或 None (无解 → 收敛为锐齿顶)。
+    """
+    x2 = xi_end * xi_end - 2.0 * c / r_b
+    if x2 <= 1e-12:
+        return None
+    xi_f = math.sqrt(x2)
+    if xi_f <= xi_start + 1e-12:
+        return None
+
+    def pt(xi):
+        x, y = involute_point(r_b, xi)
+        if mirror < 0:
+            y = -y
+        return _rot((x, y), ca, sa)
+
+    f = pt(xi_f)
+    tx, ty = math.cos(xi_f), math.sin(xi_f)
+    if mirror < 0:
+        ty = -ty
+    tx, ty = _rot((tx, ty), ca, sa)
+    tan_ang = math.atan2(ty, tx)
+
+    d_ang = tan_ang + math.pi / 4.0 if mirror > 0 else tan_ang - math.pi / 4.0
+    inter = _ray_circle(f, (math.cos(d_ang), math.sin(d_ang)), r_a)
+    if inter is None:
+        return None
+    return xi_f, f, inter
+
+
+def _tip_chamfer_middle_at(
+    p: GearParams,
+    r_b: float,
+    r_a: float,
+    xi_start: float,
+    xi_end: float,
+    left_pts: tuple,
+    right_pts: tuple,
+    cos_la: float,
+    sin_la: float,
+    cos_ra: float,
+    sin_ra: float,
+) -> list[Segment] | None:
+    """给定 p.chamfer_tip 的齿顶倒角中间段 (None = 无解/重叠)."""
+    c = p.chamfer_tip * p.m_n
+    if c <= 0:
+        return None
+    sol_l = _solve_tip_chamfer_side(p, r_b, r_a, xi_start, xi_end, c, cos_la, sin_la, mirror=1)
+    sol_r = _solve_tip_chamfer_side(p, r_b, r_a, xi_start, xi_end, c, cos_ra, sin_ra, mirror=-1)
+    if sol_l is None or sol_r is None:
+        return None
+    xi_f_l, f_l, t_l = sol_l
+    xi_f_r, f_r, t_r = sol_r
+    a_l = math.atan2(t_l[1], t_l[0])
+    a_r = _ccw_unwrap(a_l, math.atan2(t_r[1], t_r[0]))
+    if a_r - a_l <= 1e-9:
+        return None  # 两倒角在齿顶弧上重叠
+    n_inv = len(left_pts) - 1
+    left_trim = tuple(
+        _rot(involute_point(r_b, xi), cos_la, sin_la) for xi in _linspace(xi_start, xi_f_l, n_inv)
+    )
+    right_trim = tuple(
+        _rot((involute_point(r_b, xi)[0], -involute_point(r_b, xi)[1]), cos_ra, sin_ra)
+        for xi in _linspace(xi_start, xi_f_r, n_inv)
+    )
+    return [
+        Polyline(left_trim),
+        Polyline((f_l, t_l)),
+        Arc(r_a, a_l, a_r),
+        Polyline((t_r, f_r)),
+        Polyline(tuple(reversed(right_trim))),
+    ]
+
+
+def _tip_chamfer_middle(
+    p: GearParams,
+    r_b: float,
+    r_a: float,
+    xi_start: float,
+    xi_end: float,
+    left_pts: tuple,
+    right_pts: tuple,
+    cos_la: float,
+    sin_la: float,
+    cos_ra: float,
+    sin_ra: float,
+) -> list[Segment] | None:
+    """齿顶倒角中间段, 超限自动收敛 (Q8): 请求不可行则收敛到最大可行尺寸."""
+    if p.chamfer_tip <= 0:
+        return None
+
+    def builds(c_mm: float) -> bool:
+        p2 = dataclasses.replace(p, chamfer_tip=c_mm / p.m_n)
+        return _tip_chamfer_middle_at(p2, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                                      cos_la, sin_la, cos_ra, sin_ra) is not None
+
+    c_use = _max_feasible_by_search(p.chamfer_tip * p.m_n, builds)
+    if c_use <= 0:
+        return None
+    return _tip_chamfer_middle_at(dataclasses.replace(p, chamfer_tip=c_use / p.m_n),
+                                  r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                                  cos_la, sin_la, cos_ra, sin_ra)
+
+
+def tip_chamfer_actual_mm(p: GearParams) -> float:
+    """齿顶倒角实际尺寸 [mm]: 请求可行则原值, 否则收敛到最大可行 (Q8)."""
+    if p.tip_mode != "chamfer" or p.chamfer_tip <= 0:
+        return 0.0
+    r_b, r_a, xi_start, xi_end, c_la, s_la, c_ra, s_ra, n = _tooth0_tip_context(p)
+    left_pts = tuple(_rot(involute_point(r_b, xi), c_la, s_la) for xi in _linspace(xi_start, xi_end, n))
+    right_pts = tuple(_rot((involute_point(r_b, xi)[0], -involute_point(r_b, xi)[1]), c_ra, s_ra)
+                      for xi in _linspace(xi_start, xi_end, n))
+
+    def builds(c_mm: float) -> bool:
+        p2 = dataclasses.replace(p, chamfer_tip=c_mm / p.m_n)
+        return _tip_chamfer_middle_at(p2, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+                                      c_la, s_la, c_ra, s_ra) is not None
+
+    return _max_feasible_by_search(p.chamfer_tip * p.m_n, builds)
+
+
 def _tooth_open_segments(
     p: GearParams,
     i_tooth: int,
@@ -297,20 +690,7 @@ def _tooth_open_segments(
     Returns:
         (segs, t_root_right, t_root_left, right_root_ang, next_left_root_ang)
         后两个角为左右齿根圆切点极角 (供齿根弧闭合用)
-
-    Raises:
-        NotImplementedError: p.rho_tip > 0 (ADR-013 齿顶倒圆缺口，未销不得当已验证公式)
     """
-    # ADR-013 (2026-08-10): 齿顶倒圆为缺口项。设计书第3章参数字典只定义齿根圆角
-    # 系数 ρ*_f，无齿顶倒圆系数；当前齿形为锐角齿顶 (ρ*_tip=0，默认)。
-    # >0 为预留能力，但轮廓数学尚未验证 — 缺口未销项不得当已验证公式使用。
-    # 此处显式 raise 阻止把占位路径当成品输出，默认 0 走原路径零变化。
-    if p.rho_tip > 0:
-        raise NotImplementedError(
-            "ADR-013: 齿顶倒圆 ρ*_tip>0 为缺口项 (设计书无齿顶倒圆公式)，尚未实现，"
-            f"当前仅支持默认 ρ*_tip=0 (锐角齿顶)"
-        )
-
     z_w = p.z_w
     r_a = p.tip_radius()
     r_b = p.base_radius()
@@ -366,9 +746,25 @@ def _tooth_open_segments(
         a1 = _cw_unwrap(a0, math.atan2(ti_l[1] - c_l[1], ti_l[0] - c_l[0]))
         segs.append(Arc(p.rho_f * p.m_n, a0, a1, center=c_l, clockwise=True))
 
-    segs.append(Polyline(left_pts))
-    segs.append(Arc(r_a, left_tip_ang, right_tip_ang))
-    segs.append(Polyline(tuple(reversed(right_pts))))
+    # T02/T03 (ADR-014): 齿顶处理。默认 tip_mode='none' 走原路径零变化;
+    # round/chamfer 由 _tip_*_middle 返回中间段, 无解时回退锐齿顶。
+    tip_middle: list[Segment] | None = None
+    if p.tip_mode == "round" and p.rho_tip > 0:
+        tip_middle = _tip_round_middle(
+            p, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+            cos_la, sin_la, cos_ra, sin_ra,
+        )
+    elif p.tip_mode == "chamfer" and p.chamfer_tip > 0:
+        tip_middle = _tip_chamfer_middle(
+            p, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
+            cos_la, sin_la, cos_ra, sin_ra,
+        )
+    if tip_middle is not None:
+        segs.extend(tip_middle)
+    else:
+        segs.append(Polyline(left_pts))
+        segs.append(Arc(r_a, left_tip_ang, right_tip_ang))
+        segs.append(Polyline(tuple(reversed(right_pts))))
 
     # ── 齿根连接 (遍历: 右齿根 → 下一齿左齿根) ──
     conn: list[Segment] = []

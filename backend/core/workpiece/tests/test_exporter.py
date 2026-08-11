@@ -10,7 +10,7 @@ import pytest
 from core.workpiece.builder import build_gear_model
 from core.workpiece.exporter import _model_to_mesh, export_glb_bytes
 from core.workpiece.models import GearParams
-from core.workpiece.profile import Arc, sample_profile_points
+from core.workpiece.profile import Arc, Polyline, sample_profile_points
 
 
 @pytest.fixture
@@ -88,6 +88,35 @@ def _seg_close(a: tuple, b: tuple, tol: float = 1e-12) -> bool:
     return len(pa) == len(pb) and all(
         abs(x - u) <= tol and abs(y - v) <= tol for (x, y), (u, v) in zip(pa, pb)
     )
+
+
+def _ang_norm(a: float) -> float:
+    """归一化角到 (−π, π]."""
+    return (a + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def _tangent_angle(segs: list, idx: int, at_end: bool) -> float:
+    """段 idx 在端点 (at_end=True 终点 / False 起点) 的切线角 [rad]."""
+    s = segs[idx]
+    if isinstance(s, Polyline):
+        if at_end:
+            a, b = s.points[-2], s.points[-1]
+        else:
+            a, b = s.points[0], s.points[1]
+        return math.atan2(b[1] - a[1], b[0] - a[0])
+    # Arc: 切线 = 半径方向顺时针/逆时针 90°
+    ang = s.a1 if at_end else s.a0
+    return (ang - math.pi / 2.0) if s.clockwise else (ang + math.pi / 2.0)
+
+
+def _g1_breaks(segs: list) -> tuple[bool, int | None, float | None, float | None]:
+    """相邻段连接处切线角连续性 (G1, mod 2π, 容差 1e-6)."""
+    for i in range(len(segs) - 1):
+        t_end = _tangent_angle(segs, i, at_end=True)
+        t_start = _tangent_angle(segs, i + 1, at_end=False)
+        if abs(_ang_norm(t_end - t_start)) > 1e-6:
+            return False, i, t_end, t_start
+    return True, None, None, None
 
 
 # ── Winding / 法向一致性 ─────────────────────────────────────────────
@@ -246,6 +275,145 @@ class TestRootFillet:
             f"默认路径段数漂移: {len(canon)} vs {len(GOLDEN_DEFAULT_TOOTH_0)}"
         for a, b in zip(canon, GOLDEN_DEFAULT_TOOTH_0):
             assert _seg_close(a, b), f"默认路径逐点漂移:\n  {a}\n  {b}"
+
+
+# ── T02: 齿顶圆角 (tip_mode='round', ρ*_tip>0) ───────────────────────
+
+class TestTipRound:
+    """T02 齿顶圆角: 凸角双切圆角, 齿面/齿顶 G1 连续, 采样不越界."""
+
+    def test_tip_round_g1_and_no_overshoot(self):
+        """tip_mode='round' ρ*_tip=0.3: 圆角↔齿顶弧解析 G1, 齿面衔接离散容差, 采样不越界."""
+        from core.workpiece.profile import Arc, tooth_segments
+        p = GearParams(m_n=1.0, z_w=32, b_w=20.0, tip_mode="round", rho_tip=0.3)
+        segs = tooth_segments(p, 0)
+        rho = p.rho_tip * p.m_n
+        r_a = p.tip_radius()
+        tip_fillets = [
+            s for s in segs
+            if isinstance(s, Arc) and abs(s.radius - rho) < 1e-9 and s.center != (0.0, 0.0)
+        ]
+        assert len(tip_fillets) >= 2, f"齿顶圆角弧应 ≥2, 实得 {len(tip_fillets)}"
+
+        # 齿顶弧 = 半径 r_a 且圆心原点; 其两侧必须是圆角弧
+        tip_arcs = [s for s in segs if isinstance(s, Arc)
+                    and abs(s.radius - r_a) < 1e-9 and s.center == (0.0, 0.0)]
+        assert len(tip_arcs) == 1, f"齿顶弧应 1 段, 实得 {len(tip_arcs)}"
+        idx = segs.index(tip_arcs[0])
+
+        def _arc_pt(s, at_end):
+            a = s.a1 if at_end else s.a0
+            return (s.center[0] + s.radius * math.cos(a),
+                    s.center[1] + s.radius * math.sin(a))
+
+        # 圆角→齿顶弧 两连接点: 解析双圆切线精确连续 (tol 1e-6)
+        assert abs(_ang_norm(_tangent_angle(segs, idx - 1, True)
+                             - _tangent_angle(segs, idx, False))) < 1e-6
+        assert abs(_ang_norm(_tangent_angle(segs, idx, True)
+                             - _tangent_angle(segs, idx + 1, False))) < 1e-6
+        # 圆角终点在齿顶圆上 (半径 r_a)
+        tl = _arc_pt(segs[idx - 1], True)
+        tr = _arc_pt(segs[idx + 1], False)
+        assert abs(math.hypot(*tl) - r_a) < 1e-9
+        assert abs(math.hypot(*tr) - r_a) < 1e-9
+        # 齿面→圆角 衔接: 齿面为采样 polyline, 离散化容差 (1e-2)
+        assert abs(_ang_norm(_tangent_angle(segs, idx - 2, True)
+                             - _tangent_angle(segs, idx - 1, False))) < 1e-2
+        assert abs(_ang_norm(_tangent_angle(segs, idx + 1, True)
+                             - _tangent_angle(segs, idx + 2, False))) < 1e-2
+        # 采样不越界
+        boundary = sample_profile_points(p)
+        r_f = p.root_radius()
+        for x, y in boundary:
+            r = math.hypot(x, y)
+            assert r_f - 1e-6 <= r <= r_a + 1e-6, f"采样点半径 {r} 越界"
+
+    def test_tip_round_zero_change_when_none(self):
+        """默认 tip_mode='none' 输出与 T01 golden 逐点一致 (零变化)."""
+        from core.workpiece.profile import tooth_segments
+        p = GearParams(m_n=1.0, z_w=32, b_w=20.0)  # tip_mode 默认 none
+        canon = [_canon_seg(s) for s in tooth_segments(p, 0)]
+        assert len(canon) == len(GOLDEN_DEFAULT_TOOTH_0)
+        for a, b in zip(canon, GOLDEN_DEFAULT_TOOTH_0):
+            assert _seg_close(a, b), f"tip_mode=none 默认路径漂移:\n  {a}\n  {b}"
+
+    def test_tip_round_oversize_converges(self):
+        """ρ*_tip 过大 → 收敛到可容纳上限 (采样点仍不越界)."""
+        from core.workpiece.profile import tooth_segments
+        p = GearParams(m_n=1.0, z_w=32, b_w=20.0, tip_mode="round", rho_tip=5.0)
+        segs = tooth_segments(p, 0)  # 不抛错, 收敛
+        assert segs
+        boundary = sample_profile_points(p)
+        r_f, r_a = p.root_radius(), p.tip_radius()
+        for x, y in boundary:
+            r = math.hypot(x, y)
+            assert r_f - 1e-6 <= r <= r_a + 1e-6, f"收敛后采样点半径 {r} 越界"
+
+
+# ── T03: 齿顶倒角 (tip_mode='chamfer', 45° 沿齿面量取) ───────────────
+
+class TestTipChamfer:
+    """T03 齿顶倒角: 45° 直线段, 齿面/齿顶截断, 采样不越界, 镜像对称."""
+
+    def test_chamfer_present_45deg_no_overshoot(self):
+        """tip_mode='chamfer' c=0.05 (可行值): 齿顶弧两侧为倒角直线, 与齿面切线 45°, 采样不越界."""
+        from core.workpiece.profile import Arc, Polyline, tooth_segments
+        p = GearParams(m_n=1.0, z_w=32, b_w=20.0, tip_mode="chamfer", chamfer_tip=0.05)
+        segs = tooth_segments(p, 0)
+        r_a = p.tip_radius()
+        tip_arcs = [s for s in segs if isinstance(s, Arc)
+                    and abs(s.radius - r_a) < 1e-9 and s.center == (0.0, 0.0)]
+        assert len(tip_arcs) == 1, f"齿顶弧应 1 段, 实得 {len(tip_arcs)}"
+        idx = segs.index(tip_arcs[0])
+        # 齿顶弧两侧应为倒角直线段 (Polyline 2 点)
+        assert isinstance(segs[idx - 1], Polyline) and len(segs[idx - 1].points) == 2
+        assert isinstance(segs[idx + 1], Polyline) and len(segs[idx + 1].points) == 2
+        # 倒角线与齿面切线成 45° (齿面为采样 polyline, 离散化容差 1e-2)
+        for j in (idx - 1, idx + 1):
+            cham = segs[j]
+            c_dir = math.atan2(cham.points[1][1] - cham.points[0][1],
+                               cham.points[1][0] - cham.points[0][0])
+            flank = segs[j - 1 if j < idx else j + 1]
+            if j < idx:
+                f_dir = math.atan2(flank.points[-1][1] - flank.points[-2][1],
+                                   flank.points[-1][0] - flank.points[-2][0])
+            else:
+                f_dir = math.atan2(flank.points[1][1] - flank.points[0][1],
+                                   flank.points[1][0] - flank.points[0][0])
+            assert abs(abs(_ang_norm(c_dir - f_dir)) - math.pi / 4.0) < 1e-2, \
+                f"倒角线与齿面切线夹角 {abs(_ang_norm(c_dir - f_dir)):.4f} ≠ 45°"
+        # 采样不越界 + 镜像对称
+        boundary = sample_profile_points(p)
+        r_f = p.root_radius()
+        for x, y in boundary:
+            r = math.hypot(x, y)
+            assert r_f - 1e-6 <= r <= r_a + 1e-6, f"采样点半径 {r} 越界"
+        orig = {(round(x, 7), round(y, 7)) for x, y in boundary}
+        refl = {(round(x, 7), round(-y, 7)) for x, y in boundary}
+        assert not (refl - orig), "倒角破坏镜像对称"
+
+    def test_chamfer_oversize_converges(self):
+        """c 过大 → 收敛到最大可行值 (采样点仍不越界, 不抛错)."""
+        from core.workpiece.profile import tooth_segments, tip_chamfer_actual_mm
+        p = GearParams(m_n=1.0, z_w=32, b_w=20.0, tip_mode="chamfer", chamfer_tip=3.0)
+        actual = tip_chamfer_actual_mm(p)
+        assert 0 < actual < 3.0, f"c=3.0 应收敛到 (0, 3.0), 实得 {actual}"
+        segs = tooth_segments(p, 0)
+        assert segs
+        boundary = sample_profile_points(p)
+        r_f, r_a = p.root_radius(), p.tip_radius()
+        for x, y in boundary:
+            r = math.hypot(x, y)
+            assert r_f - 1e-6 <= r <= r_a + 1e-6, f"收敛后采样点半径 {r} 越界"
+
+    def test_chamfer_zero_change_when_none(self):
+        """默认 tip_mode='none' 输出与 golden 逐点一致 (倒角不影响默认)."""
+        from core.workpiece.profile import tooth_segments
+        p = GearParams(m_n=1.0, z_w=32, b_w=20.0)
+        canon = [_canon_seg(s) for s in tooth_segments(p, 0)]
+        assert len(canon) == len(GOLDEN_DEFAULT_TOOTH_0)
+        for a, b in zip(canon, GOLDEN_DEFAULT_TOOTH_0):
+            assert _seg_close(a, b), f"默认路径漂移:\n  {a}\n  {b}"
 
 
 # ── 体积 ─────────────────────────────────────────────────────────────
