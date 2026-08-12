@@ -17,6 +17,7 @@ if (!window.electronAPI) {
     onMaximizeChange: vi.fn(),
     // 齿轮规格独立窗口
     openSpecWindow: vi.fn(),
+    closeSpecWindow: vi.fn(),
     getSpecData: vi.fn(),
     onSpecData: vi.fn(),
   }

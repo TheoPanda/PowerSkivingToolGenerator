@@ -2,11 +2,12 @@
 /**
  * SpecTable.vue — 齿轮规格表（只读）
  *
- * 分「输入参数 / 解算结果」两组；行选中 + 复制按钮 → Tab 分隔文本（参数名\t值 每行）。
+ * 按参数语义分组（基本参数/齿形系数/分度圆几何/直径/齿厚/齿高与圆角），而非输入/输出；
+ * 行选中 + 复制按钮 → Tab 分隔文本（参数名\t值 每行）。
  * 表头 el-tooltip 解释参数定义/计算依据（内置静态词条，来源设计书第3章参数字典）。
  * 数值格式：单位 mm 保留 3 位、角度保留 1 位、无单位整型原样。
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { ParamRow, ParamTableSpec } from '../api'
 
@@ -50,15 +51,33 @@ const TERMS: Record<string, string> = {
   k_teeth: '公法线跨齿数 k',
   M: '跨棒距 M（mm）',
   d_p: '量棒直径 dp（mm）',
+  tip_mode: '齿顶处理（round 圆角 / chamfer 倒角 / none 锐角）',
+  chamfer_tip: '齿顶倒角系数 c*_tip（tip_mode=chamfer 时生效）',
+  chamfer_actual: '齿顶倒角实际尺寸 c*_tip·mn（C×45°）',
+  d_rim: '齿圈外径（内齿轮环形实体外边界，有效值）',
 }
 
-/** 行/选中 Key（组合输入与输出）. */
+/**
+ * 规格表语义分组（按参数含义，而非输入/输出）。
+ * 键集覆盖 backend/core/workpiece/spec.py 全量 inputs/outputs；未命中键落入「其他参数」兜底组。
+ */
+const GROUP_DEFS: ReadonlyArray<{ name: string; keys: ReadonlyArray<string> }> = [
+  { name: '基本参数', keys: ['m_n', 'z_w', 'alpha_n_deg', 'beta_w_deg', 'j_w', 'k_io', 'b_w', 'x_w', 'tooth_method'] },
+  { name: '齿形系数', keys: ['h_an', 'c_n', 'rho_f', 'rho_tip', 'root_fillet', 'tip_mode', 'chamfer_tip'] },
+  { name: '分度圆几何', keys: ['d_pw', 'm_t', 'alpha_t_deg', 'p_t'] },
+  { name: '直径', keys: ['d_a', 'd_f', 'd_b', 'd_rim'] },
+  { name: '齿厚', keys: ['s_t', 's_n', 's_t_chord', 's_n_chord'] },
+  { name: '齿高与圆角', keys: ['h_a', 'h_f', 'h', 'rho_f_actual', 'rho_tip_actual', 'chamfer_actual'] },
+]
+const FALLBACK_GROUP = '其他参数'
+
+/** 行/选中 Key（参数 key 在 inputs/outputs 间唯一，可直接作选中标识）. */
 type RowKey = string
 const selectedKey = ref<RowKey | null>(null)
 
 /** 当前选中行的参数名（用于复制）. */
 function selectRow(row: RowLike): void {
-  selectedKey.value = rowKey(row)
+  selectedKey.value = row.key
 }
 /** 布尔开关显示为「开/关」，数值原样字符串化. */
 function valStr(value: number | boolean): string {
@@ -78,21 +97,29 @@ interface RowLike {
   symbol: string
   value: number | boolean
   unit: string
-  group: 'input' | 'output'
 }
-const allRows = (): RowLike[] => [
-  ...props.params.inputs.map((r) => ({ ...r, group: 'input' as const })),
-  ...props.params.outputs.map((r) => ({ ...r, group: 'output' as const })),
-]
+const allRows = (): RowLike[] => [...props.params.inputs, ...props.params.outputs]
 
-function rowKey(r: RowLike): RowKey {
-  return `${r.group}:${r.key}`
-}
+/** 按语义分组（GROUP_DEFS 顺序）；空组跳过；未命中键进「其他参数」兜底组，保证不丢参数. */
+const groupedRows = computed<Array<{ name: string; rows: RowLike[] }>>(() => {
+  const groups = GROUP_DEFS.map((g) => ({ name: g.name, rows: [] as RowLike[] }))
+  const keyToGroup = new Map<string, number>()
+  GROUP_DEFS.forEach((g, i) => g.keys.forEach((k) => keyToGroup.set(k, i)))
+  const fallback: RowLike[] = []
+  for (const r of allRows()) {
+    const gi = keyToGroup.get(r.key)
+    if (gi === undefined) fallback.push(r)
+    else groups[gi].rows.push(r)
+  }
+  const out = groups.filter((g) => g.rows.length > 0)
+  if (fallback.length > 0) out.push({ name: FALLBACK_GROUP, rows: fallback })
+  return out
+})
 
 /** 复制选中行（Tab 分隔：参数名\t值 每行）. */
 async function copySelected(): Promise<void> {
   const rows = allRows()
-  const target = rows.find((r) => rowKey(r) === selectedKey.value)
+  const target = rows.find((r) => r.key === selectedKey.value)
   if (!target) {
     ElMessage.warning('请先选中一行')
     return
@@ -133,25 +160,27 @@ function term(key: string): string {
       </div>
     </div>
 
-    <!-- 输入参数 -->
-    <div v-if="props.params.inputs.length" class="spec-group">
-      <div class="spec-group-title">输入参数</div>
-      <table class="spec-rows">
-        <thead>
-          <tr>
-            <th class="th-sec"></th>
-            <th class="th-sym">符号</th>
-            <th class="th-name">名称</th>
-            <th class="th-val">数值</th>
+    <!-- 参数按语义分组展示（非输入/输出）；单表 + 组标题行 → 跨组列纵向对齐 -->
+    <table class="spec-rows">
+      <thead>
+        <tr>
+          <th class="th-sec"></th>
+          <th class="th-sym">符号</th>
+          <th class="th-name">名称</th>
+          <th class="th-val">数值</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template v-for="group in groupedRows" :key="group.name">
+          <tr class="spec-group-row">
+            <td colspan="4" class="spec-group-title">{{ group.name }}</td>
           </tr>
-        </thead>
-        <tbody>
           <tr
-            v-for="r in props.params.inputs"
-            :key="rowKey({ ...r, group: 'input' })"
-            :class="{ 'row-selected': selectedKey === rowKey({ ...r, group: 'input' }) }"
+            v-for="r in group.rows"
+            :key="r.key"
+            :class="{ 'row-selected': selectedKey === r.key }"
             class="spec-row"
-            @click="selectRow({ ...r, group: 'input' })"
+            @click="selectRow(r)"
           >
             <td class="td-sec"></td>
             <td class="td-sym">
@@ -162,42 +191,9 @@ function term(key: string): string {
             <td class="td-name">{{ r.label }}</td>
             <td class="td-val">{{ fmt(r.value, r.unit) }}</td>
           </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- 解算结果 -->
-    <div v-if="props.params.outputs.length" class="spec-group">
-      <div class="spec-group-title">解算结果</div>
-      <table class="spec-rows">
-        <thead>
-          <tr>
-            <th class="th-sec"></th>
-            <th class="th-sym">符号</th>
-            <th class="th-name">名称</th>
-            <th class="th-val">数值</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="r in props.params.outputs"
-            :key="rowKey({ ...r, group: 'output' })"
-            :class="{ 'row-selected': selectedKey === rowKey({ ...r, group: 'output' }) }"
-            class="spec-row"
-            @click="selectRow({ ...r, group: 'output' })"
-          >
-            <td class="td-sec"></td>
-            <td class="td-sym">
-              <el-tooltip :content="term(r.key)" placement="top">
-                <span class="sym">{{ r.symbol || r.key }}</span>
-              </el-tooltip>
-            </td>
-            <td class="td-name">{{ r.label }}</td>
-            <td class="td-val">{{ fmt(r.value, r.unit) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+        </template>
+      </tbody>
+    </table>
   </div>
 </template>
 
@@ -228,13 +224,16 @@ function term(key: string): string {
   padding: 5px 12px;
   font-size: 12px;
 }
-.spec-group-title {
+/* 组标题行（单表内 colspan 全宽；收敛为浅灰小节标签，醒目度让给列头） */
+.spec-group-row td.spec-group-title {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--brand-blue, #0060a0);
-  padding-bottom: 4px;
+  font-weight: 500;
+  color: var(--brand-text-secondary, #5c6b7a);
+  padding: 8px 6px 4px;
   border-bottom: 1px solid var(--brand-border-light, #e4e9ef);
-  margin-bottom: 4px;
+}
+.spec-group-row:first-of-type td.spec-group-title {
+  padding-top: 4px;
 }
 .spec-rows {
   width: 100%;
@@ -242,12 +241,20 @@ function term(key: string): string {
   font-size: 12px;
 }
 .spec-rows thead {
-  color: var(--brand-text-secondary, #5c6b7a);
+  color: var(--brand-blue, #0060a0);
 }
 .spec-rows th {
   text-align: left;
-  font-weight: 500;
+  font-weight: 600;
   padding: 3px 6px;
+}
+.spec-rows th.th-val {
+  text-align: right; /* 「数值」表头与下方数值右对齐 */
+}
+/* 左侧留白列：组标题坐左栏，列头/数据靠右 → 组标题与列头错开 */
+.spec-rows th.th-sec,
+.spec-row td.td-sec {
+  width: 80px;
 }
 .spec-row {
   cursor: pointer;

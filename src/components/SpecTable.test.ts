@@ -1,6 +1,6 @@
 /**
  * SpecTable — 单元测试
- * 断言：行数（输入 + 输出）、行点击选中、「复制全部」输出 Tab 分隔文本（参数名\t值 每行）.
+ * 断言：行数（全量参数）、语义分组标题、行点击选中、「复制全部」输出 Tab 分隔文本（参数名\t值 每行）.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { mount, type VueWrapper } from '@vue/test-utils'
@@ -22,16 +22,17 @@ describe('SpecTable', () => {
     }
   })
 
-  it('渲染输入 + 输出两组，行数等于 spec 行数', () => {
+  it('按语义分组渲染，行数等于 spec 行数', () => {
     const spec = mockSpec()
     const wrapper = mountTable()
-    const inputRows = spec.params.inputs.length
-    const outputRows = spec.params.outputs.length
     const total = wrapper.findAll('.spec-rows tbody tr.spec-row').length
-    expect(total).toBe(inputRows + outputRows)
-    // 两组标题
-    expect(wrapper.text()).toContain('输入参数')
-    expect(wrapper.text()).toContain('解算结果')
+    expect(total).toBe(spec.params.inputs.length + spec.params.outputs.length)
+    // 语义分组标题（不再按输入/输出分组）
+    const titles = wrapper.findAll('.spec-group-title').map((n) => n.text())
+    expect(titles).toContain('基本参数')
+    expect(titles).toContain('齿厚')
+    expect(titles).not.toContain('输入参数')
+    expect(titles).not.toContain('解算结果')
   })
 
   it('点击行 → 选中态高亮', async () => {

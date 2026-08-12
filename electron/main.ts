@@ -86,6 +86,7 @@ function openSpecWindow(spec: SpecPayload): void {
     title: '齿轮规格',
     parent: mainWindow ?? undefined,
     autoHideMenuBar: true, // 默认不显示 File 等菜单栏
+    frame: false,          // 自绘标题栏（软件 logo，而非 Electron 默认图标），与主窗口一致
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -131,6 +132,9 @@ ipcMain.handle('spec:open', (_event, spec: SpecPayload) => {
   openSpecWindow(spec)
 })
 ipcMain.handle('spec:getData', () => pendingSpec)
+ipcMain.handle('spec:close', () => {
+  specWindow?.close()
+})
 
 // IPC: 窗口动态扩展——主进程逐帧响应
 ipcMain.handle('window:expand', async () => {

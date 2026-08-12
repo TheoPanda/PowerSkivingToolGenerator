@@ -20,6 +20,11 @@ function applySpec(data: SpecPayload): void {
   spec.value = data
 }
 
+/** 自绘标题栏关闭按钮 → 关闭规格窗口（frame:false，无原生标题栏）. */
+function closeSpec(): void {
+  window.electronAPI?.closeSpecWindow()
+}
+
 onMounted(() => {
   const api = window.electronAPI
   if (!api) {
@@ -35,6 +40,13 @@ onMounted(() => {
 
 <template>
   <div class="spec-window-root">
+    <!-- 自绘标题栏：软件 logo + 标题 + 关闭（frame:false，全栏为拖拽区） -->
+    <header class="spec-titlebar">
+      <img src="/logo.png" alt="logo" class="spec-logo" />
+      <span class="spec-title">齿轮规格</span>
+      <button class="spec-close" title="关闭" @click="closeSpec">×</button>
+    </header>
+
     <div v-if="spec" class="spec-body">
       <div class="spec-drawings">
         <div class="drawing-panel">
@@ -64,6 +76,46 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--brand-bg-page, #f2f5f8);
+}
+/* ======== 自绘标题栏（与主窗口 40px 一致） ======== */
+.spec-titlebar {
+  flex-shrink: 0;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--brand-border, #d0d8e0);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.spec-logo {
+  height: 22px;
+  width: auto;
+  -webkit-app-region: no-drag;
+}
+.spec-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-text, #1a2332);
+}
+.spec-close {
+  margin-left: auto;
+  width: 32px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #555;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.spec-close:hover {
+  background: #e81123;
+  color: white;
 }
 .spec-body {
   flex: 1;

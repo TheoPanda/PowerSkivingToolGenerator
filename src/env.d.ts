@@ -36,6 +36,7 @@ declare global {
       onMaximizeChange: (callback: (maximized: boolean) => void) => void
       // 齿轮规格独立窗口（spec 跨 IPC 缝类型化，架构审查 C5）
       openSpecWindow: (spec: SpecPayload) => Promise<void>
+      closeSpecWindow: () => Promise<void>
       getSpecData: () => Promise<SpecPayload | null>
       onSpecData: (callback: (spec: SpecPayload) => void) => void
     }

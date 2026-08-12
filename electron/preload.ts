@@ -19,6 +19,7 @@ export interface ElectronAPI {
   onMaximizeChange: (callback: (maximized: boolean) => void) => void
   // 齿轮规格独立窗口（spec 跨 IPC 缝类型化，架构审查 C5）
   openSpecWindow: (spec: SpecPayload) => Promise<void>
+  closeSpecWindow: () => Promise<void>
   getSpecData: () => Promise<SpecPayload | null>
   onSpecData: (callback: (spec: SpecPayload) => void) => void
 }
@@ -63,6 +64,9 @@ const electronAPI: ElectronAPI = {
   // 齿轮规格独立窗口
   openSpecWindow: (spec: SpecPayload): Promise<void> => {
     return ipcRenderer.invoke('spec:open', spec)
+  },
+  closeSpecWindow: (): Promise<void> => {
+    return ipcRenderer.invoke('spec:close')
   },
   getSpecData: (): Promise<SpecPayload | null> => {
     return ipcRenderer.invoke('spec:getData')
