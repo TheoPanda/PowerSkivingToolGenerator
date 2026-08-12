@@ -168,12 +168,12 @@ function openSpecWindow(): void {
   position: fixed;
   width: 320px;
   z-index: 16;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid var(--brand-border-light, #e4e9ef);
-  border-radius: 12px;
-  box-shadow: var(--brand-shadow-md, 0 2px 8px rgba(0, 64, 128, 0.12));
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  box-shadow: var(--glass-shadow);
   overflow: hidden;
   color: var(--brand-text, #1a2332);
 }
@@ -185,8 +185,8 @@ function openSpecWindow(): void {
   padding: 0 8px 0 12px;
   cursor: grab;
   user-select: none;
-  border-bottom: 1px solid var(--brand-border-light, #e4e9ef);
-  background: rgba(255, 255, 255, 0.55);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.26);
 }
 .rp-header:active {
   cursor: grabbing;
@@ -257,15 +257,15 @@ function openSpecWindow(): void {
   position: fixed;
   z-index: 16;
   padding: 6px 12px;
-  border: 1px solid var(--brand-border-light, #e4e9ef);
+  border: 1px solid var(--glass-border);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
   color: var(--brand-text, #1a2332);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: var(--brand-shadow-sm, 0 1px 4px rgba(0, 64, 128, 0.14));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.68) 0%, rgba(255, 255, 255, 0.42) 100%);
+  backdrop-filter: var(--glass-blur-sm);
+  -webkit-backdrop-filter: var(--glass-blur-sm);
+  box-shadow: var(--glass-shadow-sm);
   cursor: pointer;
   transition: color 0.15s var(--brand-transition-smooth, cubic-bezier(0.22, 0.61, 0.36, 1)),
               transform 0.15s var(--brand-transition-smooth, cubic-bezier(0.22, 0.61, 0.36, 1));

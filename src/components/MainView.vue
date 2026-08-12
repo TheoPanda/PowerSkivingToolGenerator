@@ -199,12 +199,12 @@ onUnmounted(() => {
   display: flex;
   gap: 2px;
   padding: 3px;
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-radius: 9px;
-  border: 1px solid var(--brand-border);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.42) 100%);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border-radius: 10px;
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-sm);
 }
 
 .render-toggle-btn {
@@ -246,15 +246,18 @@ onUnmounted(() => {
 .welcome-card {
   width: 320px;
   padding: 28px 28px;
-  border-radius: 18px;
+  border-radius: 20px;
   text-align: center;
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
   box-shadow:
-    0 8px 40px rgba(0, 64, 128, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    0 20px 50px rgba(0, 64, 128, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.18),
+    inset 1px 0 0 rgba(255, 255, 255, 0.30),
+    inset -1px 0 0 rgba(255, 255, 255, 0.30);
   transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1),
               opacity 0.45s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -372,11 +375,14 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   padding: 16px 28px;
-  background: rgba(0, 96, 160, 0.08);
-  backdrop-filter: blur(12px);
+  background:
+    radial-gradient(circle at 22% 0%, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, rgba(240, 248, 255, 0.55) 0%, rgba(228, 238, 248, 0.35) 100%);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
   border-radius: 14px;
-  border: 1px solid rgba(0, 96, 160, 0.12);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-sm);
 }
 
 .loading-spinner {

@@ -191,15 +191,13 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
     transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
   margin-bottom: 10px;
 
-  /* 冷灰白玻璃底 */
-  background: rgba(235, 240, 246, 0.75);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  border: none;
-  border-radius: 12px;
-  box-shadow:
-    0 2px 16px rgba(0, 0, 0, 0.06),
-    0 0 0 0.5px rgba(0, 0, 0, 0.04);
+  /* 液态玻璃：径向高光 + 通透渐变底 + 白色描边 + 上缘捕光 */
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  box-shadow: var(--glass-shadow);
   padding: 12px;
 }
 
