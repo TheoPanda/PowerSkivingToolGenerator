@@ -68,12 +68,14 @@ export interface SingleToothSpec {
   annotations: SingleToothAnnotations
 }
 
-/** 整体轮廓四圆半径（mm）：齿顶/齿根/分度/基圆. */
+/** 整体轮廓圆半径（mm）：齿顶/齿根/分度/基圆；内齿轮 (k_io=−1) 另有 rim_radius. */
 export interface OutlineCircles {
   tip_radius: number
   root_radius: number
   pitch_radius: number
   base_radius: number
+  /** 内齿轮环形实体外边界半径（缺省 = 齿根圆 + m_n 轮缘, ADR-015/Q9）. */
+  rim_radius?: number
 }
 
 /** spec.outline = 全齿圈轮廓点位（含逐齿闭合点列供悬停）. */

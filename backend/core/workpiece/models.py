@@ -205,6 +205,7 @@ class GearParams:
     k_teeth: int | None = None # 跨齿数
     M: float | None = None     # 跨棒距 [mm]
     d_p: float | None = None   # 量棒直径 [mm]
+    d_rim: float | None = None  # 齿圈外径 [mm]（仅内齿 k_io=−1 有意义，可选；缺省=齿根圆 d_f, Q1/ADR-015）
 
     def __post_init__(self):
         """校核基本参数合法性."""
@@ -228,6 +229,23 @@ class GearParams:
             raise ValueError(f"tip_mode='{self.tip_mode}' 无效 (应为 none/chamfer/round)")
         if self.chamfer_tip < 0:
             raise ValueError(f"齿顶倒角系数 chamfer_tip={self.chamfer_tip} 必须 ≥ 0")
+
+        # ── 内齿轮 (k_io=−1) 专属校验 (ADR-015/017, spec §4.4) ────────────
+        # ADR-017: 内斜齿 (β_w>0) 已支持 (2026-08-12), 移除原 Q4 直齿守卫;
+        # 螺旋角使 α_t 增大 → cos α_t 减小 → d_b 相对变小 → 下方 Q8 (d_a≥d_b)
+        # 约束放宽 (最小齿数阈值下移), 无需额外 β 阻塞。
+        if self.k_io == -1:
+            if self.tooth_method == "W_k":
+                raise ValueError(
+                    "内齿轮（k_io=−1）不支持公法线 W_k 计量 (Q2)——请改用变位 x_w 或跨棒距 M"
+                )
+            if self.tip_diameter() < 2.0 * self.base_radius() - 1e-9:
+                raise ValueError(
+                    f"内齿轮齿顶圆低于基圆（d_a={self.tip_diameter():.3f} < "
+                    f"d_b={2.0 * self.base_radius():.3f}），渐开线无法到达齿顶——"
+                    f"请增大齿数、减小齿顶高或增大压力角 (Q8)"
+                )
+
         # 齿厚可行性 (K-1.11): s_t < π·m_t, 否则相邻齿重叠 (齿厚/公法线参数物理不可能)
         try:
             _s_t = compute_tooth_thickness(self)
@@ -259,26 +277,47 @@ class GearParams:
         return r_pw * math.cos(math.radians(alpha_t_deg))
 
     def tip_radius(self) -> float:
-        """齿顶圆半径 r_a [mm] (标准齿)."""
+        """齿顶圆半径 r_a [mm] (k_io 感知).
+
+        - 外齿 (+1): r_a = r_pw + h_an·m_n（标准齿，保留既有语义）
+        - 内齿 (−1): r_a = r_pw − (h_an + x_w)·m_n（ISO 负齿数模型，ADR-015；小径）
+        """
         r_pw = self.pitch_radius()
-        # d_a = m_t*z + 2*h_an*m_n → r_a = r_pw + h_an*m_n
-        return r_pw / (self.m_n * self.z_w / 2.0) * self.pitch_radius() + self.h_an * self.m_n
-        # 简化: r_a = m_t*z_w/2 + h_an*m_n
+        if self.k_io == 1:
+            return r_pw / (self.m_n * self.z_w / 2.0) * self.pitch_radius() + self.h_an * self.m_n
+        return r_pw - (self.h_an + self.x_w) * self.m_n
 
     def tip_diameter(self) -> float:
-        """齿顶圆直径 d_a [mm]."""
+        """齿顶圆直径 d_a [mm] (k_io 感知). 内齿为小径."""
         m_t, _ = self.to_transverse()
-        return m_t * self.z_w + 2.0 * self.h_an * self.m_n
+        if self.k_io == 1:
+            return m_t * self.z_w + 2.0 * self.h_an * self.m_n
+        return m_t * self.z_w - 2.0 * (self.h_an + self.x_w) * self.m_n
 
     def root_radius(self) -> float:
-        """齿根圆半径 r_f [mm] (标准齿)."""
+        """齿根圆半径 r_f [mm] (k_io 感知). 内齿为大径."""
         m_t, _ = self.to_transverse()
-        return (m_t * self.z_w - 2.0 * (self.h_an + self.c_n) * self.m_n) / 2.0
+        if self.k_io == 1:
+            return (m_t * self.z_w - 2.0 * (self.h_an + self.c_n) * self.m_n) / 2.0
+        return (m_t * self.z_w + 2.0 * (self.h_an + self.c_n - self.x_w) * self.m_n) / 2.0
 
     def root_diameter(self) -> float:
-        """齿根圆直径 d_f [mm]."""
+        """齿根圆直径 d_f [mm] (k_io 感知). 内齿为大径."""
         m_t, _ = self.to_transverse()
-        return m_t * self.z_w - 2.0 * (self.h_an + self.c_n) * self.m_n
+        if self.k_io == 1:
+            return m_t * self.z_w - 2.0 * (self.h_an + self.c_n) * self.m_n
+        return m_t * self.z_w + 2.0 * (self.h_an + self.c_n - self.x_w) * self.m_n
+
+    def effective_rim_diameter(self) -> float:
+        """有效齿圈外径 [mm] (仅内齿 k_io=−1): 缺省/过小按 d_f + 2·m_n 下限钳制.
+
+        轮缘厚 1×m_n/侧 (Q9): d_rim = d_f 会致环形 face 在齿根处退化无法剖分
+        (T03 探针结论)，故下限保证可构。spec/3D 同源使用本值。
+        """
+        min_rim = self.root_diameter() + 2.0 * self.m_n
+        if self.d_rim is None:
+            return min_rim
+        return max(self.d_rim, min_rim)
 
 @dataclass
 class WorkpieceResult:

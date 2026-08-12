@@ -52,6 +52,8 @@ class GearParamsRequest(BaseModel):
     k_teeth: Optional[int] = None
     M: Optional[float] = None
     d_p: Optional[float] = None
+    # 齿圈外径 [mm]（仅内齿 k_io=−1 有意义，可选；缺省=齿根圆 d_f, ADR-015/Q1）
+    d_rim: Optional[float] = None
 
     @model_validator(mode="after")
     def check_beta_with_j(self):
@@ -90,6 +92,7 @@ class GearParamsRequest(BaseModel):
             k_teeth=self.k_teeth,
             M=self.M,
             d_p=self.d_p,
+            d_rim=self.d_rim,
         )
 
 

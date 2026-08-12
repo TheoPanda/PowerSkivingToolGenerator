@@ -197,6 +197,273 @@ class TestGearParams:
         assert d_f == pytest.approx(expected)
 
 
+class TestInternalGearGeometry:
+    """内齿轮 k_io=−1 — ISO 负齿数模型公式 (ADR-015, spec §4.1)."""
+
+    def test_internal_da_df_formulas(self):
+        """内齿: d_a = z·m_t − 2(h_an+x)m_n (小径), d_f = z·m_t + 2(h_an+c_n−x)m_n (大径), d_a < d_f."""
+        from core.workpiece.models import GearParams
+
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, x_w=0.0)
+        m_t, _ = p.to_transverse()
+        exp_da = p.z_w * m_t - 2.0 * (p.h_an + p.x_w) * p.m_n
+        exp_df = p.z_w * m_t + 2.0 * (p.h_an + p.c_n - p.x_w) * p.m_n
+        assert p.tip_diameter() == pytest.approx(exp_da)
+        assert p.root_diameter() == pytest.approx(exp_df)
+        assert p.tip_diameter() < p.root_diameter()
+
+    def test_internal_radius_methods(self):
+        """内齿半径方法: tip=小径/2, root=大径/2."""
+        from core.workpiece.models import GearParams
+
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, x_w=0.0)
+        assert p.tip_radius() == pytest.approx(p.tip_diameter() / 2.0)
+        assert p.root_radius() == pytest.approx(p.root_diameter() / 2.0)
+        assert p.tip_radius() < p.root_radius()
+
+    def test_internal_full_tooth_height_invariant(self):
+        """全齿高不变量: (d_f−d_a)/2 = 2·h_an + c_n, 随任意 x_w 不漂移."""
+        from core.workpiece.models import GearParams
+
+        for x in (-0.5, 0.0, 0.5):
+            p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, x_w=x)
+            h = (p.root_diameter() - p.tip_diameter()) / 2.0
+            assert h == pytest.approx((2.0 * p.h_an + p.c_n) * p.m_n)
+
+    def test_internal_tooth_thickness_positive_shift(self):
+        """内齿 +x 变厚 (ISO 约定 Q5): s_t(0.5) > s_t(0); 标准齿 x=0: s_t = π·m_t/2."""
+        from core.workpiece.models import GearParams, compute_tooth_thickness
+
+        p_std = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, x_w=0.0)
+        p_pos = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, x_w=0.5)
+        assert compute_tooth_thickness(p_pos) > compute_tooth_thickness(p_std)
+        m_t, _ = p_std.to_transverse()
+        assert compute_tooth_thickness(p_std) == pytest.approx(math.pi * m_t / 2.0)
+
+    def test_internal_m_round_trip(self):
+        """内齿跨棒距往返: x_w → M → x_w 收敛 (M = d_b/cos(α_M) − d_p, 偶数齿).
+
+        ⚠️ T13 未销: inv(α_M)→x 关系式的物理正确性未获独立主源证实,
+        本测试仅锁**内齿 M 分支自洽**（防回归护栏）。研究见
+        docs/research/内齿轮工件几何.md ②开放问题。
+        """
+        from core.workpiece.models import back_solve_x_w_from_M, GearParams
+
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, x_w=0.2)
+        m_t, alpha_t_deg = p.to_transverse()
+        alpha_t = math.radians(alpha_t_deg)
+        alpha_n = math.radians(p.alpha_n_deg)
+
+        d_p = 1.44 * m_t  # 内齿轮推荐量棒径 ≈1.44×m_n
+        d_b = 2.0 * p.base_radius()
+
+        # 正向: inv(α_M) = inv(α_t) + d_p/d_b − π/(2z) + 2x·tan(α_n)/z (与 back_solve 同假定)
+        inv_at = math.tan(alpha_t) - alpha_t
+        inv_aM = inv_at + d_p / d_b - math.pi / (2.0 * p.z_w) + 2.0 * p.x_w * math.tan(alpha_n) / p.z_w
+        aM_guess = alpha_t + 0.2
+        for _ in range(30):
+            f = math.tan(aM_guess) - aM_guess - inv_aM
+            df = math.tan(aM_guess) ** 2
+            aM_guess -= f / df
+            if abs(f) < 1e-14:
+                break
+        alpha_M = aM_guess
+
+        # 内齿轮跨棒距: M = d_b/cos(α_M) − d_p（偶数齿；跨齿槽内量棒之间）
+        M = d_b / math.cos(alpha_M) - d_p
+
+        x_w_solved = back_solve_x_w_from_M(p, M, d_p)
+        assert abs(x_w_solved - 0.2) < 0.02
+
+
+class TestInternalGearProfile:
+    """内齿轮 k_io=−1 — 端面齿廓 (S5, spec §4.2)."""
+
+    def test_internal_profile_tip_small_root_large(self):
+        """内齿廓: 轮廓点 min 半径 ≈ 齿顶小径 d_a/2, max ≈ 齿根大径 d_f/2."""
+        from core.workpiece.models import GearParams
+        from core.workpiece.profile import sample_profile_points
+
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, root_fillet=True)
+        pts = sample_profile_points(p)
+        radii = [math.hypot(x, y) for x, y in pts]
+        assert min(radii) == pytest.approx(p.tip_diameter() / 2.0, rel=1e-6)
+        assert max(radii) == pytest.approx(p.root_diameter() / 2.0, rel=1e-6)
+        assert min(radii) < max(radii)
+
+    def test_internal_no_fillet_arcs(self):
+        """内齿锐顶锐根无圆角段 (Q3): 单齿廓所有弧段圆心在原点, 无 fillet 弧."""
+        from core.workpiece.models import GearParams
+        from core.workpiece.profile import single_tooth_segments, Arc
+
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, root_fillet=True)
+        segs = single_tooth_segments(p)
+        for seg in segs:
+            if isinstance(seg, Arc):
+                assert math.hypot(*seg.center) < 1e-9, f"内齿不应有圆角弧: center={seg.center}"
+
+
+class TestInternalGearGap:
+    """内齿轮齿槽廓形 tooth_gap_segments (ADR-017: Boolean Cut 构造用).
+
+    齿槽（齿间隙）= 相邻两齿之间空隙: 右齿面 + 齿根弧 + 下一齿左齿面 + 齿顶弧。
+    与 single_tooth_segments（齿形）互补铺满 [d_a, d_f] 环带。
+    """
+
+    @staticmethod
+    def _sample(segs, n=24):
+        """段序列 → 去重点列."""
+        from core.workpiece.profile import Arc, Polyline
+        pts: list[tuple[float, float]] = []
+        for seg in segs:
+            if isinstance(seg, Polyline):
+                pts.extend(seg.points)
+            else:
+                cx, cy = seg.center
+                a0, a1 = seg.a0, seg.a1
+                for j in range(n + 1):
+                    ang = a0 + (a1 - a0) * j / n
+                    pts.append((cx + seg.radius * math.cos(ang),
+                                cy + seg.radius * math.sin(ang)))
+        out = [pts[0]]
+        for pt in pts[1:]:
+            if math.dist(out[-1], pt) > 1e-9:
+                out.append(pt)
+        return out
+
+    @staticmethod
+    def _signed_area(pts):
+        s = 0.0
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]):
+            s += x0 * y1 - x1 * y0
+        return s / 2.0
+
+    def test_gap_bounding_radii(self):
+        """齿槽廓形: min 半径 ≈ r_a(小径), max ≈ r_f(大径), min < max."""
+        from core.workpiece.profile import tooth_gap_segments
+        from core.workpiece.models import GearParams
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
+        pts = self._sample(tooth_gap_segments(p, 0))
+        radii = [math.hypot(x, y) for x, y in pts]
+        assert min(radii) == pytest.approx(p.tip_radius(), rel=1e-4)
+        assert max(radii) == pytest.approx(p.root_radius(), rel=1e-4)
+        assert min(radii) < max(radii)
+
+    def test_gap_is_closed_ccw(self):
+        """齿槽廓形闭合且 CCW (有向面积 > 0, 供 MakeFace/Prism 正体积)."""
+        from core.workpiece.profile import tooth_gap_segments
+        from core.workpiece.models import GearParams
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
+        pts = self._sample(tooth_gap_segments(p, 0))
+        assert math.dist(pts[0], pts[-1]) < 1e-9
+        assert self._signed_area(pts) > 0.0
+
+    def test_gap_area_matches_analytic(self):
+        """齿槽面积 = 极坐标解析积分（独立闭式，非对单齿廓取差）.
+
+        齿槽 θ 宽(r) = pitch − 2·half + 2·inv(α_t) − 2·J(r), J(r)=ξ−atan(ξ), ξ=√((r/r_b)²−1):
+          A = (pitch−2·half+2·inv_at)·(r_f²−r_a²)/2 − 2·∫_{r_a}^{r_f} J(r)·r dr
+          ∫J·r dr = r_b²·[ξ³/3 − (ξ²+1)/2·atan(ξ) + ξ/2]
+        """
+        from core.workpiece.profile import (
+            tooth_gap_segments, tooth_thickness_half_angle, involute_phase,
+        )
+        from core.workpiece.models import GearParams
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
+        r_a, r_f, r_b = p.tip_radius(), p.root_radius(), p.base_radius()
+        half = tooth_thickness_half_angle(p)
+        inv_at = involute_phase(p)
+        pitch = 2.0 * math.pi / p.z_w
+
+        def _intJ(r):
+            xi = math.sqrt((r / r_b) ** 2 - 1.0)
+            return r_b ** 2 * (xi ** 3 / 3.0 - (xi ** 2 + 1.0) / 2.0 * math.atan(xi) + xi / 2.0)
+
+        gap_analytic = (pitch - 2.0 * half + 2.0 * inv_at) * (r_f ** 2 - r_a ** 2) / 2.0 \
+            - 2.0 * (_intJ(r_f) - _intJ(r_a))
+        gap_sampled = abs(self._signed_area(self._sample(tooth_gap_segments(p, 0))))
+        assert gap_sampled == pytest.approx(gap_analytic, rel=1e-3)
+
+    def test_gap_area_invariant_across_xw(self):
+        """齿槽面积随 x 变化 (x 大 → 齿厚大 → 齿槽小)."""
+        from core.workpiece.profile import tooth_gap_segments
+        from core.workpiece.models import GearParams
+        p0 = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, x_w=0.0)
+        p5 = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, x_w=0.5)
+        a0 = abs(self._signed_area(self._sample(tooth_gap_segments(p0, 0))))
+        a5 = abs(self._signed_area(self._sample(tooth_gap_segments(p5, 0))))
+        assert a5 < a0
+
+    def test_gap_helical_theta_offset(self):
+        """齿槽廓形带 theta_offset (斜齿截面扭转): 全点绕原点旋转 offset."""
+        from core.workpiece.profile import tooth_gap_segments
+        from core.workpiece.models import GearParams
+        import math as _m
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, beta_w_deg=15.0)
+        off = 0.3
+        pts_off = self._sample(tooth_gap_segments(p, 0, theta_offset=off))
+        pts_0 = self._sample(tooth_gap_segments(p, 0, theta_offset=0.0))
+        ca, sa = _m.cos(off), _m.sin(off)
+        for (x, y) in pts_0:
+            xr, yr = x * ca - y * sa, x * sa + y * ca
+            assert any(_m.hypot(xr - xx, yr - yy) < 1e-6 for xx, yy in pts_off), \
+                f"旋转点 {(xr, yr)} 不在 offset 齿槽上"
+
+
+class TestInternalGearValidation:
+    """内齿轮 k_io=−1 — __post_init__ 校验 (Q8/Q4/Q2/Q1, spec §4.4)."""
+
+    def test_internal_da_below_base_rejected(self):
+        """d_a < d_b（齿顶落入基圆内，渐开线无法到达）→ ValueError (Q8)."""
+        from core.workpiece.models import GearParams
+
+        with pytest.raises(ValueError, match="齿顶"):
+            GearParams(m_n=2.0, z_w=20, b_w=20.0, k_io=-1)
+
+    def test_internal_helical_accepts(self):
+        """内斜齿 β_w>0 现已支持 (ADR-017, 替代 Q4 阻塞)."""
+        from core.workpiece.models import GearParams
+
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, beta_w_deg=15.0)
+        assert p.beta_w_deg == 15.0
+        # 端面参数随 β 换算 (m_t/α_t)
+        m_t, alpha_t = p.to_transverse()
+        assert m_t > p.m_n
+        assert alpha_t > p.alpha_n_deg
+
+    def test_internal_helical_q8_beta_aware(self):
+        """Q8 (d_a ≥ d_b) β 感知: 高 β 下 α_t 增大 → cos α_t 减小 → d_b 相对变小,
+        最小齿数阈值下移. 例: z=28, β=0 阻塞; β=30 放行 (ADR-017 共享理解 G10)."""
+        from core.workpiece.models import GearParams
+
+        with pytest.raises(ValueError, match="齿顶"):
+            GearParams(m_n=2.0, z_w=28, b_w=20.0, k_io=-1, beta_w_deg=0.0)
+        p = GearParams(m_n=2.0, z_w=28, b_w=20.0, k_io=-1, beta_w_deg=30.0)
+        m_t, alpha_t_deg = p.to_transverse()
+        d_a = p.tip_diameter()
+        d_b = p.z_w * m_t * math.cos(math.radians(alpha_t_deg))
+        assert d_a >= d_b, f"β=30 时 d_a={d_a} 应 ≥ d_b={d_b}"
+
+    def test_internal_w_k_rejected(self):
+        """内齿 tooth_method=W_k → ValueError (Q2)."""
+        from core.workpiece.models import GearParams
+
+        with pytest.raises(ValueError, match="公法线"):
+            GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1,
+                       tooth_method="W_k", W_k=100.0, k_teeth=3)
+
+    def test_internal_d_rim_clamped_to_minimum(self):
+        """内齿 d_rim 过小/缺省 → 有效值钳制到 d_f + 2·m_n; 够大则原值 (Q9)."""
+        from core.workpiece.models import GearParams
+
+        p_small = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, d_rim=160.0)
+        assert p_small.effective_rim_diameter() == pytest.approx(p_small.root_diameter() + 2.0 * p_small.m_n)
+        p_none = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
+        assert p_none.effective_rim_diameter() == pytest.approx(p_none.root_diameter() + 2.0 * p_none.m_n)
+        p_big = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1, d_rim=180.0)
+        assert p_big.effective_rim_diameter() == pytest.approx(180.0)
+
+
 class TestWorkpieceResult:
     """WorkpieceResult 数据类"""
 

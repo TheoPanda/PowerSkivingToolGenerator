@@ -12,6 +12,8 @@ test_workpiece.TestCrossRepresentationConsistency 把守。
 坐标约定 (U13): 齿中心线在 tooth_center = i·2π/z_w, 边界 CCW 遍历。
 K-1.13: 左齿面 = 渐开线模板旋转, 右齿面 = 模板镜像后旋转;
 放置角 ∓(half_tooth_angle + inv(α_t)) 使节圆处齿面极角恰为 ∓half_tooth_angle。
+内齿 (k_io=−1, ADR-016): 手性互补——左齿面镜像/右齿面原模板, 放置角
+∓(half_tooth_angle − inv(α_t)); 齿宽半角 ψ(r)=half−inv(α_t)+inv(α_r) 向齿根变宽。
 K-1.12 (方案 A): r_b > r_f 时齿根圆角必构, ρ_f = ρ*_f·m_n, 双切
 (齿根圆 + 渐开线) 一维搜索定圆心; 渐开线自圆角切点 ξ_f 起始。
 
@@ -719,8 +721,15 @@ def _tooth_open_segments(
     inv_at = involute_phase(p)
 
     tooth_center = i_tooth * pitch_angle + theta_offset
-    left_angle = tooth_center - half - inv_at
-    right_angle = tooth_center + half + inv_at
+    if p.k_io == -1:
+        # ADR-016 内齿: 材料在齿面外侧, 齿宽半角 ψ(r)=half−inv(α_t)+inv(α_r)
+        # (向齿根/大径变宽, 与外齿齿槽互补)——左齿面用镜像模板、右齿面用原模板,
+        # 放置角 ∓(half − inv(α_t)); 外齿路径零变化。
+        left_angle = tooth_center - half + inv_at
+        right_angle = tooth_center + half - inv_at
+    else:
+        left_angle = tooth_center - half - inv_at
+        right_angle = tooth_center + half + inv_at
 
     cos_la, sin_la = math.cos(left_angle), math.sin(left_angle)
     cos_ra, sin_ra = math.cos(right_angle), math.sin(right_angle)
@@ -730,7 +739,10 @@ def _tooth_open_segments(
     # ADR-014: 齿根圆角开关。root_fillet=False 时跳过双切求解 (锐齿根)。
     # solve_root_fillet 已支持 r_b<=r_f (无根切高齿数: 齿面-齿根圆连接角圆角);
     # 深齿根无双切解时抛 ValueError → 回退径向连接线 (方案 B/T13 未销项)。
-    if p.root_fillet:
+    # ADR-015/Q3: 内齿轮 (k_io=−1) v1 禁用修饰——锐齿根，不求解双切圆角
+    # (内齿齿根在外侧大径，双切构造未验证)。
+    wants_fillet = p.k_io != -1 and p.root_fillet
+    if wants_fillet:
         try:
             fil = solve_root_fillet(p)
         except ValueError:
@@ -750,8 +762,13 @@ def _tooth_open_segments(
         for i in range(n_involute + 1)
     ]
 
-    left_pts = tuple(_rot(pt, cos_la, sin_la) for pt in template)
-    right_pts = tuple(_rot((pt[0], -pt[1]), cos_ra, sin_ra) for pt in template)
+    if p.k_io == -1:
+        # 内齿手性互补: 左齿面镜像模板 (极角 −inv(α_r)), 右齿面原模板 (+inv(α_r))
+        left_pts = tuple(_rot((pt[0], -pt[1]), cos_la, sin_la) for pt in template)
+        right_pts = tuple(_rot(pt, cos_ra, sin_ra) for pt in template)
+    else:
+        left_pts = tuple(_rot(pt, cos_la, sin_la) for pt in template)
+        right_pts = tuple(_rot((pt[0], -pt[1]), cos_ra, sin_ra) for pt in template)
 
     left_tip_ang = math.atan2(left_pts[-1][1], left_pts[-1][0])
     right_tip_ang = _ccw_unwrap(left_tip_ang, math.atan2(right_pts[-1][1], right_pts[-1][0]))
@@ -769,13 +786,14 @@ def _tooth_open_segments(
 
     # T02/T03 (ADR-014): 齿顶处理。默认 tip_mode='none' 走原路径零变化;
     # round/chamfer 由 _tip_*_middle 返回中间段, 无解时回退锐齿顶。
+    # ADR-015/Q3: 内齿轮 (k_io=−1) v1 禁用修饰——锐齿顶。
     tip_middle: list[Segment] | None = None
-    if p.tip_mode == "round" and p.rho_tip > 0:
+    if p.k_io == 1 and p.tip_mode == "round" and p.rho_tip > 0:
         tip_middle = _tip_round_middle(
             p, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
             cos_la, sin_la, cos_ra, sin_ra,
         )
-    elif p.tip_mode == "chamfer" and p.chamfer_tip > 0:
+    elif p.k_io == 1 and p.tip_mode == "chamfer" and p.chamfer_tip > 0:
         tip_middle = _tip_chamfer_middle(
             p, r_b, r_a, xi_start, xi_end, left_pts, right_pts,
             cos_la, sin_la, cos_ra, sin_ra,
@@ -959,6 +977,58 @@ def single_tooth_segments(
         )))
 
     return segs
+
+
+def tooth_gap_segments(
+    p: GearParams,
+    i_tooth: int,
+    n_involute: int = 40,
+    theta_offset: float = 0.0,
+) -> list[Segment]:
+    """内齿轮 (k_io=−1) 齿槽（齿间隙）闭合廓形段 — Boolean Cut 构造内斜齿用 (ADR-017).
+
+    齿槽 = 相邻两齿之间的空隙，与 single_tooth_segments（齿形）互补铺满 [d_a, d_f] 环带:
+      [右齿面(齿 i, tip→root), 齿根弧 r_f, 左齿面(齿 i+1, root→tip), 齿顶弧 r_a (CW)]
+    整体遍历 CCW（有向面积 > 0）→ MakeFace/Prism 得正体积实体。
+
+    通过复用 _tooth_open_segments 的齿面/齿根弧，保证齿槽边界与既有齿形
+    逐点一致（同源）：右齿面 = 齿 i 的右齿面 (原模板), 左齿面 = 齿 i+1 的左齿面
+    (镜像模板), 齿根弧 = 齿 i 连接弧, 齿顶弧 = 两齿面齿顶之间的 CW 短弧。
+
+    Args:
+        p: 齿轮参数（k_io=−1）
+        i_tooth: 齿槽序号（齿 i 与齿 i+1 之间）
+        n_involute: 每侧齿面采样点数
+        theta_offset: 绕 Z 轴额外旋转角 [rad]（斜齿轮截面扭转）
+
+    Returns:
+        段列表, 首尾闭合。若齿根在基圆内 (r_f<r_b) 无单段齿根弧则抛 ValueError
+        （内齿轮正常参数 r_f>r_b, 该情形 Q8/极负变位下由校验兜底）。
+    """
+    z_w = p.z_w
+    r_a = p.tip_radius()
+
+    # segs_i = [Polyline(left_pts), Arc(r_a, left_tip_i, right_tip_i),
+    #           Polyline(reversed(right_pts))]; conn_i[0] = 齿根弧 (r_f)
+    segs_i, conn_i, *_ = _tooth_open_segments(p, i_tooth, n_involute, theta_offset)
+    segs_n, *_ = _tooth_open_segments(p, (i_tooth + 1) % z_w, n_involute, theta_offset)
+
+    right_flank = segs_i[2]      # 齿 i 右齿面 (tip→root, 原模板)
+    root_arc = conn_i[0]         # 齿根弧 r_f: 齿 i 右齿根 → 齿 i+1 左齿根 (CCW)
+    left_flank_next = segs_n[0]  # 齿 i+1 左齿面 (root→tip, 镜像模板)
+
+    if not isinstance(root_arc, Arc):
+        raise ValueError(
+            f"内齿轮齿槽构造要求 r_f≥r_b 单段齿根弧 (k_io=−1, r_f={p.root_radius():.3f}, "
+            f"r_b={p.base_radius():.3f})"
+        )
+
+    # 齿顶弧 (CW 短弧): 齿 i+1 左齿面齿顶 → 齿 i 右齿面齿顶
+    a0 = segs_n[1].a0            # left_tip_{i+1}
+    a1 = segs_i[1].a1            # right_tip_i
+    tip_arc = Arc(r_a, a0, _cw_unwrap(a0, a1), clockwise=True)
+
+    return [right_flank, root_arc, left_flank_next, tip_arc]
 
 
 def _arc_samples(arc: Arc, n: int) -> list[tuple[float, float]]:

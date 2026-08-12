@@ -20,11 +20,16 @@ from OCP.gp import gp_Ax2, gp_Pnt, gp_Dir
 from core.workpiece.builder import GearModel
 
 
-def _extract_boundary_cycle(
+def _extract_boundary_cycles(
     o_nodes: list[tuple[float, float]],
     o_triangles: list[tuple[int, int, int]],
-) -> list[int]:
-    """从 triangulation 提取外边界顶点索引 (CCW 序)."""
+) -> list[list[int]]:
+    """从 triangulation 提取全部边界环索引 (外边界 CCW + 孔边界 CW).
+
+    内齿轮环形 face 有两条边界 (外 rim + 内齿孔)，侧壁需各自构建。
+    定向: 面积最大环 = 外边界 → CCW; 其余 (孔) → CW。侧壁法向 (dy,−dx)
+    对二者均指离料 (外壁外指, 内壁指向孔心)。
+    """
     edge_count: dict[tuple[int, int], int] = {}
     for a, b, c in o_triangles:
         for u, v in ((a, b), (b, c), (c, a)):
@@ -33,35 +38,49 @@ def _extract_boundary_cycle(
 
     boundary_edges = {k for k, c in edge_count.items() if c == 1}
     if not boundary_edges:
-        return list(range(len(o_nodes)))
+        return [list(range(len(o_nodes)))]
 
     adj: dict[int, list[int]] = {}
     for u, v in boundary_edges:
         adj.setdefault(u, []).append(v)
         adj.setdefault(v, []).append(u)
 
-    start = next(iter(adj))
-    cycle = [start]
-    visited = {start}
-    cur = start
-    while True:
-        nxt = [v for v in adj[cur] if v not in visited or (v == start and len(cycle) > 2)]
-        if not nxt:
-            break
-        cur = nxt[0]
-        if cur == start:
-            break
-        visited.add(cur)
-        cycle.append(cur)
+    cycles: list[list[int]] = []
+    unvisited = set(adj.keys())
+    while unvisited:
+        start = unvisited.pop()
+        cycle = [start]
+        visited = {start}
+        cur = start
+        while True:
+            nxt = [v for v in adj[cur] if v not in visited or (v == start and len(cycle) > 2)]
+            if not nxt:
+                break
+            cur = nxt[0]
+            if cur == start:
+                break
+            visited.add(cur)
+            cycle.append(cur)
+            unvisited.discard(cur)
+        cycles.append(cycle)
 
-    area2 = 0.0
-    for i in range(len(cycle)):
-        x0, y0 = o_nodes[cycle[i]]
-        x1, y1 = o_nodes[cycle[(i + 1) % len(cycle)]]
-        area2 += x0 * y1 - x1 * y0
-    if area2 < 0:
-        cycle.reverse()
-    return cycle
+    def _signed2(cyc: list[int]) -> float:
+        return sum(
+            o_nodes[cyc[i]][0] * o_nodes[cyc[(i + 1) % len(cyc)]][1]
+            - o_nodes[cyc[(i + 1) % len(cyc)]][0] * o_nodes[cyc[i]][1]
+            for i in range(len(cyc))
+        )
+
+    ranked = sorted(cycles, key=lambda c: abs(_signed2(c)), reverse=True)
+    outer = ranked[0]
+    if _signed2(outer) < 0:
+        outer.reverse()
+    result = [outer]
+    for cyc in ranked[1:]:
+        if _signed2(cyc) > 0:
+            cyc.reverse()  # 孔 → CW
+        result.append(cyc)
+    return result
 
 
 def _tessellate_face(face, deflection: float):
@@ -97,9 +116,9 @@ def _rotate_nodes(nodes, angle: float):
 
 
 def _build_spur_mesh(model: GearModel, deflection: float):
-    """直齿轮: 端面 + 侧壁直拉伸."""
+    """直齿轮: 端面 + 侧壁直拉伸 (外齿轮 1 条边界; 内齿轮环形 2 条边界外壁+内齿壁)."""
     nodes, triangles, ccw = _tessellate_face(model.cap_face, deflection)
-    boundary = _extract_boundary_cycle(nodes, triangles)
+    boundaries = _extract_boundary_cycles(nodes, triangles)
     n_nodes = len(nodes)
 
     top_order = (lambda a, b, c: (a, c, b)) if ccw else (lambda a, b, c: (a, b, c))
@@ -122,42 +141,50 @@ def _build_spur_mesh(model: GearModel, deflection: float):
     for a, b, c in triangles:
         indices.extend(btm_order(bottom_start + a, bottom_start + b, bottom_start + c))
 
+    # 侧壁: 每条边界环各自构建 (外齿轮 1 环; 内齿轮 外 rim 环 + 内齿廓环)
     wall_start = 2 * n_nodes
-    for idx in range(len(boundary)):
-        i = boundary[idx]
-        j = boundary[(idx + 1) % len(boundary)]
-        x0, y0 = nodes[i]
-        x1, y1 = nodes[j]
-        dx, dy = x1 - x0, y1 - y0
-        length = math.hypot(dx, dy)
-        nx, ny = (dy / length, -dx / length) if length > 1e-12 else (1.0, 0.0)
-        a = wall_start + 4 * idx
-        positions.extend([x0, y0, 0.0, x1, y1, 0.0, x1, y1, model.b_w, x0, y0, model.b_w])
-        normals.extend([nx, ny, 0.0] * 4)
-        indices.extend([a, a + 1, a + 2])
-        indices.extend([a, a + 2, a + 3])
+    quad = 0
+    for boundary in boundaries:
+        for idx in range(len(boundary)):
+            i = boundary[idx]
+            j = boundary[(idx + 1) % len(boundary)]
+            x0, y0 = nodes[i]
+            x1, y1 = nodes[j]
+            dx, dy = x1 - x0, y1 - y0
+            length = math.hypot(dx, dy)
+            nx, ny = (dy / length, -dx / length) if length > 1e-12 else (1.0, 0.0)
+            a = wall_start + 4 * quad
+            quad += 1
+            positions.extend([x0, y0, 0.0, x1, y1, 0.0, x1, y1, model.b_w, x0, y0, model.b_w])
+            normals.extend([nx, ny, 0.0] * 4)
+            indices.extend([a, a + 1, a + 2])
+            indices.extend([a, a + 2, a + 3])
 
     return positions, normals, indices
 
 
-def _build_one_tooth_helical_mesh(model: GearModel, deflection: float):
-    """构建单齿斜齿轮 mesh (外壳: 两端 cap + 侧壁共享顶点, 带扭转).
+def _build_helical_unit_mesh(model: GearModel, deflection: float,
+                             base_nodes, base_tris, ccw, boundaries):
+    """斜齿轮「单位」mesh (外壳: 两端 cap + 多边界侧壁共享顶点, 带扭转).
 
-    两端 cap 存全节点; 侧壁每层只存边界环共享顶点 (smooth 法向由相邻
-    quad 平均) —— 消除中间层死顶点与每边 4 独立顶点, 顶点大幅削减。
-    返回 (positions, normals, indices) 仅描述一个齿, 由调用方阵列 z_w 次。
+    外斜齿: cap_face 为单齿 (1 边界环), 单位 = 一个齿, 由调用方阵列 z_w 次;
+    内斜齿: cap_face 为全齿轮环形 (2 边界环: rim + 内齿廓), 单位 = 整齿圈, 阵列 1 次。
+    侧壁每层只存全部边界环共享顶点 (smooth 法向由相邻 quad 平均)。
+    内孔边界 (CW) 法向 u×w=wz·(dy,−dx) 指向孔心 (离料), 与外直齿内孔一致。
     """
     sections = model.helical_sections
     if sections is None:
         raise RuntimeError("斜齿轮缺少截面数据")
-
     n_slices = len(sections)
-
-    # 端面 tessellation 模板 (θ=0)
-    base_nodes, base_tris, ccw = _tessellate_face(model.cap_face, deflection)
-    base_boundary = _extract_boundary_cycle(base_nodes, base_tris)
     n_nodes = len(base_nodes)
-    n_b = len(base_boundary)
+    n_b = sum(len(b) for b in boundaries)
+
+    # 每边界环在层内的起始偏移 (层内按 boundaries 顺序连续排布)
+    bstarts: list[int] = []
+    cum = 0
+    for b in boundaries:
+        bstarts.append(cum)
+        cum += len(b)
 
     top_order = (lambda a, b, c: (a, c, b)) if ccw else (lambda a, b, c: (a, b, c))
     btm_order = (lambda a, b, c: (a, b, c)) if ccw else (lambda a, b, c: (a, c, b))
@@ -166,7 +193,7 @@ def _build_one_tooth_helical_mesh(model: GearModel, deflection: float):
     normals: list[float] = []
     indices: list[int] = []
 
-    # ── 两端 cap 节点 (顶面 slice 0, 底面 slice N-1) ──
+    # ── 两端 cap 节点 (slice 0 底面法向 −Z, slice N-1 顶面法向 +Z) ──
     z_top, th_top = sections[0]
     for x, y in _rotate_nodes(base_nodes, th_top):
         positions.extend([x, y, z_top])
@@ -177,59 +204,61 @@ def _build_one_tooth_helical_mesh(model: GearModel, deflection: float):
         positions.extend([x, y, z_btm])
     normals.extend([0.0, 0.0, 1.0] * n_nodes)
 
-    # 顶面 cap (slice 0)
     for a, b, c in base_tris:
         indices.extend(top_order(a, b, c))
 
-    # 底面 cap (slice N-1)
     btm_start = n_nodes
     for a, b, c in base_tris:
         indices.extend(btm_order(btm_start + a, btm_start + b, btm_start + c))
 
-    # ── 侧壁: 每层存边界环共享顶点, smooth 法向 ──
+    # ── 侧壁: 每层存全部边界环共享顶点, smooth 法向 ──
     wall_start = 2 * n_nodes
     layer_offsets: list[int] = []
     for k in range(n_slices):
         z, th = sections[k]
         r = _rotate_nodes(base_nodes, th)
         layer_offsets.append(wall_start + k * n_b)
-        for i in base_boundary:
-            x, y = r[i]
-            positions.extend([x, y, z])
+        for b in boundaries:
+            for i in b:
+                x, y = r[i]
+                positions.extend([x, y, z])
         normals.extend([0.0, 0.0, 0.0] * n_b)
 
-    # 侧壁索引 + 法向累积 (quad 几何法向 u×w, 指向外侧)
-    for k in range(n_slices - 1):
-        z0, th0 = sections[k]
-        z1, th1 = sections[k + 1]
-        r0 = _rotate_nodes(base_nodes, th0)
-        r1 = _rotate_nodes(base_nodes, th1)
-        o0, o1 = layer_offsets[k], layer_offsets[k + 1]
-        for idx in range(n_b):
-            i = base_boundary[idx]
-            j = base_boundary[(idx + 1) % n_b]
-            p00 = (r0[i][0], r0[i][1], z0)
-            p01 = (r0[j][0], r0[j][1], z0)
-            p11 = (r1[j][0], r1[j][1], z1)
-            p10 = (r1[i][0], r1[i][1], z1)
-            a = o0 + idx
-            b = o0 + (idx + 1) % n_b
-            c = o1 + (idx + 1) % n_b
-            d = o1 + idx
-            indices.extend([a, b, c])
-            indices.extend([a, c, d])
+    # 侧壁索引 + 法向累积 (quad 几何法向 u×w, 外边界外指/内孔指孔心)
+    for bi, b in enumerate(boundaries):
+        n_bnd = len(b)
+        bo = bstarts[bi]
+        for k in range(n_slices - 1):
+            z0, th0 = sections[k]
+            z1, th1 = sections[k + 1]
+            r0 = _rotate_nodes(base_nodes, th0)
+            r1 = _rotate_nodes(base_nodes, th1)
+            o0, o1 = layer_offsets[k], layer_offsets[k + 1]
+            for idx in range(n_bnd):
+                i = b[idx]
+                j = b[(idx + 1) % n_bnd]
+                p00 = (r0[i][0], r0[i][1], z0)
+                p01 = (r0[j][0], r0[j][1], z0)
+                p11 = (r1[j][0], r1[j][1], z1)
+                p10 = (r1[i][0], r1[i][1], z1)
+                a = o0 + bo + idx
+                bb = o0 + bo + (idx + 1) % n_bnd
+                c = o1 + bo + (idx + 1) % n_bnd
+                d = o1 + bo + idx
+                indices.extend([a, bb, c])
+                indices.extend([a, c, d])
 
-            # u = 下边 (CCW 切线), w = 斜向上 → u×w 径向向外
-            ux, uy = p01[0] - p00[0], p01[1] - p00[1]
-            wz = p11[2] - p00[2]
-            nx = uy * wz
-            ny = -ux * wz
-            nz = ux * (p11[1] - p00[1]) - uy * (p11[0] - p00[0])
-            for vi in (a, b, c, d):
-                o3 = vi * 3
-                normals[o3] += nx
-                normals[o3 + 1] += ny
-                normals[o3 + 2] += nz
+                # u = 下边 (边界切线), w = 斜向上 → u×w 径向离料
+                ux, uy = p01[0] - p00[0], p01[1] - p00[1]
+                wz = p11[2] - p00[2]
+                nx = uy * wz
+                ny = -ux * wz
+                nz = ux * (p11[1] - p00[1]) - uy * (p11[0] - p00[0])
+                for vi in (a, bb, c, d):
+                    o3 = vi * 3
+                    normals[o3] += nx
+                    normals[o3 + 1] += ny
+                    normals[o3 + 2] += nz
 
     # 归一化侧壁 smooth 法向
     for v in range(wall_start, wall_start + n_slices * n_b):
@@ -248,18 +277,15 @@ def _build_one_tooth_helical_mesh(model: GearModel, deflection: float):
     return positions, normals, indices
 
 
-def _build_helical_mesh(model: GearModel, deflection: float):
-    """斜齿轮: 单齿 mesh → 阵列 z_w 次."""
-    # 单齿 mesh
-    pos1, nrm1, idx1 = _build_one_tooth_helical_mesh(model, deflection)
-
-    z_w = model.z_w
+def _array_helical_unit(unit, z_w: int):
+    """斜齿轮单位 mesh → 绕 Z 阵列 z_w 次 (外斜齿单齿用)."""
+    pos1, nrm1, idx1 = unit
     if z_w <= 1:
         return pos1, nrm1, idx1
 
     pitch_angle = 2.0 * math.pi / z_w
-    n_verts_per_tooth = len(pos1) // 3
-    n_idx_per_tooth = len(idx1)
+    n_verts_per_unit = len(pos1) // 3
+    n_idx_per_unit = len(idx1)
 
     positions: list[float] = []
     normals: list[float] = []
@@ -269,8 +295,7 @@ def _build_helical_mesh(model: GearModel, deflection: float):
         angle = pitch_angle * i
         ca, sa = math.cos(angle), math.sin(angle)
 
-        # 旋转顶点
-        for v in range(n_verts_per_tooth):
+        for v in range(n_verts_per_unit):
             x = pos1[3 * v]
             y = pos1[3 * v + 1]
             z = pos1[3 * v + 2]
@@ -281,11 +306,25 @@ def _build_helical_mesh(model: GearModel, deflection: float):
             nz = nrm1[3 * v + 2]
             normals.extend([nx * ca - ny * sa, nx * sa + ny * ca, nz])
 
-        offset = i * n_verts_per_tooth
-        for t in range(n_idx_per_tooth):
+        offset = i * n_verts_per_unit
+        for t in range(n_idx_per_unit):
             indices.append(offset + idx1[t])
 
     return positions, normals, indices
+
+
+def _build_helical_mesh(model: GearModel, deflection: float):
+    """斜齿轮 mesh: 单位 mesh → 按边界数决定阵列.
+
+    外斜齿 (cap_face 单齿, 1 边界环) → 阵列 z_w 次 (各齿独立 solid 复合);
+    内斜齿 (cap_face 全齿轮环形, ≥2 边界环: rim + 内齿廓) → 单位即整齿圈, 阵列 1 次。
+    """
+    base_nodes, base_tris, ccw = _tessellate_face(model.cap_face, deflection)
+    boundaries = _extract_boundary_cycles(base_nodes, base_tris)
+    unit = _build_helical_unit_mesh(model, deflection, base_nodes, base_tris, ccw, boundaries)
+    if len(boundaries) > 1:
+        return unit  # 内斜齿: 全截面单位 (双边界), 不阵列
+    return _array_helical_unit(unit, model.z_w)
 
 
 def _model_to_mesh(model: GearModel, deflection: float = 0.3):

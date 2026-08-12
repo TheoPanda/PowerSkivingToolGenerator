@@ -27,6 +27,7 @@ function defaultParams(): GearParams {
     k_teeth: null,
     M: null,
     d_p: null,
+    d_rim: null,
     α_n: 20,
     h_an: 1,
     c_n: 0.25,

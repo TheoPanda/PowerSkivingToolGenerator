@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { createGearParams, toPayload, gearParamsKey } from './useGearParams'
 
 describe('useGearParams — 单一 schema', () => {
-  it('默认值覆盖全部 18 字段（含 rho_tip，修复静默失配）', () => {
+  it('默认值覆盖全部字段（含 rho_tip、d_rim，防静默失配）', () => {
     const p = createGearParams()
     const keys = Object.keys(p).sort()
     expect(keys).toEqual(
@@ -25,6 +25,7 @@ describe('useGearParams — 单一 schema', () => {
         'k_teeth',
         'M',
         'd_p',
+        'd_rim',
         'α_n',
         'h_an',
         'c_n',
@@ -40,6 +41,7 @@ describe('useGearParams — 单一 schema', () => {
     expect(p.tip_mode).toBe('none') // ADR-014 齿顶处理默认无
     expect(p.chamfer_tip).toBe(0)
     expect(p.toothMethod).toBe('x_w')
+    expect(p.d_rim).toBeNull() // ADR-015 内齿轮圈外径可选
   })
 
   it('toPayload 把 camelCase 映射为 snake_case 并与后端请求体对齐', () => {
@@ -59,6 +61,7 @@ describe('useGearParams — 单一 schema', () => {
       k_teeth: null,
       M: null,
       d_p: null,
+      d_rim: null,
       alpha_n_deg: 20.5,
       h_an: 1,
       c_n: 0.25,

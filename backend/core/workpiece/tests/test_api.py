@@ -23,6 +23,118 @@ def _fillet_arc_count(spec: dict) -> int:
     return sum(1 for s in segs if s["type"] == "arc" and s.get("clockwise") is True)
 
 
+def _internal_payload(**overrides) -> dict:
+    """内齿轮合法载荷 (z=82, m=2, d_rim=180 > d_f=169)."""
+    payload = {
+        "profile_type": "involute",
+        "k_io": -1,
+        "m_n": 2.0,
+        "z_w": 82,
+        "beta_w_deg": 0.0,
+        "j_w": 1,
+        "b_w": 20.0,
+        "alpha_n_deg": 20.0,
+        "h_an": 1.0,
+        "c_n": 0.25,
+        "x_w": 0.0,
+        "tooth_method": "x_w",
+        "d_rim": 180.0,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestInternalGearApi:
+    """内齿轮 k_io=−1 — POST /api/workpiece/generate 契约 (T03)."""
+
+    def test_internal_gear_200_with_rim(self, client):
+        """内齿 + d_rim: 200; spec inputs 含 d_rim; outline.circles 含 rim_radius; result d_a<d_f."""
+        response = client.post("/api/workpiece/generate", json=_internal_payload())
+        assert response.status_code == 200, response.text
+
+        data = response.json()
+        assert "model_glb_base64" in data
+        result = data["result"]
+        assert result["d_a"] < result["d_f"], f"内齿 d_a={result['d_a']} 应 < d_f={result['d_f']}"
+
+        spec = data["spec"]
+        in_keys = {i["key"] for i in spec["params"]["inputs"]}
+        assert "d_rim" in in_keys, "spec.params.inputs 应注册 d_rim"
+        assert "rim_radius" in spec["outline"]["circles"], "outline.circles 应含 rim_radius"
+        assert spec["outline"]["circles"]["rim_radius"] == pytest.approx(180.0 / 2.0)
+
+    def test_internal_d_rim_below_minimum_clamped(self, client):
+        """内齿 d_rim 过小 → 200, rim_radius 钳制到 (d_f+2·m_n)/2 (Q9)."""
+        response = client.post(
+            "/api/workpiece/generate", json=_internal_payload(d_rim=160.0)
+        )
+        assert response.status_code == 200, response.text
+        # z=82, m=2: d_f=169, min_rim = 169+4 = 173 → rim_radius = 86.5
+        assert response.json()["spec"]["outline"]["circles"]["rim_radius"] == pytest.approx(173.0 / 2.0)
+
+    def test_internal_da_below_base_400(self, client):
+        """内齿 d_a < d_b (低齿数) → 400 + 用户提示 (Q8)."""
+        response = client.post(
+            "/api/workpiece/generate", json=_internal_payload(z_w=20)
+        )
+        assert response.status_code == 400
+        assert "齿顶" in response.json()["detail"]["error"]
+
+    def test_internal_helical_200(self, client):
+        """内斜齿 β_w>0 → 200 (ADR-017 已支持); result d_a<d_f + α_t>20°; spec 含 β_w; GLB 有效."""
+        response = client.post(
+            "/api/workpiece/generate", json=_internal_payload(beta_w_deg=15.0)
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        result = data["result"]
+        assert result["d_a"] < result["d_f"]
+        assert result["alpha_t_deg"] > 20.0, "β>0 应使 α_t 增大"
+        spec = data["spec"]
+        in_items = {i["key"]: i for i in spec["params"]["inputs"]}
+        assert in_items["beta_w_deg"]["value"] == 15.0
+        assert "rim_radius" in spec["outline"]["circles"]
+        decoded = base64.b64decode(data["model_glb_base64"])
+        assert int.from_bytes(decoded[:4], "little") == 0x46546C67  # glTF
+
+    def test_internal_helical_wk_400(self, client):
+        """内斜齿 tooth_method=W_k → 400 (公法线禁用, Q2)."""
+        response = client.post(
+            "/api/workpiece/generate",
+            json=_internal_payload(beta_w_deg=15.0, tooth_method="W_k",
+                                   W_k=100.0, k_teeth=3),
+        )
+        assert response.status_code == 400
+        assert "公法线" in response.json()["detail"]["error"]
+
+    def test_internal_helical_low_z_400(self, client):
+        """内斜齿低齿数 d_a<d_b (β=15, z=29) → 400 + 用户提示 (Q8)."""
+        response = client.post(
+            "/api/workpiece/generate", json=_internal_payload(beta_w_deg=15.0, z_w=29)
+        )
+        assert response.status_code == 400
+        assert "齿顶" in response.json()["detail"]["error"]
+
+    def test_internal_wk_400(self, client):
+        """内齿 tooth_method=W_k → 400 (公法线禁用, Q2)."""
+        response = client.post(
+            "/api/workpiece/generate",
+            json=_internal_payload(tooth_method="W_k", W_k=100.0, k_teeth=3),
+        )
+        assert response.status_code == 400
+        assert "公法线" in response.json()["detail"]["error"]
+
+    def test_internal_default_rim_minimum(self, client):
+        """内齿省略 d_rim → 缺省 = d_f + 2·m_n (rim_radius = (d_f+2m_n)/2, Q9)."""
+        response = client.post(
+            "/api/workpiece/generate", json=_internal_payload(d_rim=None)
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        min_rim = data["result"]["d_f"] + 2.0 * 2.0  # m_n=2
+        assert data["spec"]["outline"]["circles"]["rim_radius"] == pytest.approx(min_rim / 2.0)
+
+
 class TestWorkpieceEndpoint:
     """POST /api/workpiece/generate 契约验证."""
 

@@ -138,6 +138,9 @@ def params_table(p: GearParams) -> dict:
         _item(key, label, symbol, getter(p), unit)
         for (key, label, symbol, getter, unit) in INPUT_ITEMS
     ]
+    # 内齿轮 (k_io=−1): 注册齿圈外径 d_rim (显示有效值, ADR-015/Q9)
+    if p.k_io == -1:
+        inputs.append(_item("d_rim", "齿圈外径", "d_rim", p.effective_rim_diameter(), "mm"))
     outputs = [
         _item(key, label, symbol, getter(p), unit)
         for (key, label, symbol, getter, unit) in OUTPUT_ITEM_SPECS
@@ -251,6 +254,9 @@ def outline_spec(p: GearParams) -> dict:
         "pitch_radius": p.pitch_radius(),
         "base_radius": p.base_radius(),
     }
+    # 内齿轮 (k_io=−1): 环形实体外边界 rim 圆 (有效值, ADR-015/Q9)
+    if p.k_io == -1:
+        circles["rim_radius"] = p.effective_rim_diameter() / 2.0
     return {
         "points": [[x, y] for (x, y) in pts],
         "teeth": [[[x, y] for (x, y) in run] for run in teeth],

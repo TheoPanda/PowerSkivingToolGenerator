@@ -1,4 +1,11 @@
 <script setup lang="ts">
+/**
+ * GearParamsPanel.vue — 步骤1：工件齿轮参数表单
+ *
+ * - 三组折叠板块（基础/齿形/高级）+ 齿顶修饰；注入 gearParams 单一 schema 直接改值
+ * - 校验结果经 valid-change 事件上报 MainPanel（决定「下一步」可用性）
+ * - 齿顶处理收敛软提示（ADR-014）：实际值回灌自 workpieceState.spec
+ */
 import { ref, computed, inject, watch, type Ref } from 'vue'
 import { gearParamsKey, type GearParams } from '../composables/useGearParams'
 import { workpieceState } from '../composables/useWorkpieceState'
@@ -66,6 +73,39 @@ const profileOptions = [
   { value: 'modified', label: '修形', disabled: true },
   { value: 'pointcloud', label: 'CAD 点云', disabled: true },
 ]
+
+// ---- 内齿轮模式 (T04, ADR-015; T05 内斜齿 ADR-017) ----
+const internalMode = computed<boolean>(() => gearParams!.k_io === -1)
+const internalNotice = ref<string | null>(null)
+
+// 外→内切换: 自动重置冲突值 (W_k→x_w, tip_mode→none) + 支持范围提示
+// ADR-017: 内斜齿 (β_w>0) 已支持, 不再归零 β_w。
+watch(
+  () => gearParams!.k_io,
+  (v) => {
+    if (v !== -1) {
+      internalNotice.value = null
+      return
+    }
+    const hints: string[] = []
+    if (gearParams!.toothMethod === 'W_k') {
+      gearParams!.toothMethod = 'x_w'
+      hints.push('公法线已切换为变位')
+    }
+    if (gearParams!.tip_mode !== 'none') {
+      gearParams!.tip_mode = 'none'
+      hints.push('齿顶修饰已关闭')
+    }
+    const base = '内齿轮：直齿/斜齿均支持；W_k 与齿顶/齿根修饰暂不开放'
+    internalNotice.value = hints.length ? `${base}（${hints.join('；')}）` : base
+  },
+  { immediate: true },
+)
+
+// M 模式量棒径占位: 内齿 ≈1.44×mₙ (研究②), 外齿 ≈1.68×mₜ
+const d_pPlaceholder = computed<string>(() =>
+  gearParams!.k_io === -1 ? '≈1.44×mₙ' : '≈1.68×mₜ',
+)
 
 // ---- 跨齿数 k 自动推荐 ----
 const kRecommended = ref<number | null>(null)
@@ -154,11 +194,14 @@ function validateField(field: string): void {
 }
 
 // 暴露给测试
-defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
+defineExpose({ expandedSections, kRecommended, isValid, internalMode, internalNotice, toggleSection })
 </script>
 
 <template>
   <div class="gear-params-panel">
+    <!-- 内齿自动重置提示 (T04) -->
+    <p v-if="internalNotice" class="glass-field-hint">{{ internalNotice }}</p>
+
     <!-- ① 基本 -->
     <div class="glass-collapse" :class="{ expanded: expandedSections.basic }">
       <button class="glass-collapse-header" @click="toggleSection('basic')">
@@ -236,7 +279,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             <p v-if="errors.z_w" class="glass-field-hint">{{ errors.z_w }}</p>
           </div>
 
-          <!-- 螺旋角 -->
+          <!-- 螺旋角 (ADR-017: 内斜齿已支持, 不再禁用) -->
           <div class="glass-field">
             <label class="glass-field-label">螺旋角 β_w</label>
             <input
@@ -247,6 +290,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
               max="45"
               class="glass-input"
               style="flex:1;"
+              aria-label="β_w"
             />
             <span style="font-size:10px;color:var(--brand-text-secondary);">°</span>
           </div>
@@ -288,6 +332,19 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             <p v-if="errors.b_w" class="glass-field-hint">{{ errors.b_w }}</p>
           </div>
 
+          <!-- 齿圈外径（内齿, ADR-015/Q9） -->
+          <div v-if="gearParams.k_io === -1" class="glass-field">
+            <label class="glass-field-label">齿圈外径 d_rim</label>
+            <input
+              v-model.number="gearParams.d_rim"
+              type="number"
+              step="1"
+              min="0"
+              class="glass-input"
+              placeholder="缺省 = 齿根圆 + 2mₙ"
+            />
+          </div>
+
         </div>
       </div>
     </div>
@@ -313,6 +370,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
               <button
                 class="glass-segmented-btn"
                 :class="{ active: gearParams.toothMethod === 'W_k' }"
+                :disabled="gearParams.k_io === -1"
                 @click="gearParams.toothMethod = 'W_k'"
               >公法线</button>
               <button
@@ -397,6 +455,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
                 step="0.01"
                 min="0.01"
                 class="glass-input"
+                :placeholder="d_pPlaceholder"
               />
             </div>
           </template>
@@ -442,6 +501,12 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
       </button>
       <div class="glass-collapse-content">
         <div class="collapse-inner">
+
+          <!-- 内齿禁用修饰 (T04/Q3; ADR-017 内斜齿同) -->
+          <p v-if="gearParams.k_io === -1" class="glass-field-hint">
+            内齿轮暂不开放齿顶/齿根修饰（圆角、倒角）
+          </p>
+          <template v-else>
 
           <!-- 齿顶处理（三态：无/倒角/圆角） -->
           <div class="glass-field">
@@ -503,6 +568,7 @@ defineExpose({ expandedSections, kRecommended, isValid, toggleSection })
             <input v-model.number="gearParams.ρ_f" type="number" step="0.01" class="glass-input" />
           </div>
 
+          </template>
         </div>
       </div>
     </div>

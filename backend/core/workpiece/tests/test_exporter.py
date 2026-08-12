@@ -31,6 +31,19 @@ def spur_82() -> GearParams:
     return GearParams(m_n=2.0, z_w=82, b_w=20.0)
 
 
+@pytest.fixture
+def internal_41() -> GearParams:
+    """内齿轮环形 (T02): z=41, m=2, d_rim=120 (d_rim > d_f)."""
+    return GearParams(m_n=2.0, z_w=41, b_w=20.0, k_io=-1, d_rim=120.0)
+
+
+@pytest.fixture
+def internal_helical() -> GearParams:
+    """内斜齿轮 (T02/ADR-017): z=41, m=2, β=15°, d_rim=120."""
+    return GearParams(m_n=2.0, z_w=41, b_w=20.0, k_io=-1,
+                      beta_w_deg=15.0, d_rim=120.0)
+
+
 def _vert(positions: list[float], i: int) -> tuple[float, float, float]:
     return (positions[3 * i], positions[3 * i + 1], positions[3 * i + 2])
 
@@ -122,7 +135,7 @@ def _g1_breaks(segs: list) -> tuple[bool, int | None, float | None, float | None
 # ── Winding / 法向一致性 ─────────────────────────────────────────────
 
 class TestWindingNormals:
-    @pytest.mark.parametrize("fixture_name", ["spur_41", "spur_60"])
+    @pytest.mark.parametrize("fixture_name", ["spur_41", "spur_60", "internal_41"])
     def test_winding_matches_declared_normals(self, request, fixture_name):
         p = request.getfixturevalue(fixture_name)
         positions, normals, indices = _build(p)
@@ -146,7 +159,7 @@ class TestWindingNormals:
 # ── 闭合流形 ─────────────────────────────────────────────────────────
 
 class TestClosedManifold:
-    @pytest.mark.parametrize("fixture_name", ["spur_41", "spur_60"])
+    @pytest.mark.parametrize("fixture_name", ["spur_41", "spur_60", "internal_41"])
     def test_every_edge_shared_by_two_triangles(self, request, fixture_name):
         p = request.getfixturevalue(fixture_name)
         positions, _, indices = _build(p)
@@ -155,10 +168,116 @@ class TestClosedManifold:
         assert not bad, f"{len(bad)} 条边非流形 (示例: {next(iter(bad.items()))})"
 
 
+# ── 内齿轮环形 mesh (T02) ───────────────────────────────────────────
+
+class TestInternalGearMesh:
+    """内齿轮环形 mesh: 外壁 d_rim + 内齿壁 双边界."""
+
+    def test_internal_radial_extent(self, internal_41):
+        """mesh 顶点覆盖 [d_a/2, d_rim/2] (内齿壁小径 + 外壁大径)."""
+        positions, _, _ = _build(internal_41)
+        radii = [math.hypot(positions[3 * i], positions[3 * i + 1])
+                 for i in range(len(positions) // 3)]
+        assert min(radii) == pytest.approx(internal_41.tip_diameter() / 2.0, rel=1e-3), \
+            f"min 半径 {min(radii):.3f} ≠ 齿顶小径/2 {internal_41.tip_diameter()/2:.3f}"
+        assert max(radii) == pytest.approx(internal_41.d_rim / 2.0, rel=1e-3), \
+            f"max 半径 {max(radii):.3f} ≠ d_rim/2 {internal_41.d_rim/2:.3f}"
+
+    def test_internal_vertices_on_cap_planes(self, internal_41):
+        """mesh 顶点仅在 z=0 或 z=b_w (两端 cap)."""
+        positions, _, _ = _build(internal_41)
+        for i in range(len(positions) // 3):
+            assert positions[3 * i + 2] in (0.0, internal_41.b_w), \
+                f"vertex {i} z={positions[3*i+2]} 不在端面"
+
+
+# ── 内斜齿轮 mesh (T03, ADR-017: G3/G4/G5/G6) ───────────────────────
+
+class TestInternalHelicalMesh:
+    """内斜齿轮 mesh: 多边界全截面螺旋 sweep (rim 直圆柱 + 内齿孔扭转)."""
+
+    def test_rim_stays_straight_cylinder(self, internal_helical):
+        """G3: 外 rim 直圆柱 — 侧壁 (中间 z) 顶点最大半径恒为 d_rim/2, 不随 z 漂移."""
+        p = internal_helical
+        positions, _, _ = _build(p)
+        r_rim = p.effective_rim_diameter() / 2.0
+        wall_radii = [
+            math.hypot(positions[3 * i], positions[3 * i + 1])
+            for i in range(len(positions) // 3)
+            if 1e-6 < positions[3 * i + 2] < p.b_w - 1e-6
+        ]
+        assert wall_radii, "应存在中间 z 的侧壁顶点"
+        assert max(wall_radii) == pytest.approx(r_rim, abs=0.05), \
+            f"rim 最大半径 {max(wall_radii):.3f} ≠ d_rim/2 {r_rim:.3f} (rim 被扭转?)"
+
+    def test_twist_follows_helix(self, internal_helical):
+        """G4: 齿顶带顶点遵循 θ(z)=j_w·z·tanβ/r_pw —
+        φ = (角度 − θ(z)) mod (2π/z) 应聚集 (齿顶为等距 z_w 个, 去扭后同相)."""
+        p = internal_helical
+        positions, _, _ = _build(p)
+        r_a = p.tip_radius()
+        theta_slope = p.j_w * math.tan(math.radians(p.beta_w_deg)) / p.pitch_radius()
+        pitch_ang = 2.0 * math.pi / p.z_w
+        phis: list[float] = []
+        for i in range(len(positions) // 3):
+            x, y, z = positions[3 * i], positions[3 * i + 1], positions[3 * i + 2]
+            r = math.hypot(x, y)
+            if abs(r - r_a) < 0.35:  # 齿顶带 (含 mesh deflection ±0.3)
+                phi = math.atan2(y, x) - theta_slope * z
+                phis.append(phi % pitch_ang)
+        assert phis, "齿顶带应存在顶点"
+        spread = max(phis) - min(phis)
+        # 两端环绕: 若跨过 0/pitch 边界需按环形差
+        spread = min(spread, pitch_ang - spread)
+        assert spread < 0.15, f"齿顶去扭相位分散 {spread:.3f} rad (扭转方向/量错误?)"
+
+    def test_closed_manifold(self, internal_helical):
+        """G5: 每条焊边恰被 2 个三角形共享 (含内齿孔边界)."""
+        positions, _, indices = _build(internal_helical)
+        counts = _welded_edge_counts(positions, indices)
+        bad = {e: c for e, c in counts.items() if c != 2}
+        assert not bad, f"{len(bad)} 条边非流形 (示例: {next(iter(bad.items()))})"
+
+    def test_bore_wall_normals_point_inward(self, internal_helical):
+        """G6: 内齿孔侧壁法向朝孔心 (负径向) — 材料在外, 孔壁面离料指向孔."""
+        p = internal_helical
+        positions, normals, _ = _build(p)
+        r_f = p.root_radius()
+        r_a = p.tip_radius()
+        inward = outward = 0
+        for i in range(len(positions) // 3):
+            x, y, z = positions[3 * i], positions[3 * i + 1], positions[3 * i + 2]
+            r = math.hypot(x, y)
+            if 1e-6 < z < p.b_w - 1e-6 and r_a - 0.1 < r < r_f + 0.1:
+                radial = (normals[3 * i] * x + normals[3 * i + 1] * y) / r
+                if radial < 0:
+                    inward += 1
+                else:
+                    outward += 1
+        assert inward > 0, "内孔侧壁无朝孔心法向顶点"
+        assert outward == 0, f"{outward} 个内孔侧壁法向朝外 (错误)"
+
+    def test_cross_representation_2d_vs_mesh(self, internal_helical):
+        """G8: spec 2D 齿廓点 (sample_profile_points) 与 3D mesh 端面 (z=0) 顶点一致.
+
+        3D 端面来自 cap_face (与 2D 同源 profile), mesh deflection 0.3 的弦差内。
+        """
+        p = internal_helical
+        positions, _, _ = _build(p)
+        cap_verts = [
+            (positions[3 * i], positions[3 * i + 1])
+            for i in range(len(positions) // 3) if abs(positions[3 * i + 2]) < 1e-6
+        ]
+        pts = sample_profile_points(p)
+        for (x, y) in pts:
+            d = min(math.hypot(x - ux, y - uy) for ux, uy in cap_verts)
+            assert d < 0.6, f"2D 齿廓点 ({x:.2f},{y:.2f}) 距最近 mesh 顶点 {d:.3f}mm (跨表示不一致)"
+
+
 # ── 齿廓形状 ─────────────────────────────────────────────────────────
 
 class TestProfileShape:
-    @pytest.mark.parametrize("fixture_name", ["spur_41", "spur_60", "spur_82"])
+    @pytest.mark.parametrize("fixture_name", ["spur_41", "spur_60", "spur_82", "internal_41"])
     def test_profile_mirror_symmetry(self, request, fixture_name):
         p = request.getfixturevalue(fixture_name)
         boundary = sample_profile_points(p)
@@ -167,7 +286,7 @@ class TestProfileShape:
         missing = refl - orig
         assert not missing, f"{len(missing)}/{len(refl)} 镜像点缺失 (右齿面未镜像?)"
 
-    @pytest.mark.parametrize("fixture_name", ["spur_41", "spur_82"])
+    @pytest.mark.parametrize("fixture_name", ["spur_41", "spur_82", "internal_41"])
     def test_flank_angles_at_pitch_circle(self, request, fixture_name):
         p = request.getfixturevalue(fixture_name)
         boundary = sample_profile_points(p)
@@ -196,6 +315,48 @@ class TestProfileShape:
         assert la is not None and ra is not None, "齿面采样未跨过节圆"
         assert abs(la + half_tooth_angle) < 2e-3, f"左齿面节圆极角 {la} ≠ {-half_tooth_angle}"
         assert abs(ra - half_tooth_angle) < 2e-3, f"右齿面节圆极角 {ra} ≠ {half_tooth_angle}"
+
+    def test_internal_tooth_width_widens_toward_root(self, internal_41):
+        """内齿齿面手性: 齿宽半角 ψ(r)=half−inv(α_t)+inv(α_r), 齿向齿根(大径)变宽.
+
+        内齿齿槽形貌 = 外齿轮齿形 (负齿数模型互补), 故齿面渐开线手性与外齿
+        镜像互补。历史 bug (2026-08-12 截图 wrong_inner_gears.png): 复用外齿
+        齿面模板 (手性未互补) 致齿宽向齿根变窄, 截面呈锯齿三角形。
+        """
+        from core.workpiece.profile import gear_profile_segments
+        p = internal_41
+        r_a, r_f, r_b = p.tip_radius(), p.root_radius(), p.base_radius()
+        m_t, alpha_t_deg = p.to_transverse()
+        alpha_t = math.radians(alpha_t_deg)
+        pitch = 2.0 * math.pi / p.z_w
+        half = (math.pi * m_t / 2.0 + 2.0 * p.x_w * p.m_n * math.tan(alpha_t)) \
+            / (2.0 * p.pitch_radius())
+        inv_at = math.tan(alpha_t) - alpha_t
+
+        def inv_at_r(r: float) -> float:
+            a = math.acos(min(1.0, r_b / r))
+            return math.tan(a) - a
+
+        segs = gear_profile_segments(p)
+        tips = [s for s in segs if isinstance(s, Arc) and abs(s.radius - r_a) < 1e-9
+                and abs(_ang_norm((s.a0 + s.a1) / 2.0)) < pitch / 2.0]
+        roots = [s for s in segs if isinstance(s, Arc) and abs(s.radius - r_f) < 1e-9
+                 and not s.clockwise
+                 and abs(_ang_norm((s.a0 + s.a1) / 2.0 - pitch / 2.0)) < pitch / 2.0]
+        assert tips, "第 0 齿齿顶弧 (小径) 未找到"
+        assert roots, "第 0/1 齿间齿根弧 (大径) 未找到"
+        tip_width = tips[0].a1 - tips[0].a0
+        root_tooth = pitch - (roots[0].a1 - roots[0].a0)
+
+        assert tip_width == pytest.approx(
+            2.0 * (half - inv_at + inv_at_r(r_a)), abs=1e-6), \
+            f"齿顶弧宽 {tip_width:.5f} ≠ ISO 内齿齿厚 2(half−inv+inv_a)={2*(half-inv_at+inv_at_r(r_a)):.5f}"
+        assert root_tooth == pytest.approx(
+            2.0 * (half - inv_at + inv_at_r(r_f)), abs=1e-6), \
+            f"齿根齿宽 {root_tooth:.5f} ≠ ISO 内齿齿厚 2(half−inv+inv_f)={2*(half-inv_at+inv_at_r(r_f)):.5f}"
+        assert 0.0 < tip_width and root_tooth < pitch, \
+            f"齿顶宽/齿根齿槽宽须为正: tip={tip_width:.5f}, root_tooth={root_tooth:.5f}"
+        assert root_tooth > tip_width, "内齿齿宽须向齿根(大径)变宽 (手性互补判据)"
 
 
 # ── K-1.12 齿根圆角 ────────────────────────────────────────────────

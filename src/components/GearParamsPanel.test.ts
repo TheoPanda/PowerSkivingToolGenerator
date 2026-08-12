@@ -26,6 +26,7 @@ function defaultParams(): GearParams {
     k_teeth: null,
     M: null,
     d_p: null,
+    d_rim: null,
     α_n: 20,
     h_an: 1,
     c_n: 0.25,
@@ -41,6 +42,8 @@ type GearParamsPanelInstance = ComponentPublicInstance & {
   expandedSections: { basic: boolean; tooth: boolean; advanced: boolean; decoration: boolean }
   kRecommended: number | null
   isValid: boolean
+  internalMode: boolean
+  internalNotice: string | null
   toggleSection: (section: 'basic' | 'tooth' | 'advanced') => void
 }
 
@@ -274,6 +277,80 @@ describe('GearParamsPanel — 基本参数组', () => {
       const labels = w2.findAll('.glass-field-label')
       const rfLabels = labels.filter((l) => l.text().includes('齿根圆角系数'))
       expect(rfLabels).toHaveLength(0)
+    })
+  })
+
+  describe('内齿轮模式 (k_io=−1, T04)', () => {
+    it('内齿时显示「齿圈外径 d_rim」输入, 外齿时不显示', async () => {
+      const w = mountPanel({ k_io: -1, m_n: 2, z_w: 82, b_w: 20 })
+      await w.vm.$nextTick()
+      const labels = w.findAll('.glass-field-label').map((l) => l.text())
+      expect(labels.some((t) => t.includes('齿圈外径'))).toBe(true)
+      w.unmount()
+      const wExt = mountPanel({ k_io: 1, m_n: 2, z_w: 82, b_w: 20 })
+      await wExt.vm.$nextTick()
+      const extLabels = wExt.findAll('.glass-field-label').map((l) => l.text())
+      expect(extLabels.some((t) => t.includes('齿圈外径'))).toBe(false)
+    })
+
+    it('内齿时公法线按钮灰置 (disabled)', async () => {
+      const w = mountPanel({ k_io: -1, m_n: 2, z_w: 82, b_w: 20 })
+      await w.vm.$nextTick()
+      const wkBtn = w.findAll('.glass-segmented-btn').find((b) => b.text() === '公法线')
+      expect(wkBtn).toBeTruthy()
+      expect(wkBtn!.attributes('disabled')).toBeDefined()
+    })
+
+    it('外→内切换自动重置冲突值 (W_k→x_w, tip_mode→none; β_w 保留 — ADR-017 内斜齿)', async () => {
+      const gearParams = reactive<GearParams>({
+        ...defaultParams(), m_n: 2, z_w: 82, b_w: 20,
+        toothMethod: 'W_k', β_w: 15, tip_mode: 'round', k_io: 1,
+      })
+      const w = mount(GearParamsPanel, { global: { provide: { gearParams } } })
+      gearParams.k_io = -1
+      await w.vm.$nextTick()
+      expect(gearParams.toothMethod).toBe('x_w')
+      expect(gearParams.β_w).toBe(15)  // 内斜齿已支持, 不归零 (ADR-017)
+      expect(gearParams.tip_mode).toBe('none')
+      expect((w.vm as GearParamsPanelInstance).internalNotice).toBeTruthy()
+    })
+
+    it('内齿时 β_w 输入可编辑 (ADR-017 内斜齿), 无 disabled', async () => {
+      const w = mountPanel({ k_io: -1, m_n: 2, z_w: 82, b_w: 20, β_w: 0 })
+      await w.vm.$nextTick()
+      const betaInput = w.findAll('input[type="number"]').find(
+        (i) => i.attributes('aria-label') === 'β_w',
+      )
+      expect(betaInput).toBeTruthy()
+      expect(betaInput!.attributes('disabled')).toBeUndefined()
+    })
+
+    it('内斜齿 (k_io=−1, β_w>0) 显示旋向选择器', async () => {
+      const w = mountPanel({ k_io: -1, m_n: 2, z_w: 82, b_w: 20, β_w: 15 })
+      await w.vm.$nextTick()
+      const allLabels = w.findAll('.glass-field-label')
+      expect(allLabels.some((l) => l.text().includes('旋向'))).toBe(true)
+    })
+
+    it('内齿时「齿顶/齿根修饰」区灰置 (显示提示, 无控件)', async () => {
+      const w = mountPanel({ k_io: -1, m_n: 2, z_w: 82, b_w: 20 })
+      await w.vm.$nextTick()
+      const hint = w.findAll('.glass-field-hint').find((h) => h.text().includes('内齿'))
+      expect(hint).toBeTruthy()
+      const checkbox = w.find('input[type="checkbox"]')
+      expect(checkbox.exists()).toBe(false)
+    })
+
+    it('M 模式 d_p 占位: 内齿 ≈1.44×mₙ, 外齿 ≈1.68×mₜ', async () => {
+      const wInt = mountPanel({ k_io: -1, toothMethod: 'M', m_n: 2, z_w: 82, b_w: 20 })
+      await wInt.vm.$nextTick()
+      const dPInt = wInt.findAll('input').find((i) => (i.attributes('placeholder') || '').includes('1.44'))
+      expect(dPInt).toBeTruthy()
+      wInt.unmount()
+      const wExt = mountPanel({ k_io: 1, toothMethod: 'M', m_n: 2, z_w: 82, b_w: 20 })
+      await wExt.vm.$nextTick()
+      const dPExt = wExt.findAll('input').find((i) => (i.attributes('placeholder') || '').includes('1.68'))
+      expect(dPExt).toBeTruthy()
     })
   })
 })

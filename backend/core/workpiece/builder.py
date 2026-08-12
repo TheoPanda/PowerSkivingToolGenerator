@@ -16,7 +16,7 @@ from typing import Optional
 
 import numpy as np
 from OCP.BRep import BRep_Tool
-from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
@@ -27,12 +27,12 @@ from OCP.BRepBuilderAPI import (
 from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
-from OCP.GC import GC_MakeArcOfCircle
+from OCP.GC import GC_MakeArcOfCircle, GC_MakeCircle
 from OCP.GProp import GProp_GProps
 from OCP.BRepGProp import BRepGProp  # type: ignore[import-untyped]
 from OCP.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Wire  # type: ignore[import-untyped]
 from OCP.TopExp import TopExp_Explorer
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_SOLID  # type: ignore[import-untyped]
+from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_SOLID  # type: ignore[import-untyped]
 from OCP.TopLoc import TopLoc_Location
 from OCP.gp import (
     gp_Ax1,
@@ -51,6 +51,7 @@ from core.workpiece.profile import (
     Polyline,
     gear_profile_segments,
     single_tooth_segments,
+    tooth_gap_segments,
 )
 
 
@@ -92,6 +93,8 @@ def _add_segments_to_wire(wire_builder, segments, z: float = 0.0) -> None:
                 arc = GC_MakeArcOfCircle(circ, seg.a0, seg.a1, True)
             if arc.IsDone():
                 wire_builder.Add(BRepBuilderAPI_MakeEdge(arc.Value()).Edge())
+
+
 
 
 def build_full_tooth_wire(
@@ -146,12 +149,17 @@ def build_gear_model(p: GearParams, n_slices: int = 6) -> GearModel:
     """
     if abs(p.beta_w_deg) < 1e-9:
         return _build_spur_model(p)
+    elif p.k_io == -1:
+        # 内斜齿 (ADR-017): 走专用 Boolean Cut 分支, 非外斜齿 ThruSections 路径
+        return _build_internal_helical_model(p, n_slices)
     else:
         return _build_helical_model(p, n_slices)
 
 
 def _build_spur_model(p: GearParams) -> GearModel:
-    """直齿轮: 全齿圈 2D wire → face → Prism."""
+    """直齿轮: 全齿圈 2D wire → face → Prism. 内齿轮 (k_io=−1) 走环形分支."""
+    if p.k_io == -1:
+        return _build_internal_spur_model(p)
     full_wire = _build_full_gear_2d_wire(p)
     cap_face = BRepBuilderAPI_MakeFace(full_wire).Face()
     prism_vec = gp_Vec(0.0, 0.0, p.b_w)
@@ -161,6 +169,135 @@ def _build_spur_model(p: GearParams) -> GearModel:
         cap_face=cap_face,
         boundary_wire=full_wire,
         b_w=p.b_w,
+    )
+
+
+def _build_internal_spur_model(p: GearParams) -> GearModel:
+    """内齿轮直齿: 环形实体 — 外圈 d_rim 圆 + 内齿廓孔 → face → Prism.
+
+    内齿轮材料在齿面外侧（环侧），实体 = 圆环带（外边界 d_rim，内边界内齿廓）。
+    ADR-015 / spec §4.3: d_rim 缺省/过小按 d_f + 2·m_n 下限钳制 (Q9)。
+    """
+    rim_radius = p.effective_rim_diameter() / 2.0
+
+    # 外圈 wire (CCW 圆)
+    circ = gp_Circ(gp_Ax2(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0)), rim_radius)
+    outer_edge = BRepBuilderAPI_MakeEdge(GC_MakeCircle(circ).Value()).Edge()
+    outer_wire = BRepBuilderAPI_MakeWire(outer_edge).Wire()
+
+    # 内齿廓 wire (gear_profile_segments, CCW 几何); 孔需 REVERSED 拓扑方向标志
+    # (OCCT 以 wire 拓扑方向判定孔, 非几何顺序 — ADR-015/T02 探针结论)。
+    inner_builder = BRepBuilderAPI_MakeWire()
+    _add_segments_to_wire(inner_builder, gear_profile_segments(p))
+    inner_wire = inner_builder.Wire()
+    inner_wire.Orientation(TopAbs_REVERSED)
+
+    # face = 外圈 (FORWARD) + 内孔 (REVERSED) — OCCT 孔惯例
+    face_builder = BRepBuilderAPI_MakeFace(outer_wire)
+    face_builder.Add(inner_wire)
+    cap_face = face_builder.Face()
+
+    solid = BRepPrimAPI_MakePrism(cap_face, gp_Vec(0.0, 0.0, p.b_w), True).Shape()
+    return GearModel(
+        solid=solid,
+        cap_face=cap_face,
+        boundary_wire=outer_wire,
+        b_w=p.b_w,
+    )
+
+
+def _build_internal_helical_model(p: GearParams, n_slices: int) -> GearModel:
+    """内斜齿轮 (k_io=−1, β_w>0): 全圆柱 − 扭转齿孔实体 (ADR-017).
+
+    内齿为环形材料（外 rim 直圆柱 + 内齿孔螺旋扭转）。斜齿轮各 z 截面为
+    彼此旋转副本——圆旋转仍是同一圆，故外 rim 天然保持直圆柱，仅齿孔扭转。
+
+    构造（2026-08-12 实证，.scratch/internal-helical/）：
+      1) 预形 = 全圆柱 [d_rim]（Prism）。
+      2) 齿孔实体 = ThruSections 扭转 gear_profile（单闭合 wire/截面, Solid=True）。
+      3) BRepAlgoAPI_Cut(全圆柱, 齿孔实体)——单工具布尔, 无复合体。
+    备选 gap-cut（预形环形 + 复合 z_w 齿槽实体）spike 亦鲁棒但更慢（复合工具
+    BOP 成本高）；本方案单工具更快且体积一致。齿孔实体以粗分辨率构建
+    （n_involute=8、放样截面 min(n_slices,4)）控速——**渲染 mesh 不依赖 solid**
+    （exporter 程序化自 cap_face+helical_sections，精确），solid 供体积/STEP/
+    校验用，粗放样体积误差 <0.1%（G7 以解析体积为基准，rel 5e-3）。
+
+    Returns:
+        GearModel：solid=Cut 结果（单 solid）；cap_face=端面环形 face（外 rim +
+        内齿廓孔 REVERSED，供 exporter mesh）；helical_sections=mesh 各截面
+        (z, θ)（n_slices 分辨率, 与外斜齿一致）。
+    """
+    rim_radius = p.effective_rim_diameter() / 2.0
+    z_w = p.z_w
+    b_w = p.b_w
+    beta_w = math.radians(p.beta_w_deg)
+    j_w = p.j_w
+    r_pw = p.pitch_radius()
+    n_inv_solid = 8       # 齿孔 solid 齿面采样（粗, 控速; mesh 独立精确）
+    n_slices_solid = min(n_slices, 4)  # 齿孔 solid 放样截面数（ruled, 体积近似精确）
+
+    def _circle_wire(radius: float, z: float = 0.0) -> TopoDS_Wire:
+        circ = gp_Circ(gp_Ax2(gp_Pnt(0.0, 0.0, z), gp_Dir(0.0, 0.0, 1.0)), radius)
+        edge = BRepBuilderAPI_MakeEdge(GC_MakeCircle(circ).Value()).Edge()
+        return BRepBuilderAPI_MakeWire(edge).Wire()
+
+    def _twisted_profile_wire(z_val: float) -> TopoDS_Wire:
+        """z 处扭转后的 gear_profile wire（Solid 齿孔放样用）. """
+        w = BRepBuilderAPI_MakeWire()
+        _add_segments_to_wire(w, gear_profile_segments(p, n_involute=n_inv_solid), z_val)
+        theta = j_w * z_val * math.tan(beta_w) / r_pw
+        trsf = gp_Trsf()
+        trsf.SetRotation(gp_Ax1(gp_Pnt(0.0, 0.0, 0.0), gp_Dir(0.0, 0.0, 1.0)), theta)
+        from OCP.TopoDS import TopoDS as _TopoDS
+        return _TopoDS.Wire_s(BRepBuilderAPI_Transform(w.Wire(), trsf, True).Shape())
+
+    # 1) 预形 = 全圆柱 [d_rim]
+    outer_wire = _circle_wire(rim_radius)
+    preform = BRepPrimAPI_MakePrism(
+        BRepBuilderAPI_MakeFace(outer_wire).Face(), gp_Vec(0.0, 0.0, b_w), True
+    ).Shape()
+
+    # 2) 齿孔实体: 扭转 gear_profile 放样（Solid=True）
+    bore_wires: list[TopoDS_Wire] = []
+    for i_slice in range(n_slices_solid + 1):
+        bore_wires.append(_twisted_profile_wire(b_w * i_slice / n_slices_solid))
+    thru = BRepOffsetAPI_ThruSections(True, True, 1e-6)
+    for w in bore_wires:
+        thru.AddWire(w)
+    thru.Build()
+    if not thru.IsDone():
+        raise RuntimeError("内斜齿齿孔 ThruSections 放样失败")
+    bore_solid = thru.Shape()
+
+    # 3) Cut: 全圆柱 − 齿孔实体
+    cut = BRepAlgoAPI_Cut(preform, bore_solid)
+    cut.Build()
+    if not cut.IsDone():
+        raise RuntimeError("内斜齿 Boolean Cut 失败")
+    solid = cut.Shape()
+
+    # 4) cap_face: 端面环形 face（外 rim + 内齿廓孔 REVERSED）供 exporter mesh
+    inner_builder = BRepBuilderAPI_MakeWire()
+    _add_segments_to_wire(inner_builder, gear_profile_segments(p))
+    inner_wire = inner_builder.Wire()
+    inner_wire.Orientation(TopAbs_REVERSED)
+    cap_face_builder = BRepBuilderAPI_MakeFace(outer_wire)
+    cap_face_builder.Add(inner_wire)
+    cap_face = cap_face_builder.Face()
+
+    # 5) mesh 截面 (n_slices 分辨率, 与外斜齿一致)
+    sections: list[tuple[float, float]] = []
+    for i_slice in range(n_slices + 1):
+        z_val = b_w * i_slice / n_slices
+        sections.append((z_val, j_w * z_val * math.tan(beta_w) / r_pw))
+
+    return GearModel(
+        solid=solid,
+        cap_face=cap_face,
+        boundary_wire=outer_wire,
+        b_w=b_w,
+        z_w=z_w,
+        helical_sections=sections,
     )
 
 

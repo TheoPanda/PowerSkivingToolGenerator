@@ -300,3 +300,37 @@ class TestOutlineTeethSplit:
                             for j in range(npts)))
             for j in range(npts):
                 assert math.dist(reassembled[(start + j) % npts], points[j]) <= 1e-9
+
+
+# ── 内齿轮 spec (T03) ────────────────────────────────────────────────
+
+class TestInternalGearSpec:
+    """内齿轮 k_io=−1 — spec 语义: d_rim inputs 行 / rim_radius / d_a 小径."""
+
+    def test_internal_spec_has_rim(self):
+        """内齿 spec: inputs 含 d_rim; outline.circles 含 rim_radius = d_rim/2."""
+        p = GearParams(m_n=2.0, z_w=41, b_w=20.0, k_io=-1, d_rim=120.0)
+        spec = build_spec(p)
+
+        in_keys = {i["key"] for i in spec["params"]["inputs"]}
+        assert "d_rim" in in_keys, "spec.params.inputs 应注册 d_rim"
+
+        circles = spec["outline"]["circles"]
+        assert "rim_radius" in circles
+        assert circles["rim_radius"] == pytest.approx(p.d_rim / 2.0)
+
+    def test_internal_outline_radii_semantics(self):
+        """内齿 outline circles: tip_radius 小径 < root_radius 大径."""
+        p = GearParams(m_n=2.0, z_w=41, b_w=20.0, k_io=-1)
+        spec = build_spec(p)
+        c = spec["outline"]["circles"]
+        assert c["tip_radius"] < c["root_radius"], f"内齿 tip_radius {c['tip_radius']} 应 < root_radius {c['root_radius']}"
+        assert c["tip_radius"] == pytest.approx(p.tip_diameter() / 2.0)
+        assert c["root_radius"] == pytest.approx(p.root_diameter() / 2.0)
+
+    def test_internal_rim_defaults_to_minimum(self):
+        """内齿省略 d_rim → rim_radius = (d_f+2·m_n)/2 (Q9)."""
+        p = GearParams(m_n=2.0, z_w=41, b_w=20.0, k_io=-1)
+        spec = build_spec(p)
+        min_rim = p.root_diameter() + 2.0 * p.m_n
+        assert spec["outline"]["circles"]["rim_radius"] == pytest.approx(min_rim / 2.0)

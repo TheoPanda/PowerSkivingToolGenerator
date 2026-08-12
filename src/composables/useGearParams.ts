@@ -26,6 +26,7 @@ export interface GearParams {
   k_teeth: number | null
   M: number | null
   d_p: number | null
+  d_rim: number | null
   α_n: number
   h_an: number
   c_n: number
@@ -51,6 +52,7 @@ export interface WorkpieceRequestPayload {
   k_teeth: number | null
   M: number | null
   d_p: number | null
+  d_rim: number | null
   alpha_n_deg: number
   h_an: number
   c_n: number
@@ -77,6 +79,7 @@ export function createGearParams(): GearParams {
     k_teeth: null,
     M: null,
     d_p: null,
+    d_rim: null,
     α_n: 20,
     h_an: 1,
     c_n: 0.25,
@@ -107,6 +110,7 @@ export function toPayload(p: GearParams): WorkpieceRequestPayload {
     k_teeth: p.k_teeth,
     M: p.M,
     d_p: p.d_p,
+    d_rim: p.d_rim,
     alpha_n_deg: p.α_n,
     h_an: p.h_an,
     c_n: p.c_n,
