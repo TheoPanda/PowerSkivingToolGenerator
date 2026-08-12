@@ -1,4 +1,10 @@
 /// <reference types="vite/client" />
+/**
+ * env.d.ts — 渲染进程全局类型声明
+ *
+ * 覆盖三块：*.vue 模块声明、Vite import.meta.env 变量类型、window.electronAPI
+ * （preload 暴露的受控 API，含齿轮规格跨 IPC 缝的类型化接口）。
+ */
 import type { SpecPayload } from './api/spec-types'
 
 declare module '*.vue' {

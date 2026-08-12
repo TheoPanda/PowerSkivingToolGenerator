@@ -1,25 +1,18 @@
 <script setup lang="ts">
+/**
+ * MainView.vue — 主视图：全屏 3D 视口 + 登录门 + 主功能入口
+ *
+ * 应用登录后的核心工作区编排器：
+ *   - 全屏 3D 画布由 three/gearViewport 深模块驱动（loadGear / 渲染模式 / 登录自旋）
+ *   - 登录/欢迎覆盖层（本地账号校验；成功后派发 app:login-success 显示自绘标题栏）
+ *   - 挂载 MainPanel（参数+生成）与 ResultPanel（结果面板），通过
+ *     panel:toggle / gear:model-ready 两个自定义事件联动模型布局与 GLB 加载
+ */
 import { ref, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { fetchHello } from '@/api/index'
 import MainPanel from './MainPanel.vue'
 import ResultPanel from './ResultPanel.vue'
 import { revealResultPanel } from '../composables/useWorkpieceState'
-import { createGearViewport, type GearViewport, type RenderMode } from '../three/GearViewport'
-
-// ---- 后端状态 ----
-interface BackendInfo {
-  message: string
-  status: string
-  framework: string
-  version: string
-  python_version: string
-  timestamp: string
-}
-
-const backendInfo = ref<BackendInfo | null>(null)
-const backendError = ref<string | null>(null)
-const loading = ref<boolean>(false)
+import { createGearViewport, type GearViewport, type RenderMode } from '../three/gearViewport'
 
 // ---- 登录 ----
 const loggedIn = ref<boolean>(false)
@@ -49,21 +42,6 @@ function doLogin(): void {
   } else {
     loginError.value = '用户名或密码错误'
     password.value = ''
-  }
-}
-
-async function callBackend(): Promise<void> {
-  loading.value = true
-  backendError.value = null
-  try {
-    backendInfo.value = await fetchHello()
-    ElMessage.success('后端通信成功!')
-  } catch (err) {
-    const message: string = err instanceof Error ? err.message : '未知错误'
-    backendError.value = message
-    ElMessage.error(`后端通信失败: ${message}`)
-  } finally {
-    loading.value = false
   }
 }
 
@@ -112,7 +90,6 @@ onMounted(() => {
   window.addEventListener('resize', onResize)
   window.addEventListener('panel:toggle', onPanelToggle)
   window.addEventListener('gear:model-ready', onGearModelReady)
-  callBackend()
 })
 
 onUnmounted(() => {
@@ -291,22 +268,6 @@ onUnmounted(() => {
   height: 40px;
   width: auto;
   margin-bottom: 14px;
-}
-
-.welcome-title {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--brand-text);
-  letter-spacing: 1px;
-  margin-bottom: 4px;
-}
-
-.welcome-subtitle {
-  font-size: 11px;
-  color: var(--brand-text-secondary);
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin-bottom: 22px;
 }
 
 .welcome-form {

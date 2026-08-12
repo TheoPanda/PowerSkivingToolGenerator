@@ -84,9 +84,8 @@ export function formatDim(value: number, decimals: number = 2, unit: string = 'm
 }
 
 /**
- * 构造单向（从 p1 指向 p2，垂线方向 offset）延伸线.
+ * 构造延伸线（引出线/辅助线，细实线）.
  * @param x1 y1 x2 y2 线段两端（用户坐标）
- * @param dx dy 垂向偏移（拉伸方向，通常沿尺寸测量方向）
  */
 export function makeExtensionLine(
   x1: number,

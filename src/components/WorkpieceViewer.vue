@@ -1,30 +1,38 @@
 <script setup lang="ts">
+/**
+ * WorkpieceViewer.vue — 步骤2：工件齿轮生成
+ *
+ * 挂载即调用 fetchWorkpiece 生成齿轮 GLB：
+ * - 结果/spec 写入全局单例 useWorkpieceState（供独立 ResultPanel 消费展示）
+ * - GLB 经 model-ready 事件交给主视图加载进 3D 视口
+ * 生成期间不清空旧结果（面板保持上次有效值，新结果到达时自动更新并唤起）。
+ */
 import { ref, inject, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fetchWorkpiece } from '../api'
 import { gearParamsKey } from '../composables/useGearParams'
 import { setWorkpieceResult } from '../composables/useWorkpieceState'
 
-// ── Inject gearParams from MainPanel（类型化键） ──
+// ── 从 MainPanel 注入 gearParams（类型化键） ──
 const gearParams = inject(gearParamsKey)
 if (!gearParams) throw new Error('WorkpieceViewer: gearParams not provided')
 
-// ── State ──
+// ── 状态 ──
 const generating = ref<boolean>(false)
 const glbBase64 = ref<string | null>(null)
 const error = ref<string | null>(null)
 
-// ── Events ──
+// ── 事件 ──
 const emit = defineEmits<{
   'model-ready': [glbBase64: string]
 }>()
 
-// ── Auto-generate on mount ──
+// ── 挂载时自动生成 ──
 onMounted(() => {
   generate()
 })
 
-// ── Generate ──
+// ── 生成 ──
 // 结果/spec 写入全局单例（useWorkpieceState），由独立 ResultPanel 消费展示；
 // 生成期间不清空旧结果（面板保持上次有效值，新结果到达时自动更新并唤起面板）。
 async function generate(): Promise<void> {

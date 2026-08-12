@@ -1,9 +1,9 @@
 /**
- * GearViewport.ts — 齿轮 3D 视口的深模块
+ * gearViewport.ts — 齿轮 3D 视口的深模块
  *
- * 将原先 HelloWorld.vue 内 ~430 行的 Three.js 场景生命周期收拢进一个小接口：
+ * 将原先内嵌于主视图组件（MainView.vue）的 ~430 行 Three.js 场景生命周期收拢进一个小接口：
  *   loadGear / setRenderMode / setLoggedIn / setModelLayout / resize / dispose
- * HelloWorld（调用者）只负责「把 GLB 交给它、面板/登录联动发信号、渲染模式按钮绑定」，
+ * 主视图（调用者）只负责「把 GLB 交给它、面板/登录联动发信号、渲染模式按钮绑定」，
  * 场景/相机/渲染器/材质/布光/动画循环的细节全部藏于模块实现（架构审查 C3）。
  *
  * 消费者注入三个可观察 ref（modelLoaded / modelLoadProgress / renderMode）供模板绑定，
@@ -24,7 +24,7 @@ export interface GearViewportOptions {
   modelLoaded: Ref<boolean>
   /** STL 加载进度（模块驱动）. */
   modelLoadProgress: Ref<number>
-  /** 渲染模式（模块驱动；HelloWorld 按钮绑定）. */
+  /** 渲染模式（模块驱动；主视图按钮绑定）. */
   renderMode: Ref<RenderMode>
   /** 齿轮 GLB 显示完成后回调（用于唤出结果面板等）. */
   onGearDisplayed: () => void

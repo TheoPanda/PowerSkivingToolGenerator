@@ -1,4 +1,11 @@
 <script setup lang="ts">
+/**
+ * MainPanel.vue — 左下角主功能面板：文件栏 + 5 步导航 + 步骤内容
+ *
+ * - provide gearParams（单一 schema，经 gearParamsKey 注入给子面板）
+ * - 派发 panel:toggle（面板展开/收起 → 模型缩放/右移联动）
+ * - 步骤2 的 WorkpieceViewer 生成 GLB 后经 onModelReady 派发 gear:model-ready
+ */
 import { ref, reactive, provide, onMounted } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
 import WorkpieceViewer from './WorkpieceViewer.vue'

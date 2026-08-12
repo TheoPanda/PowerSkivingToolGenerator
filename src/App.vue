@@ -1,6 +1,12 @@
 <script setup lang="ts">
+/**
+ * App.vue — 应用根组件（Electron 主窗口外壳）
+ *
+ * - 自绘标题栏（登录后经 app:login-success 事件滑入）+ 窗口最小化/最大化/关闭控件
+ * - 挂载主视图 MainView（全屏 3D 工作区：登录 + 面板 + 结果）
+ */
 import { ref, onMounted, onUnmounted } from 'vue'
-import HelloWorld from './components/HelloWorld.vue'
+import MainView from './components/MainView.vue'
 
 const showHeader = ref<boolean>(false)
 const isMaximized = ref<boolean>(false)
@@ -55,7 +61,7 @@ function closeWin(): void {
         </div>
       </el-header>
       <el-main class="app-main">
-        <HelloWorld />
+        <MainView />
       </el-main>
     </el-container>
   </div>

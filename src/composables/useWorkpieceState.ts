@@ -77,6 +77,6 @@ export function movePanel(pos: { x: number; y: number }): void {
   try {
     localStorage.setItem(POS_KEY, JSON.stringify(workpieceState.pos))
   } catch {
-    /* ignore */
+    /* 忽略写入失败 */
   }
 }

@@ -6,20 +6,6 @@ import { toPayload, type GearParams } from '../composables/useGearParams'
 
 const BASE_URL: string = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5199'
 
-interface HelloResponse {
-  message: string
-  status: string
-  framework: string
-  version: string
-  python_version: string
-  timestamp: string
-}
-
-interface HealthResponse {
-  status: string
-}
-
-
 /** 后端 WorkpieceResult 返回类型. */
 export interface WorkpieceResult {
   d_a: number
@@ -57,14 +43,6 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>
-}
-
-export async function fetchHello(): Promise<HelloResponse> {
-  return request<HelloResponse>('/api/hello')
-}
-
-export async function fetchHealth(): Promise<HealthResponse> {
-  return request<HealthResponse>('/api/health')
 }
 
 /**
