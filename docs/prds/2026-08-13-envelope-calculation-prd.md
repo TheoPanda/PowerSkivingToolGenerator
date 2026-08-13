@@ -149,7 +149,7 @@
 | 工件齿轮 | 浅灰钢 `steelMaterial` | 0.3（参考） | 模块①产物，常驻参考 |
 | 产形面 | 品牌蓝 `#0060A0` | 0.35 | 共轭生成面，doubleSide |
 | 前刀面 | 冰蓝 `#E8F0F8` | 0.45 | 半透明平面 |
-| 刃形 | 深色 `#1f2937` 高亮 | 1.0 | LineSegments，renderOrder 最高，不参与 xray |
+| 刃形 | 珊瑚红 `#E05050` 高亮 | 1.0 | LineSegments，renderOrder 最高，不参与 xray（配色以 `layerPalette.ts` 单源为准，子 PRD-1 落地时已由深色改为珊瑚红） |
 | 后刀面 | 硬质合金深灰 `carbideMaterial` | 0.6 | 半透明曲面片 |
 | 单齿模型 | 硬质合金 `carbideMaterial` | 1.0 | 实心，source=模块③预览 |
 
@@ -230,7 +230,7 @@
 
 ```
 ②a  RakeSurface  { F(x,y,z)=0, n_rake }                      坐标 T
-②b  EdgeCurve    { pts[](有序), param_range, continuity, coverage_report }
+②b  EdgeCurve    { pts[](有序), param_range, continuity, coverage_report }  # 离散路线采用 segments[] 每段带 continuity 的多段表示（左右刃形各一段），param_range 于离散路线暂缺省（子 PRD-2）
     GeneratrixSurface { 参数化曲面 | 扫掠点云 }               坐标 T
 ②c  FlankSurface { section_edges[], flank_fit, resharpen_schedule a_i[] }
 ```
