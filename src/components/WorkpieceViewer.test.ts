@@ -165,4 +165,15 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
 
     expect(wrapper.find('[data-test="diagnostic-strip"].failed').exists()).toBe(true)
   })
+
+  it('工件齿轮未生成时「开始包络」按钮禁用', async () => {
+    vi.spyOn(api, 'fetchWorkpiece').mockRejectedValue(new Error('生成失败'))
+    const wrapper = mountViewer()
+    await nextTick()
+    await nextTick()
+
+    const btn = wrapper.find('button[data-test="run-envelope"]')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('请先生成工件齿轮模型')
+  })
 })

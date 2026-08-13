@@ -95,6 +95,10 @@ async function runEnvelope(): Promise<void> {
     ElMessage.warning('请先在步骤1 填写法向模数 m_n 与工件齿数 z_w')
     return
   }
+  if (generating.value || glbBase64.value === null) {
+    ElMessage.warning('请先生成工件齿轮模型，再开始包络计算')
+    return
+  }
   envelopeRunning.value = true
   envelopeError.value = null
   ffaUm.value = null
@@ -174,11 +178,14 @@ async function runEnvelope(): Promise<void> {
         class="glass-btn"
         type="button"
         data-test="run-envelope"
-        :disabled="envelopeRunning"
+        :disabled="envelopeRunning || generating || glbBase64 === null"
         @click="runEnvelope"
       >
         {{ envelopeRunning ? '包络计算中…' : '开始包络' }}
       </button>
+      <div v-if="glbBase64 === null && !generating" class="envelope-hint">
+        请先生成工件齿轮模型，再开始包络计算
+      </div>
 
       <div v-if="envelopeError" class="error-msg">{{ envelopeError }}</div>
 
@@ -237,6 +244,12 @@ async function runEnvelope(): Promise<void> {
   margin-left: 8px;
   padding: 2px 10px;
   font-size: 12px;
+}
+
+.envelope-hint {
+  color: var(--brand-text-secondary, #5C6B7A);
+  font-size: 12px;
+  text-align: center;
 }
 
 .envelope-section {
