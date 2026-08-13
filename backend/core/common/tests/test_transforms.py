@@ -275,3 +275,55 @@ class TestTransformConventions:
         assert abs(result[1] - (-2.0)) < 1e-10
         assert abs(result[2] - 3.0) < 1e-10
         assert abs(result[3] - 1.0) < 1e-10
+
+
+class TestInstallTransform:
+    """K-0.3 安装变换 M_{F_w,F_t} = Tran(x,a)·Rot_x(Σ)·Rot_y(δ)"""
+
+    def test_ex2_matrix(self):
+        """算例2 M_s1-s2 = Tran(x,6.7938)·Rot_x(15°)（δ=0）逐元素对照"""
+        from core.common.transforms import install_transform
+        a, sigma = 6.7938, math.radians(15.0)
+        M = install_transform(a, sigma)
+        c, s = math.cos(sigma), math.sin(sigma)
+        expected = np.array([
+            [1, 0, 0, 6.7938],
+            [0, c, -s, 0],
+            [0, s, c, 0],
+            [0, 0, 0, 1],
+        ])
+        np.testing.assert_array_almost_equal(M, expected, decimal=6)
+
+    def test_inverse_roundtrip(self):
+        """M_{F_t,F_w}·M_{F_w,F_t} ≈ I（纯 Python 乘法，不用 4×4 @ 4×4）"""
+        from core.common.transforms import install_transform, install_transform_inverse
+        a, sigma = 6.7938, math.radians(15.0)
+        A = install_transform_inverse(a, sigma).tolist()
+        B = install_transform(a, sigma).tolist()
+        prod = [
+            [sum(A[i][k] * B[k][j] for k in range(4)) for j in range(4)]
+            for i in range(4)
+        ]
+        np.testing.assert_array_almost_equal(np.array(prod), np.eye(4), decimal=10)
+
+
+class TestWorkpieceToToolChain:
+    """K-0.5 统一工件→刀具链（退化 δ=0/Δφ_t=0/s_t=s_w=0）"""
+
+    def test_ex2_single_point_trajectory(self):
+        """算例2 单点轨迹：r1=(20.3814,0,0,1) → r2≈(13.6320,−0.0756,−0.5514,1)"""
+        from core.common.transforms import workpiece_to_tool_chain
+        phi_w = math.radians(6.0)   # 工件转角（ω_w·t，t=1ms）
+        phi_t = math.radians(9.0)   # 刀具转角
+        a, sigma = 6.7938, math.radians(15.0)
+        M = workpiece_to_tool_chain(phi_w, phi_t, a, sigma)
+        r1 = np.array([20.3814, 0.0, 0.0, 1.0])
+        r2 = M @ r1  # 4×4 @ 4×1 安全
+        np.testing.assert_array_almost_equal(
+            r2[:3], [13.6320, -0.0756, -0.5514], decimal=4)
+
+    def test_identity_at_zero(self):
+        """φ_w=φ_t=0、Σ=0、a=0 时链退化为单位阵（纯 Python 乘法验证）"""
+        from core.common.transforms import workpiece_to_tool_chain
+        M = workpiece_to_tool_chain(0.0, 0.0, 0.0, 0.0)
+        np.testing.assert_array_almost_equal(M, np.eye(4), decimal=12)

@@ -2,8 +2,8 @@
  * fetchWorkpiece API 客户端测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchWorkpiece } from './index'
-import type { GearParams } from '../composables/useGearParams'
+import { fetchWorkpiece, fetchEnvelopeGeneratrix, fetchEnvelopeEdge } from './index'
+import { toPayload, type GearParams } from '../composables/useGearParams'
 
 const mockParams: GearParams = {
   profile_type: 'involute',
@@ -97,5 +97,47 @@ describe('fetchWorkpiece', () => {
     })
 
     await expect(fetchWorkpiece(mockParams)).rejects.toThrow('模数 m_n 必须大于 0')
+  })
+})
+
+describe('fetchEnvelope（子 PRD-2 离散包络）', () => {
+  const tool = { z_t: 41, beta_t_deg: 15, j_t: -1, gamma_0_deg: 5, alpha_0_deg: 8 }
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('fetchEnvelopeGeneratrix 发送嵌套 body（workpiece + tool）', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ layer: { id: 'generatrix', glb_base64: '' }, coord_frame: 'T' }),
+    })
+
+    await fetchEnvelopeGeneratrix({ workpiece: toPayload(mockParams), tool })
+
+    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toContain('/api/envelope/generatrix')
+    expect(options.method).toBe('POST')
+    const body: Record<string, unknown> = JSON.parse(options.body as string)
+    expect((body.tool as Record<string, unknown>).z_t).toBe(41)
+    expect((body.workpiece as Record<string, unknown>).m_n).toBe(2.5)
+  })
+
+  it('fetchEnvelopeEdge 返回覆盖报告与 ffα', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        layer: { id: 'edge', glb_base64: '' },
+        coord_frame: 'T',
+        coverage_report: { total_points: 200, uncovered: [], coverage_ratio: 1.0, pass: true },
+        ffa_um: 0.05,
+        segments_meta: [],
+      }),
+    })
+
+    const resp = await fetchEnvelopeEdge({ workpiece: toPayload(mockParams), tool })
+    expect(resp.layer.id).toBe('edge')
+    expect(resp.coverage_report.pass).toBe(true)
+    expect(resp.ffa_um).toBe(0.05)
   })
 })

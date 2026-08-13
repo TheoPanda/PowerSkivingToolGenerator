@@ -115,6 +115,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   let pmremGenerator: THREE.PMREMGenerator | null = null // 环境贴图生成器（dispose 补漏）
   const layerGroups: Partial<Record<LayerId, THREE.Group>> = {} // 各图层 group
   const layerMaterials = new Map<LayerId, THREE.Material[]>() // 每层材质实例（dispose 用）
+  const growingGeometries = new Map<THREE.BufferGeometry, number>() // 逐点生长动画：geometry → 目标顶点数
   let animationId: number | null = null
   const verticalAxis = new THREE.Vector3(0, 1, 0) // 上下
   let currentSpinAxis = verticalAxis.clone()
@@ -381,6 +382,15 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
         }
         sceneDirty = true
       }
+      if (growingGeometries.size > 0) {
+        for (const [geo, target] of Array.from(growingGeometries.entries())) {
+          const step = Math.max(1, Math.ceil(target / 90)) // ~90 帧 ≈ 1.5s
+          const count = Math.min(target, geo.drawRange.count + step)
+          geo.setDrawRange(0, count)
+          if (count >= target) growingGeometries.delete(geo)
+          sceneDirty = true
+        }
+      }
       if (spinGroup && !userInteracted) {
         currentSpinAxis.lerp(targetSpinAxis, 0.02)
         if (loggedIn) {
@@ -413,6 +423,18 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     }
   }
 
+  /** 对线类图层的 geometry 启动逐点生长动画（drawRange 0→N，各段各自生长）. */
+  function startGrowAnimation(group: THREE.Group): void {
+    group.traverse((child: THREE.Object3D) => {
+      if (!(child instanceof THREE.Line || child instanceof THREE.LineSegments)) return
+      const geo = child.geometry as THREE.BufferGeometry
+      const target = geo.index ? geo.index.count : (geo.attributes.position?.count ?? 0)
+      if (target <= 0) return
+      geo.setDrawRange(0, 0)
+      growingGeometries.set(geo, target)
+    })
+  }
+
   /** 把解析好的图层 scene 挂载为命名图层 group（赋材质 + 建 group + 加入 worldGroup）. */
   function mountLayer(id: LayerId, mesh: THREE.Group): void {
     const visual = LAYER_VISUALS[id]
@@ -439,6 +461,9 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     layerMaterials.set(id, mats)
     requestRender()
     applyRenderModeInternal(renderMode.value)
+    if (visual.kind === 'line') {
+      startGrowAnimation(group)
+    }
   }
 
   // ── 图层 GLB 解码 + 加载 ──
@@ -568,6 +593,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     layerGroups && Object.keys(layerGroups).forEach((k) => delete layerGroups[k as LayerId])
     layerMaterials.forEach((mats) => mats.forEach((m) => m.dispose()))
     layerMaterials.clear()
+    growingGeometries.clear()
     if (flatMaterial) {
       flatMaterial.dispose()
       flatMaterial = null

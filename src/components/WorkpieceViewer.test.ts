@@ -97,3 +97,72 @@ describe('WorkpieceViewer — 全局结果状态', () => {
     expect(wrapper.find('button[data-test="view-spec"]').exists()).toBe(false)
   })
 })
+
+describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
+  const mockGen: api.GeneratrixResponse = {
+    layer: { id: 'generatrix', glb_base64: 'Z2xURg==' },
+    coord_frame: 'T',
+  }
+  const mockEdge: api.EdgeResponse = {
+    layer: { id: 'edge', glb_base64: 'Z2xURg==' },
+    coord_frame: 'T',
+    coverage_report: { total_points: 200, uncovered: [], coverage_ratio: 1.0, pass: true },
+    ffa_um: 0.05,
+    segments_meta: [
+      { count: 100, continuity: 'continuous' },
+      { count: 100, continuity: 'continuous' },
+    ],
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.spyOn(api, 'fetchWorkpiece').mockResolvedValue(mockResponse)
+    vi.spyOn(api, 'fetchEnvelopeGeneratrix').mockResolvedValue(mockGen)
+    vi.spyOn(api, 'fetchEnvelopeEdge').mockResolvedValue(mockEdge)
+    workpieceState.result = null
+    workpieceState.spec = null
+    workpieceState.open = false
+    workpieceState.revealed = false
+    workpieceState.collapsed = false
+    workpieceState.pos = { x: 24, y: 64 }
+  })
+
+  it('点「开始包络」→ 依次派发产形面、刃形两图层 + 诊断条显示', async () => {
+    const wrapper = mountViewer()
+    await nextTick()
+    await nextTick()
+
+    const layers: string[] = []
+    const handler = (e: Event): void => {
+      layers.push((e as CustomEvent).detail.id as string)
+    }
+    window.addEventListener('gear:layer-ready', handler)
+
+    await wrapper.find('button[data-test="run-envelope"]').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    window.removeEventListener('gear:layer-ready', handler)
+    expect(layers).toEqual(['generatrix', 'edge'])
+    expect(wrapper.find('[data-test="diagnostic-strip"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('ffα')
+    expect(wrapper.text()).toContain('覆盖')
+  })
+
+  it('ffα 超限时诊断条标失败态', async () => {
+    vi.spyOn(api, 'fetchEnvelopeEdge').mockResolvedValue({
+      ...mockEdge,
+      ffa_um: 0.5,
+      coverage_report: { ...mockEdge.coverage_report, pass: false, coverage_ratio: 0.9 },
+    })
+    const wrapper = mountViewer()
+    await nextTick()
+    await nextTick()
+
+    await wrapper.find('button[data-test="run-envelope"]').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.find('[data-test="diagnostic-strip"].failed').exists()).toBe(true)
+  })
+})
