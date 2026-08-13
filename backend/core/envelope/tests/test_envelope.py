@@ -10,13 +10,13 @@ from fastapi.testclient import TestClient
 from app import app
 
 
-def test_envelope_demo_returns_three_layers():
+def test_envelope_demo_returns_four_layers():
     client = TestClient(app)
     resp = client.post("/api/envelope/demo")
     assert resp.status_code == 200
     layers = resp.json()["layers"]
-    assert len(layers) == 3
-    assert {layer["id"] for layer in layers} == {"generatrix", "edge", "flank"}
+    assert len(layers) == 4
+    assert {layer["id"] for layer in layers} == {"generatrix", "rake", "edge", "flank"}
 
 
 def test_envelope_demo_glb_valid():

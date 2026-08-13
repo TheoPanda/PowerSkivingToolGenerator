@@ -23,10 +23,11 @@ describe('layerPalette 纯数据', () => {
     }
   })
 
-  it('品牌蓝 / 冰蓝 / 深色与 theme.css 同名色一致', () => {
-    expect(MATERIAL_PRESETS.generatrix.color).toBe(0x0060a0) // --brand-blue #0060A0
-    expect(MATERIAL_PRESETS.rake.color).toBe(0xe8f0f8) // 冰蓝 #E8F0F8
-    expect(MATERIAL_PRESETS.edge.color).toBe(0x1f2937) // 深色 #1f2937
+  it('产形面品牌蓝 + 前/后刀面/刃线用区分色（非主题蓝、非黑）', () => {
+    expect(MATERIAL_PRESETS.generatrix.color).toBe(0x0060a0) // 品牌蓝 #0060A0
+    expect(MATERIAL_PRESETS.rake.color).toBe(0xe8963a) // 琥珀橙
+    expect(MATERIAL_PRESETS.flank.color).toBe(0x3aa06a) // 翡翠绿
+    expect(MATERIAL_PRESETS.edge.color).toBe(0xe05050) // 珊瑚红（非黑）
   })
 
   it('工件默认不透明（保持模块① 零回归）', () => {
@@ -34,10 +35,12 @@ describe('layerPalette 纯数据', () => {
     expect(MATERIAL_PRESETS.steel.transparent).toBe(false)
   })
 
-  it('包络层（产形面/前刀面）默认半透明', () => {
+  it('三个面（产形面/前刀面/后刀面）默认半透明', () => {
     expect(LAYER_VISUALS.generatrix.defaultOpacity).toBe(0.35)
     expect(LAYER_VISUALS.rake.defaultOpacity).toBe(0.45)
+    expect(LAYER_VISUALS.flank.defaultOpacity).toBe(0.5)
     expect(MATERIAL_PRESETS.generatrix.transparent).toBe(true)
     expect(MATERIAL_PRESETS.rake.transparent).toBe(true)
+    expect(MATERIAL_PRESETS.flank.transparent).toBe(true)
   })
 })

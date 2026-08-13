@@ -26,7 +26,20 @@ def _demo_geometries() -> list[GeometrySpec]:
         normals=[0.0, 1.0, 0.0] * 4,
         layer_id="generatrix",
     )
-    # 刃形占位：一条折线（深色高亮）
+    # 前刀面占位：一片半透明琥珀橙（产形面上方）
+    rake = GeometrySpec(
+        kind="mesh",
+        positions=[
+            -10.0, 1.0, -10.0,
+            10.0, 1.0, -10.0,
+            10.0, 1.0, 10.0,
+            -10.0, 1.0, 10.0,
+        ],
+        indices=[0, 1, 2, 0, 2, 3],
+        normals=[0.0, 1.0, 0.0] * 4,
+        layer_id="rake",
+    )
+    # 刃形占位：一条折线（珊瑚红高亮）
     edge = GeometrySpec(
         kind="line",
         positions=[
@@ -37,7 +50,7 @@ def _demo_geometries() -> list[GeometrySpec]:
         ],
         layer_id="edge",
     )
-    # 后刀面占位：另一片硬质合金深灰（略下移）
+    # 后刀面占位：一片半透明翡翠绿（产形面下方）
     flank = GeometrySpec(
         kind="mesh",
         positions=[
@@ -50,7 +63,7 @@ def _demo_geometries() -> list[GeometrySpec]:
         normals=[0.0, 1.0, 0.0] * 4,
         layer_id="flank",
     )
-    return [generatrix, edge, flank]
+    return [generatrix, rake, edge, flank]
 
 
 @router.post("/demo")
