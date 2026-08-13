@@ -20,19 +20,25 @@
 | 齿圈外径 | Rim Diameter (d_rim) | 内齿轮环料外径，`k_io=−1` 时步骤1 新增参数，可选；有效值钳制 `max(d_rim, d_f + 2·m_n)`（轮缘厚 1×m_n/侧，Q9 避免 `d_rim=d_f` 退化环无法剖分）。**设计书参数字典未定义**（刃形包络不需要，CAD 轮坯才需要），经 ADR-015 产品扩展落地 |
 | 负齿数模型 | Negative-Gear Model | ISO 21771 / AGMA 2002-D19 / GB/T 3374.1-2010：内齿轮以负齿数外齿轮建模，`x` 与齿厚**同号**（+x 内齿变厚），`d_a=z·m_t−2(h_an+x)m_n`、`d_f=z·m_t+2(h_an+c_n−x)m_n`，**全齿高不变量 `h=(d_f−d_a)/2=2h_an+c_n`**。内啮合总变位 `xΣ=x2−x1`。历史反号流派（DIN 3960 旧版/AGMA 913）已被 AGMA RFI 25-01 认定有误，勿混用 |
 | 内斜齿轮 | Internal Helical Gear | `k_io=−1` 且 `β_w>0` 的工件齿轮。外 rim 为**直圆柱**（圆旋转仍是同一圆），仅内齿孔（齿面/齿槽）绕轴螺旋扭转。构造：全圆柱 `d_rim` − 扭转齿孔实体（ThruSections 扭转 gear_profile, Boolean Cut, ADR-017）。Q8 约束 β 感知：β 增大使 `α_t` 增大 → `cos α_t` 减小 → `d_b` 相对 `d_a` 变小 → **最小齿数阈值下移**（z=28 在 β=0 阻塞、β=30 放行）。跨棒距 M 沿用直齿近似（真斜齿 over-balls 的 `β_b`/`d_pt`/`z_v` 留档） |
+| 图层 | Layer | 3D 视口中可独立显隐/调透明/聚焦的一个几何对象。模块②「分阶段叠加可视化」的渲染单元：工件/产形面/前刀面/刃形/后刀面/单齿各为一层，前端按 LayerId 增量叠加 |
+| 产形面 | GeneratrixSurface | 刀具侧生成面，由工件齿面经共轭/包络生成（解析 K-2.6 参数化曲面；离散 K-2.9 扫掠点云）。可视化序列第一站，品牌蓝半透明。用户原称「铲形面」系笔误 |
+| 前刀面 | RakeSurface | 刀具上切屑排走的那一面（刀刃前斜面），独立设计输入（用户选前角 γ₀ / 形式 rake_type），隐式方程 F(x,y,z)=0 + 法矢场 |
+| 刃形 | EdgeCurve | 产形面与前刀面的交线（K-2.8），即切削刃，空间曲线（有序点列 + 连续性标记） |
+| 后刀面 | FlankSurface | 刃形沿 let-off（重磨/铲背）运动扫掠所得，即「重磨后刀刃的集合」（K-2.18/19） |
+| 单齿模型 | Single-Tooth Model | 前刀面 + 后刀面 + 刃形围成的单齿实体（K-3.1），模块③ 预览（非②交付），硬质合金材质 |
 
 ## 六模块流水线（设计书 §1.1）
 
 ```
 模块① 工件与工艺方案 → ProcessPlan + WorkpieceSurface
-模块② 反向包络 (2a前刀面/2b刃形/2c后刀面) → EdgeCurve + GeneratrixSurface + FlankSurface
+模块② 反向包络 (2a前刀面/2b刃形/2c后刀面) → RakeSurface + GeneratrixSurface + EdgeCurve + FlankSurface
 模块③ 三维几何与结构 → ToolSolid
 模块④ 正向仿真验证 → SimReport
 模块⑤ 磨削工艺
 模块⑥ 工艺文件
 ```
 
-当前状态：模块① 工件齿轮 3D 模型生成（外齿轮已交付；内齿轮 k_io=−1 工件几何已实现——直齿 ADR-015/016 + 内斜齿 ADR-017，2026-08-12），模块②-⑥ 待后续。
+当前状态：模块① 工件齿轮 3D 模型生成（外齿轮已交付；内齿轮 k_io=−1 工件几何已实现——直齿 ADR-015/016 + 内斜齿 ADR-017，2026-08-12）。模块② 反向包络：PRD 已出（2026-08-13）+ 5 子 PRD 拆分；子 PRD-1 多图层基础设施 spec 已出、待实现。模块③-⑥ 待后续。
 
 ## UI 步骤与模块映射
 
@@ -137,6 +143,13 @@
 **决策**: 内齿轮支持斜齿（`k_io=−1 ∧ β_w>0`），销 ADR-015 v1「仅直齿」范围。**构造**：预形 = 全圆柱 `d_rim`；齿孔实体 = ThruSections 扭转 `gear_profile`（单闭合 wire/截面，`Solid=True`，`θ(z)=j_w·z·tanβ/r_pw`）；`BRepAlgoAPI_Cut(全圆柱, 齿孔实体)` 单工具布尔。齿孔 solid 以粗分辨率构建（`n_involute=8`、放样截面 `min(n_slices,4)`）控速——**渲染 mesh 不依赖 solid**（exporter 程序化自 cap_face+helical_sections，精确）；solid 供体积/STEP/校验，粗放样体积误差 <0.1%（G7 以解析体积为基准）。**计量**：M 沿用直齿近似 `cosα_M=d_b/(M+d_p)`（与外斜齿一致）；真斜齿 over-balls（基圆螺旋角 `β_b`、虚拟量棒径 `d_pt=d_p/cosβ_b`、`z_v=z/cos³β`）留档后续。**Q8 β 感知**：β 增大 → `α_t` 增大 → `cos α_t` 减小 → `d_b` 相对变小 → 最小齿数阈值下移（z=28 β=0 阻塞 / β=30 放行），无需 β 额外阻塞。W_k 仍禁用、齿顶/齿根修饰仍禁用、`d_rim` 钳制沿用（ADR-015）。
 **理由**: ADR-015 v1 明确「仅直齿」待补；设计书不覆盖内齿轮（T13 区）。2026-08-12 spike 实证（`.scratch/internal-helical/spike_bop.py`）：直接 Cut 对「齿孔/齿槽与预形重合面」鲁棒（单 solid、体积精确）；备选 gap-cut（环形预形 − 复合 z_w 齿槽实体）更慢，回退方案（全圆柱 − 复合[直孔+齿槽]）碎裂成 69 solids 弃用。性能：solid 布尔构建 5–25s ∝ z（交互可接受，未来可懒构建/异步）；mesh 程序化构建瞬时。
 **状态**: ✅ 已实现（2026-08-12，T01–T06：`gap_segments` 齿槽廓形、`_build_internal_helical_model`、exporter 多边界全截面螺旋 sweep、API/规格/前端解除 β 阻塞、G3–G10 门禁）。
+
+### ADR-018: 模块② 多图层视口 + 分阶段独立 GLB 渲染架构
+
+**日期**: 2026-08-13
+**决策**: 模块② 包络计算采用「分阶段独立端点 + 每阶段独立 GLB + 前端增量 addLayer」渲染架构。`gearViewport` 从「单模型替换」重构为「命名图层集」：LayerId = workpiece/generatrix/rake/edge/flank/singleTooth，前端按 id 增量叠加；GLB `node.name` 仅作调试标签、不作识别。图层数据经新增 window 事件 `gear:layer-ready`（与 `gear:model-ready` 并列）送达视口。材质/配色单源 `layerPalette.ts`（与 theme.css 注释互指、非运行时联动）。非实体导出（曲面片/曲线/点云）落 `common/gltf_export.py` 泛化函数。测试沿用 ADR-007 的 docstring 分层（不引入 @pytest.mark.occt marker），回归沿用硬编码 golden 常量（testdata JSON 留待几何端点充足后接入）。图层开关交互（眼睛显隐 + 点名字聚焦 + 全部显示）为**正式功能**、浮画布右侧，本子 PRD 用占位假数据填充。dispose 债务（C3）一并收尾。
+**理由**: 用户决策「分阶段独立端点（非 SSE）」锁定每阶段一个端点 → 每阶段一个独立 GLB → 前端增量叠加，正匹配「分阶段叠加可视化」主线；合并 GLB 需后端跨阶段攒状态、与独立端点矛盾。材质属 Three.js 运行时域、theme.css 属 DOM 域，硬镜像必双写漂移。以已落地 ADR-007 为准不引入 marker。图层切换为正式功能（用户明确「非临时」）。
+**状态**: ✅ 已确认（2026-08-13 grilling，Q1–Q12 全 A）
 
 ### ADR-011: K-1.12 齿根圆角 (方案 A) 条件性落地
 
