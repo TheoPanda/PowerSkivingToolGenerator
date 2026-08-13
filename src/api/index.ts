@@ -3,6 +3,7 @@
  * 前后端通信统一使用 HTTP，以便未来迁移至 Web 端
  */
 import { toPayload, type GearParams } from '../composables/useGearParams'
+import type { LayerId } from '../three/layerPalette'
 
 const BASE_URL: string = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5199'
 
@@ -54,4 +55,19 @@ export async function fetchWorkpiece(params: GearParams): Promise<WorkpieceRespo
     method: 'POST',
     body: JSON.stringify(toPayload(params)),
   })
+}
+
+/** 包络占位演示图层（子 PRD-1 多图层能力验证）. */
+export interface EnvelopeDemoLayer {
+  id: LayerId
+  glb_base64: string
+}
+
+export interface EnvelopeDemoResponse {
+  layers: EnvelopeDemoLayer[]
+}
+
+/** 获取包络占位演示图层（产形面/刃形/后刀面）的 GLB. */
+export async function fetchEnvelopeDemo(): Promise<EnvelopeDemoResponse> {
+  return request<EnvelopeDemoResponse>('/api/envelope/demo', { method: 'POST' })
 }

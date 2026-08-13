@@ -9,7 +9,8 @@
  */
 import { ref, inject, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { fetchWorkpiece } from '../api'
+import { fetchWorkpiece, fetchEnvelopeDemo } from '../api'
+import type { LayerReadyDetail } from '../three/layerPalette'
 import { gearParamsKey } from '../composables/useGearParams'
 import { setWorkpieceResult } from '../composables/useWorkpieceState'
 
@@ -53,6 +54,21 @@ async function generate(): Promise<void> {
     generating.value = false
   }
 }
+
+// ── 包络占位演示（临时；子 PRD-1 多图层能力验证，接真实包络数据时移除） ──
+async function demoLayers(): Promise<void> {
+  try {
+    const response = await fetchEnvelopeDemo()
+    for (const layer of response.layers) {
+      const detail: LayerReadyDetail = { id: layer.id, glbBase64: layer.glb_base64 }
+      window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail }))
+    }
+    ElMessage.success('演示图层已叠加')
+  } catch (e: unknown) {
+    const msg: string = e instanceof Error ? e.message : '演示失败'
+    ElMessage.error(msg)
+  }
+}
 </script>
 
 <template>
@@ -67,6 +83,11 @@ async function generate(): Promise<void> {
     <div v-if="error" class="error-msg">
       {{ error }}
       <button class="glass-btn retry-btn" @click="generate">重试</button>
+    </div>
+
+    <!-- 临时：包络占位演示图层（子 PRD-1 多图层能力验证，接真实数据时移除） -->
+    <div class="demo-section">
+      <button class="glass-btn" type="button" data-test="demo-layers" @click="demoLayers">演示图层（临时）</button>
     </div>
 
     <!-- 计算结果摘要与「查看齿轮规格」已移入独立 ResultPanel（全局单例消费） -->

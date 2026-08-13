@@ -8,11 +8,13 @@
  *   - 挂载 MainPanel（参数+生成）与 ResultPanel（结果面板），通过
  *     panel:toggle / gear:model-ready 两个自定义事件联动模型布局与 GLB 加载
  */
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, provide } from 'vue'
 import MainPanel from './MainPanel.vue'
 import ResultPanel from './ResultPanel.vue'
+import LayerPanel from './LayerPanel.vue'
 import { revealResultPanel } from '../composables/useWorkpieceState'
-import { createGearViewport, type GearViewport, type RenderMode } from '../three/gearViewport'
+import { createGearViewport, GEAR_VIEWPORT_KEY, type GearViewport, type RenderMode } from '../three/gearViewport'
+import type { LayerReadyDetail } from '../three/layerPalette'
 
 // ---- 登录 ----
 const loggedIn = ref<boolean>(false)
@@ -53,6 +55,9 @@ const modelLoadProgress = ref<number>(0)
 /** 渲染模式（实体 / 线框图纸）——由 GearViewport 模块驱动，供按钮绑定. */
 const renderMode = ref<RenderMode>('solid')
 let gearViewport: GearViewport | null = null
+/** gearViewport 响应式句柄（provide 给 LayerPanel inject）. */
+const gearViewportRef = ref<GearViewport | null>(null)
+provide(GEAR_VIEWPORT_KEY, gearViewportRef)
 
 function applyRenderMode(mode: RenderMode): void {
   gearViewport?.setRenderMode(mode)
@@ -77,6 +82,12 @@ function onGearModelReady(e: Event): void {
   gearViewport?.loadGear(glbBase64)
 }
 
+/** 包络图层 GLB 就绪 → 增量叠加到视口（与 gear:model-ready 并列）. */
+function onLayerReady(e: Event): void {
+  const detail: LayerReadyDetail = (e as CustomEvent).detail as LayerReadyDetail
+  gearViewport?.addLayer(detail.id, detail.glbBase64)
+}
+
 onMounted(() => {
   if (viewportRef.value) {
     gearViewport = createGearViewport({
@@ -86,18 +97,22 @@ onMounted(() => {
       renderMode,
       onGearDisplayed: () => revealResultPanel(),
     })
+    gearViewportRef.value = gearViewport
   }
   window.addEventListener('resize', onResize)
   window.addEventListener('panel:toggle', onPanelToggle)
   window.addEventListener('gear:model-ready', onGearModelReady)
+  window.addEventListener('gear:layer-ready', onLayerReady)
 })
 
 onUnmounted(() => {
   gearViewport?.dispose()
   gearViewport = null
+  gearViewportRef.value = null
   window.removeEventListener('resize', onResize)
   window.removeEventListener('panel:toggle', onPanelToggle)
   window.removeEventListener('gear:model-ready', onGearModelReady)
+  window.removeEventListener('gear:layer-ready', onLayerReady)
 })
 </script>
 
@@ -165,6 +180,9 @@ onUnmounted(() => {
 
     <!-- 独立可拖拽「计算结果」面板（全局结果单例消费；登录后可出现） -->
     <ResultPanel v-if="loggedIn" />
+
+    <!-- 图层列表面板（画布右侧，登录后显示） -->
+    <LayerPanel v-if="loggedIn" />
 
     <!-- 模型加载进度 -->
     <div v-if="!modelLoaded" class="loading-overlay">
