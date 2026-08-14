@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import LayerPanel from './LayerPanel.vue'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 import { LAYER_IDS } from '../three/layerPalette'
@@ -74,5 +74,17 @@ describe('LayerPanel 图层列表', () => {
     for (const id of LAYER_IDS) {
       expect(vp.setLayerVisible).toHaveBeenCalledWith(id, true)
     }
+  })
+
+  it('gear:layer-ready 事件把对应图层重置为可见（重新包络后联动）', async () => {
+    const vp = fakeViewport()
+    const wrapper = mountPanel(vp)
+    // 先隐藏 swept_cloud
+    await wrapper.find('[data-test="layer-eye-swept_cloud"]').trigger('click')
+    expect(wrapper.find('[data-test="layer-eye-swept_cloud"]').classes()).toContain('off')
+    // 重新包络 → dispatch gear:layer-ready
+    window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail: { id: 'swept_cloud', glbBase64: 'x' } }))
+    await nextTick()
+    expect(wrapper.find('[data-test="layer-eye-swept_cloud"]').classes()).not.toContain('off')
   })
 })

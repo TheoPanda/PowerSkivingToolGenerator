@@ -6,9 +6,9 @@
  * - 顶部「全部显示」一键回到叠加
  * - 图层定义来自 layerPalette（单源）；操作经 inject 的 gearViewport 实例下发
  */
-import { inject, reactive, ref } from 'vue'
+import { inject, reactive, ref, onMounted, onUnmounted } from 'vue'
 import type { Ref } from 'vue'
-import { LAYER_IDS, LAYER_VISUALS, MATERIAL_PRESETS, type LayerId } from '../three/layerPalette'
+import { LAYER_IDS, LAYER_VISUALS, MATERIAL_PRESETS, type LayerId, type LayerReadyDetail } from '../three/layerPalette'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 
 const viewportRef = inject<Ref<GearViewport | null>>(GEAR_VIEWPORT_KEY, ref(null))
@@ -44,6 +44,21 @@ function showAll(): void {
     viewportRef.value?.setLayerOpacity(id, LAYER_VISUALS[id].defaultOpacity)
   }
 }
+
+/** 图层重新生成（重新点「开始包络」→ gear:layer-ready）→ 重置该层显隐/透明度为默认（图层默认显示）. */
+function onLayerReady(e: Event): void {
+  const detail = (e as CustomEvent).detail as LayerReadyDetail
+  visible[detail.id] = true
+  opacity[detail.id] = LAYER_VISUALS[detail.id].defaultOpacity
+}
+
+onMounted(() => {
+  window.addEventListener('gear:layer-ready', onLayerReady)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('gear:layer-ready', onLayerReady)
+})
 
 /** 图层色块颜色（hex 字符串，供 CSS 使用）. */
 function colorOf(id: LayerId): string {
