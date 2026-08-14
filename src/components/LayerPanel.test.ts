@@ -40,7 +40,7 @@ function mountPanel(viewport: GearViewport = fakeViewport()) {
 }
 
 describe('LayerPanel 图层列表', () => {
-  it('渲染 6 个图层行', () => {
+  it('渲染 7 个图层行', () => {
     const wrapper = mountPanel()
     for (const id of LAYER_IDS) {
       expect(wrapper.find(`[data-test="layer-row-${id}"]`).exists()).toBe(true)

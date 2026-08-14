@@ -18,6 +18,7 @@ import {
   fetchEnvelopeFlank,
   fetchEnvelopeSingleTooth,
   fetchEnvelopeAnalytic,
+  fetchEnvelopeConjugate,
   type CoverageReport,
   type CrossCheckResult,
 } from '../api'
@@ -164,7 +165,7 @@ async function generate(): Promise<void> {
 }
 
 // ── 派发包络图层到视口（经 gear:layer-ready 事件） ──
-function dispatchLayer(id: 'swept_cloud' | 'edge' | 'rake' | 'flank' | 'singleTooth', glbBase64: string, motion?: SweptCloudMotion): void {
+function dispatchLayer(id: 'swept_cloud' | 'edge' | 'rake' | 'flank' | 'singleTooth' | 'conjugate', glbBase64: string, motion?: SweptCloudMotion): void {
   const detail: LayerReadyDetail = { id, glbBase64, motion }
   window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail }))
 }
@@ -213,6 +214,10 @@ async function runEnvelope(): Promise<void> {
     dispatchLayer('edge', edgeResp.layer.glb_base64)
     ffaUm.value = edgeResp.ffa_um
     coverageReport.value = edgeResp.coverage_report
+
+    // 产形面（共轭面，K-2.6 数值啮合）：刃形 = 产形面 ∩ 前刀面，随后叠加
+    const conjugateResp = await fetchEnvelopeConjugate(req)
+    dispatchLayer('conjugate', conjugateResp.layer.glb_base64)
 
     // 解析路线（子 PRD-5，可选）：K-2.8 解析刃形覆盖离散刃形 + 双路线互检
     if (useAnalytic.value) {

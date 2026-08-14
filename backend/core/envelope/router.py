@@ -17,6 +17,7 @@ from core.envelope.rake import build_plane_rake, normal_arrow, plane_patch
 from core.envelope.flank import generate_flank_helical_lead
 from core.envelope.single_tooth import build_single_tooth
 from core.envelope.analytic import compute_analytic_edge, cross_check
+from core.envelope.conjugate import compute_conjugate_surface
 from core.workpiece.router import GearParamsRequest
 
 router = APIRouter(prefix="/api/envelope", tags=["envelope"])
@@ -107,6 +108,7 @@ class DiscretizationParams(BaseModel):
     m: int = Field(181, ge=2)
     NR: int = Field(200, ge=2)
     theta_range_deg: float = Field(40.0, gt=0)
+    n_z: int = Field(21, ge=2, description="产形面轴向层数（conjugate 端点用）")
 
 
 class EnvelopeRequest(BaseModel):
@@ -228,6 +230,46 @@ def envelope_edge(req: EnvelopeRequest) -> dict:
                 {"count": len(seg.pts), "continuity": seg.continuity}
                 for seg in edge.segments
             ],
+            "install": {"a": plan.a, "sigma_deg": plan.sigma_deg},
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={"error": str(e), "code": 500})
+
+
+# ── 子 PRD-5 产形面（共轭面）端点 ───────────────────────────────────
+
+
+@router.post("/conjugate")
+def envelope_conjugate(req: EnvelopeRequest) -> dict:
+    """K-2.6 产形面端点：数值啮合方程（n·v=0）→ 共轭面三角网 GLB（坐标 T）."""
+    try:
+        p = req.workpiece.to_gear_params()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    try:
+        plan = compute_process_plan(
+            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
+            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
+            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
+        )
+        pts = extract_gap_points(p, req.discretization.n)
+        surf = compute_conjugate_surface(
+            pts, plan, b_w=p.b_w, k_io=p.k_io,
+            n_z=req.discretization.n_z, m=req.discretization.m,
+            theta_range_deg=req.discretization.theta_range_deg,
+        )
+        geo = GeometrySpec(
+            kind="mesh", positions=surf.mesh_positions,
+            indices=surf.mesh_indices, normals=surf.mesh_normals, layer_id="conjugate",
+        )
+        glb = export_geometry_glb_base64([geo])
+        return {
+            "layer": {"id": "conjugate", "glb_base64": glb},
+            "coord_frame": "T",
+            "coverage_report": surf.coverage,
             "install": {"a": plan.a, "sigma_deg": plan.sigma_deg},
         }
     except ValueError as e:

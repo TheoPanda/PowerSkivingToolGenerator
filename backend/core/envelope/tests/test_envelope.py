@@ -237,3 +237,31 @@ def test_analytic_returns_edge_and_cross_check():
     assert "max_delta_um" in data["cross_check"]
     blob = base64.b64decode(data["layer"]["glb_base64"])
     assert blob[:4] == b"glTF"
+
+
+# ── 子 PRD-5 产形面（共轭面）端点 ───────────────────────────────────
+
+
+def _conjugate_request(**overrides):
+    """最小产形面请求（内齿轮 + 小离散参数）."""
+    body = {
+        "workpiece": {"m_n": 2.0, "z_w": 82, "b_w": 20.0, "k_io": -1},
+        "tool": {"z_t": 41, "beta_t_deg": 15.0, "j_t": -1},
+        "discretization": {"n": 50, "m": 31, "n_z": 7, "theta_range_deg": 40.0},
+    }
+    body.update(overrides)
+    return body
+
+
+def test_conjugate_returns_mesh_and_install():
+    client = TestClient(app)
+    resp = client.post("/api/envelope/conjugate", json=_conjugate_request())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["coord_frame"] == "T"
+    assert data["layer"]["id"] == "conjugate"
+    assert data["coverage_report"]["pass"] is True
+    assert data["coverage_report"]["found"] == data["coverage_report"]["total_points"]
+    assert data["install"]["a"] > 0
+    blob = base64.b64decode(data["layer"]["glb_base64"])
+    assert blob[:4] == b"glTF"

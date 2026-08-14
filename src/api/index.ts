@@ -268,3 +268,28 @@ export async function fetchEnvelopeAnalytic(params: EnvelopeRequest): Promise<An
     body: JSON.stringify(params),
   })
 }
+
+/** 产形面（共轭面）覆盖判据报告（K-2.6）. */
+export interface ConjugateCoverageReport {
+  total_points: number
+  found: number
+  uncovered: number
+  coverage_ratio: number
+  pass: boolean
+}
+
+/** 产形面响应（POST /api/envelope/conjugate）. */
+export interface ConjugateResponse {
+  layer: { id: 'conjugate'; glb_base64: string }
+  coord_frame: string
+  coverage_report: ConjugateCoverageReport
+  install: EnvelopeInstall
+}
+
+/** 产形面：数值啮合方程（n·v=0）→ 共轭面三角网 GLB. */
+export async function fetchEnvelopeConjugate(params: EnvelopeRequest): Promise<ConjugateResponse> {
+  return request<ConjugateResponse>('/api/envelope/conjugate', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}

@@ -146,6 +146,12 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     point_count: 100,
     cross_check: { max_delta_um: 0.5, pass: true },
   }
+  const mockConjugate: api.ConjugateResponse = {
+    layer: { id: 'conjugate', glb_base64: 'Z2xURg==' },
+    coord_frame: 'T',
+    coverage_report: { total_points: 200, found: 200, uncovered: 0, coverage_ratio: 1.0, pass: true },
+    install: { a: 39.55, sigma_deg: 15.0 },
+  }
 
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -156,6 +162,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     vi.spyOn(api, 'fetchEnvelopeFlank').mockResolvedValue(mockFlank)
     vi.spyOn(api, 'fetchEnvelopeSingleTooth').mockResolvedValue(mockTooth)
     vi.spyOn(api, 'fetchEnvelopeAnalytic').mockResolvedValue(mockAnalytic)
+    vi.spyOn(api, 'fetchEnvelopeConjugate').mockResolvedValue(mockConjugate)
     workpieceState.result = null
     workpieceState.spec = null
     workpieceState.open = false
@@ -164,7 +171,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     workpieceState.pos = { x: 24, y: 64 }
   })
 
-  it('点「开始包络」→ 依次派发扫掠点云、刃形、前刀面、后刀面、单齿五图层 + 诊断条显示', async () => {
+  it('点「开始包络」→ 依次派发扫掠点云、刃形、产形面、前刀面、后刀面、单齿六图层 + 诊断条显示', async () => {
     const wrapper = mountViewer()
     await nextTick()
     await nextTick()
@@ -178,9 +185,10 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     await wrapper.find('button[data-test="run-envelope"]').trigger('click')
     await nextTick()
     await nextTick()
+    await nextTick()
 
     window.removeEventListener('gear:layer-ready', handler)
-    expect(layers).toEqual(['swept_cloud', 'edge', 'rake', 'flank', 'singleTooth'])
+    expect(layers).toEqual(['swept_cloud', 'edge', 'conjugate', 'rake', 'flank', 'singleTooth'])
     expect(wrapper.find('[data-test="diagnostic-strip"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('ffα')
     expect(wrapper.text()).toContain('覆盖')

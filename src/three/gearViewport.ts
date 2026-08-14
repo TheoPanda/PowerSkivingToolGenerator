@@ -808,7 +808,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   /** 设置安装参数并（重）画坐标轴 + 对已挂载的刀具系图层施加变换. */
   function setEnvelopeInstall(a: number, sigmaDeg: number): void {
     envelopeInstall = { a, sigma: (sigmaDeg * Math.PI) / 180 }
-    for (const id of ['swept_cloud', 'rake', 'edge', 'flank', 'singleTooth'] as LayerId[]) {
+    for (const id of ['swept_cloud', 'rake', 'edge', 'flank', 'singleTooth', 'conjugate'] as LayerId[]) {
       const g = layerGroups[id]
       if (g) applyInstallTransform(g)
     }

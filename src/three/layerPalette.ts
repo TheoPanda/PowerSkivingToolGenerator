@@ -6,14 +6,14 @@
  * 注释互指、不做运行时联动（ADR-018）。纯数据，不依赖 Three.js。
  */
 
-/** 6 个语义图层 id（工件 + 模块② 五件套）. */
-export type LayerId = 'workpiece' | 'swept_cloud' | 'rake' | 'edge' | 'flank' | 'singleTooth'
+/** 7 个语义图层 id（工件 + 模块② 五件套 + 产形面）. */
+export type LayerId = 'workpiece' | 'swept_cloud' | 'rake' | 'edge' | 'flank' | 'singleTooth' | 'conjugate'
 
 /** 几何种类：mesh=三角网格、line=有序折线、points=点云. */
 export type LayerKind = 'mesh' | 'line' | 'points'
 
 /** 材质预设名（steel/carbide 复用现有工件/刀具材质；其余为包络层配色）. */
-export type MaterialPreset = 'steel' | 'carbide' | 'swept_cloud' | 'rake' | 'flank' | 'edge'
+export type MaterialPreset = 'steel' | 'carbide' | 'swept_cloud' | 'rake' | 'flank' | 'edge' | 'conjugate'
 
 /** 材质预设的 PBR 参数（color 为 hex 0xRRGGBB）. */
 export interface MaterialPresetDef {
@@ -38,6 +38,8 @@ export const MATERIAL_PRESETS: Record<MaterialPreset, MaterialPresetDef> = {
   flank: { color: 0x3aa06a, roughness: 0.4, metalness: 0.3, transparent: true, opacity: 0.5 },
   // 刃形 — 珊瑚红 #E05050（高亮折线，非黑；LineBasicMaterial，roughness/metalness 无效仅占位）
   edge: { color: 0xe05050, roughness: 0.5, metalness: 0.0, transparent: false, opacity: 1.0 },
+  // 产形面（共轭面）— 青色 #00A8CC（[12] 图3 蓝色产形面；与扫掠点云品牌蓝区分）
+  conjugate: { color: 0x00a8cc, roughness: 0.4, metalness: 0.3, transparent: true, opacity: 0.5 },
 }
 
 /** 每个图层的视觉默认值. */
@@ -62,10 +64,11 @@ export const LAYER_VISUALS: Record<LayerId, LayerVisual> = {
   edge: { id: 'edge', label: '刃形', kind: 'line', materialPreset: 'edge', defaultOpacity: 1.0, doubleSide: false },
   flank: { id: 'flank', label: '后刀面', kind: 'mesh', materialPreset: 'flank', defaultOpacity: 0.5, doubleSide: true },
   singleTooth: { id: 'singleTooth', label: '单齿模型', kind: 'mesh', materialPreset: 'carbide', defaultOpacity: 1.0, doubleSide: false },
+  conjugate: { id: 'conjugate', label: '产形面', kind: 'mesh', materialPreset: 'conjugate', defaultOpacity: 0.5, doubleSide: true },
 }
 
 /** 全部图层 id（按叠加顺序）. */
-export const LAYER_IDS: LayerId[] = ['workpiece', 'swept_cloud', 'rake', 'edge', 'flank', 'singleTooth']
+export const LAYER_IDS: LayerId[] = ['workpiece', 'swept_cloud', 'rake', 'edge', 'flank', 'singleTooth', 'conjugate']
 
 /** 扫掠点云揭示元数据（swept_cloud 响应 `motion` 字段，供前端映射滑块→行号 + 逐行揭示）. */
 export interface SweptCloudMotion {
