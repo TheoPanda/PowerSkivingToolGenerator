@@ -43,7 +43,7 @@ backend/
 3. **坐标系标签**：任何点集/曲面对象必须携带坐标标签（W/T/F_w/F_t/R）
 4. **缺口清单项**：未销项用 skeleton + assert 占位，不得直接当已验证公式写入
 
-## 设计书（只读引用）
+## 设计书
 
 `E:/OneDrive/Claude_Word/PowerSkivingDoc/reports/车齿刀设计书/`
 

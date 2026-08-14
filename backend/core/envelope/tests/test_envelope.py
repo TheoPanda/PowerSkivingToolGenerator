@@ -159,3 +159,68 @@ def test_rake_rejects_non_plane_type():
     resp = client.post("/api/envelope/rake", json=_rake_request(rake_type="cone"))
     assert resp.status_code == 400
     assert "未实现" in resp.json()["detail"]["error"]
+
+
+# ── 子 PRD-4 后刀面 + 单齿预览端点 ─────────────────────────────────────
+
+
+def _flank_request(**overrides):
+    """最小后刀面/单齿请求（内齿轮 + 小离散参数 + 重磨）."""
+    body = {
+        "workpiece": {"m_n": 2.0, "z_w": 82, "b_w": 20.0, "k_io": -1},
+        "tool": {"z_t": 41, "beta_t_deg": 15.0, "j_t": -1, "gamma_0_deg": 5.0, "alpha_0_deg": 8.0},
+        "resharpening": {"L": 2.0, "n_L": 4},
+        "discretization": {"n": 50, "m": 31, "NR": 60, "theta_range_deg": 20.0},
+    }
+    body.update(overrides)
+    return body
+
+
+def test_flank_returns_mesh_and_schedule():
+    client = TestClient(app)
+    resp = client.post("/api/envelope/flank", json=_flank_request())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["coord_frame"] == "T"
+    assert data["layer"]["id"] == "flank"
+    assert data["source"] == "离散临时，待解析覆盖"
+    schedule = data["resharpen_schedule"]
+    assert len(schedule) == 4
+    assert schedule[0]["da"] == pytest.approx(0.07027, abs=1e-5)
+    assert schedule[3]["da"] == pytest.approx(0.28108, abs=1e-5)
+    blob = base64.b64decode(data["layer"]["glb_base64"])
+    assert blob[:4] == b"glTF"
+
+
+def test_single_tooth_returns_three_piece_glb():
+    from pygltflib import GLTF2
+    client = TestClient(app)
+    resp = client.post("/api/envelope/single_tooth", json=_flank_request())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["layer"]["id"] == "singleTooth"
+    assert data["source"] == "模块③预览"
+    blob = base64.b64decode(data["layer"]["glb_base64"])
+    assert blob[:4] == b"glTF"
+    gltf = GLTF2.load_from_bytes(blob)
+    modes = sorted(m.primitives[0].mode for m in gltf.meshes)
+    assert 4 in modes  # TRIANGLES（前刀面片 + 后刀面片）
+    assert 3 in modes  # LINE_STRIP（刃形线）
+
+
+# ── 子 PRD-5 解析路线端点 ─────────────────────────────────────────────
+
+
+def test_analytic_returns_edge_and_cross_check():
+    client = TestClient(app)
+    resp = client.post("/api/envelope/analytic", json=_swept_cloud_request())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["coord_frame"] == "T"
+    assert data["layer"]["id"] == "edge"
+    assert data["source"] == "解析（K-2.8）"
+    assert data["point_count"] > 0
+    assert "cross_check" in data
+    assert "max_delta_um" in data["cross_check"]
+    blob = base64.b64decode(data["layer"]["glb_base64"])
+    assert blob[:4] == b"glTF"

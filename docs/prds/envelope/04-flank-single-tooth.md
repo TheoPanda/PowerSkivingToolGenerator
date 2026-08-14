@@ -11,8 +11,8 @@
 ## 2. 范围
 
 **做**：
-- K-2.18 Δa_i（重磨截面中心距变动量）、K-2.19 分截面重算刃形 + 拟合后刀面。
-- 单齿预览（三件套闭合，标注 source=模块③ 预览，硬质合金材质）。
+- K-2.18 Δa_i（重磨截面中心距变动量，**兼容内外齿轮**：a_i = a − k_io·Δa_i，内齿轮取 +、外齿轮取 −）、K-2.19 分截面重算刃形 + **三角网连片**拟合后刀面。
+- 单齿预览（前刀面 + 后刀面 + 刃形**三件套叠加、目检闭合**，标注 source=模块③ 预览，硬质合金材质；闭合流形实体留模块③）。
 
 **不做**：变位族法 K-2.14（锥刀，W5 缓行）、圆柱刀导程法 K-2.15/16（二期可选）、圆柱刀轴向偏移法 K-2.17（二期可选）、单齿周向阵列成完整刀具（模块③ 正式交付）。
 
@@ -20,8 +20,8 @@
 
 ## 3. 数据契约
 
-- **输入**：`EdgeCurve` + `RakeSurface` + `tool_type` + `L` + `n_L`。
-- **输出**：`FlankSurface{section_edges[], flank_fit, resharpen_schedule a_i[]}` + 单齿 GLB。
+- **输入**：完整工件参数 + 刀具参数（含 α₀ 后角）+ `tool_type` + `L` + `n_L`——分截面需重跑 ②b 离散包络，故复用子 PRD-2 的 `EnvelopeRequest`（workpiece + tool + discretization）而非只收 `EdgeCurve`。
+- **输出**：`FlankSurface{section_edges[], flank_fit, resharpen_schedule a_i[]}` + 单齿 GLB，均带 `source` 标记（「离散临时，待解析覆盖」，供前端提示预览级）。
 
 ## 4. 交互与视觉
 
@@ -31,13 +31,14 @@
 
 ## 5. 验收标准
 
-1. 截面拟合残差 < 离散点间距一半（第7章行16）。
-2. 算例2 Δa_i 轨迹回归（0.07027 / 0.14054 / 0.21081 / 0.28108，L=2mm / n_L=4；**硬编码 golden 常量**落地，不接 testdata，与父 PRD A4 同步修正）。
-3. 单齿 GLB 闭合流形、可预览、硬质合金材质。
+1. 截面拟合残差 < 离散点间距一半（第7章行16，⚠️ 推导设定，实现时校准回填）。
+2. 算例2（内齿轮）Δa_i 轨迹回归（0.07027 / 0.14054 / 0.21081 / 0.28108，L=2mm / n_L=4；**硬编码 golden 常量**落地，不接 testdata，与父 PRD A4 同步修正）；外齿轮 Δa_i 方向为推导（a_i = a − Δa_i），不设硬锚点。
+3. 单齿三件套（前刀面 + 后刀面 + 刃形）**目视闭合**、可预览、硬质合金材质；闭合流形实体留模块③（本子 PRD 不做实体）。
 
 ## 6. 缺口与风险
 
 - T3（L/n_L 未发表）→ 用第6章推导示例 L=2 / n_L=4 + 工程默认。
+- 外齿轮 Δa_i 方向（a_i = a − Δa_i）文献未发表 → 推导落地 + 注释标注未销项，不当已验证公式（仅内齿轮算例2 有 golden 锚点）。
 - 单齿预览越级模块③ → 后端溯源 `source=模块③预览` + 前端显式标注，双保险。
 
 ## 7. 文件变更
@@ -47,5 +48,11 @@
 | `backend/core/envelope/flank.py` | 新增 |
 | `backend/core/envelope/single_tooth.py` | 新增 |
 | `backend/core/envelope/router.py` | 修改（注册 flank/single-tooth 端点） |
-| `backend/core/common/gltf_export.py` | 修改（复用 export_geometry_glb 导出后刀面曲面片；单齿实体沿用现有实体 GLB 导出） |
+| `backend/core/common/gltf_export.py` | 修改（复用 export_geometry_glb 导出后刀面曲面片 + 单齿三件套非实体 GLB） |
 | `backend/core/envelope/tests/*` | 新增 |
+
+## 8. 变更履历
+
+| # | 日期 | 来源 | 变更 |
+|---|---|---|---|
+| 1 | 2026-08-14 | 后刀面/单齿 grilling（grill-with-docs） | 单齿预览降级为三件套目视闭合（闭合流形实体留模块③）；Δa_i 兼容内外齿轮（a_i = a − k_io·Δa_i，外齿轮方向推导未销项）；拟合 = 三角网连片；输出带 source 标记 |

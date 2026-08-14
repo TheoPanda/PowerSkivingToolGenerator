@@ -15,7 +15,11 @@ import {
   fetchEnvelopeSweptCloud,
   fetchEnvelopeEdge,
   fetchEnvelopeRake,
+  fetchEnvelopeFlank,
+  fetchEnvelopeSingleTooth,
+  fetchEnvelopeAnalytic,
   type CoverageReport,
+  type CrossCheckResult,
 } from '../api'
 import type { LayerReadyDetail, SweptCloudMotion } from '../three/layerPalette'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
@@ -40,13 +44,17 @@ const toolParams = reactive({
   beta_t: 15,
   j_t: -1,        // 左旋 → Σ=+15°（内齿轮旋向相反）
   gamma_0: 5,     // 前角（子 PRD-3 前刀面 K-2.1 输入）
-  alpha_0: 8,     // 后角（保留位，MVP 忽略）
+  alpha_0: 8,     // 后角（子 PRD-4 后刀面 K-2.18 重磨方向输入）
   rake_type: 'plane',  // 前刀面形式（v1 仅 plane；equation/cone 灰置）
+  L: 2,           // 总重磨量 [mm]（子 PRD-4 后刀面）
+  n_L: 4,         // 重磨等分数（子 PRD-4 后刀面）
 })
 const envelopeRunning = ref<boolean>(false)
 const envelopeError = ref<string | null>(null)
 const ffaUm = ref<number | null>(null)
 const coverageReport = ref<CoverageReport | null>(null)
+const useAnalytic = ref<boolean>(false)         // 解析路线对拍（可选，覆盖离散刃形）
+const crossCheck = ref<CrossCheckResult | null>(null)
 
 // ── 扫掠点云可视化（面/网切换 + 揭示滑块 + 播放） ──
 const sweptMotion = ref<SweptCloudMotion | null>(null)
@@ -154,7 +162,7 @@ async function generate(): Promise<void> {
 }
 
 // ── 派发包络图层到视口（经 gear:layer-ready 事件） ──
-function dispatchLayer(id: 'swept_cloud' | 'edge' | 'rake', glbBase64: string, motion?: SweptCloudMotion): void {
+function dispatchLayer(id: 'swept_cloud' | 'edge' | 'rake' | 'flank' | 'singleTooth', glbBase64: string, motion?: SweptCloudMotion): void {
   const detail: LayerReadyDetail = { id, glbBase64, motion }
   window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail }))
 }
@@ -204,6 +212,13 @@ async function runEnvelope(): Promise<void> {
     ffaUm.value = edgeResp.ffa_um
     coverageReport.value = edgeResp.coverage_report
 
+    // 解析路线（子 PRD-5，可选）：K-2.8 解析刃形覆盖离散刃形 + 双路线互检
+    if (useAnalytic.value) {
+      const analyticResp = await fetchEnvelopeAnalytic(req)
+      dispatchLayer('edge', analyticResp.layer.glb_base64)
+      crossCheck.value = analyticResp.cross_check
+    }
+
     // 前刀面（子 PRD-3，后叠加）：γ₀ → 平面前刀面 + 法矢箭头
     const rakeResp = await fetchEnvelopeRake({
       workpiece: req.workpiece,
@@ -211,6 +226,17 @@ async function runEnvelope(): Promise<void> {
       rake_type: toolParams.rake_type as 'plane',
     })
     dispatchLayer('rake', rakeResp.layer.glb_base64)
+
+    // 后刀面 + 单齿预览（子 PRD-4）：L/n_L 重磨 → 后刀面 + 单齿三件套
+    const flankReq = {
+      workpiece: req.workpiece,
+      tool: req.tool,
+      resharpening: { L: toolParams.L, n_L: toolParams.n_L },
+    }
+    const flankResp = await fetchEnvelopeFlank(flankReq)
+    dispatchLayer('flank', flankResp.layer.glb_base64)
+    const toothResp = await fetchEnvelopeSingleTooth(flankReq)
+    dispatchLayer('singleTooth', toothResp.layer.glb_base64)
 
     ElMessage.success('包络计算完成')
   } catch (e: unknown) {
@@ -268,6 +294,18 @@ async function runEnvelope(): Promise<void> {
             <option value="equation" disabled>方程（未实现）</option>
             <option value="cone" disabled>锥面（未实现）</option>
           </select>
+        </label>
+        <label class="param-field">
+          <span class="param-label">总重磨量 L (mm)</span>
+          <input v-model.number="toolParams.L" type="number" class="glass-input" data-test="tool-L" />
+        </label>
+        <label class="param-field">
+          <span class="param-label">重磨等分数 n_L</span>
+          <input v-model.number="toolParams.n_L" type="number" class="glass-input" data-test="tool-n_L" />
+        </label>
+        <label class="param-field">
+          <span class="param-label">解析路线对拍（覆盖离散）</span>
+          <input v-model="useAnalytic" type="checkbox" class="glass-input" data-test="use-analytic" />
         </label>
       </div>
 
@@ -335,6 +373,10 @@ async function runEnvelope(): Promise<void> {
         <span class="diag-item" :class="coverageReport?.pass ? 'ok' : 'bad'">
           <span class="diag-dot"></span>
           覆盖 {{ coveragePercent ?? '—' }}%
+        </span>
+        <span v-if="crossCheck !== null" class="diag-item" :class="crossCheck.pass ? 'ok' : 'bad'">
+          <span class="diag-dot"></span>
+          互检 max|Δ| = {{ crossCheck.max_delta_um.toFixed(3) }} μm
         </span>
       </div>
     </div>

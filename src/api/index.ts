@@ -173,3 +173,83 @@ export async function fetchEnvelopeRake(params: RakeRequest): Promise<RakeRespon
     body: JSON.stringify(params),
   })
 }
+
+// ── 子 PRD-4 后刀面 + 单齿预览 ─────────────────────────────────────
+
+/** 重磨参数（K-2.18 输入）. */
+export interface ResharpenParams {
+  L: number
+  n_L: number
+}
+
+/** 后刀面/单齿请求体. */
+export interface FlankRequest {
+  workpiece: WorkpieceRequestPayload
+  tool: ToolParams
+  resharpening?: ResharpenParams
+  discretization?: DiscretizationParams
+}
+
+/** 重磨截面（K-2.18 输出）. */
+export interface ResharpenStep {
+  i: number
+  dL: number
+  da: number
+  a_i: number
+}
+
+/** 后刀面响应（POST /api/envelope/flank）. */
+export interface FlankResponse {
+  layer: { id: 'flank'; glb_base64: string }
+  coord_frame: string
+  source: string
+  resharpen_schedule: ResharpenStep[]
+}
+
+/** 单齿响应（POST /api/envelope/single_tooth）. */
+export interface SingleToothResponse {
+  layer: { id: 'singleTooth'; glb_base64: string }
+  coord_frame: string
+  source: string
+}
+
+/** 后刀面：前刀面刃形 + 分截面刃形 → 三角网后刀面 GLB. */
+export async function fetchEnvelopeFlank(params: FlankRequest): Promise<FlankResponse> {
+  return request<FlankResponse>('/api/envelope/flank', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+/** 单齿预览：前刀面 + 后刀面 + 刃形三件套非实体 GLB. */
+export async function fetchEnvelopeSingleTooth(params: FlankRequest): Promise<SingleToothResponse> {
+  return request<SingleToothResponse>('/api/envelope/single_tooth', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+// ── 子 PRD-5 解析路线 ──────────────────────────────────────────────
+
+/** 双路线互检结果（第5章 §5.5）. */
+export interface CrossCheckResult {
+  max_delta_um: number
+  pass: boolean
+}
+
+/** 解析刃形响应（POST /api/envelope/analytic）. */
+export interface AnalyticResponse {
+  layer: { id: 'edge'; glb_base64: string }
+  coord_frame: string
+  source: string
+  point_count: number
+  cross_check: CrossCheckResult
+}
+
+/** 解析刃形：逐点求轨迹 ∩ 前刀面 → 解析刃形 GLB + 双路线互检. */
+export async function fetchEnvelopeAnalytic(params: EnvelopeRequest): Promise<AnalyticResponse> {
+  return request<AnalyticResponse>('/api/envelope/analytic', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}

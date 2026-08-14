@@ -123,6 +123,27 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     p_ref: [42.455, 0.0, 0.0],
     n_rake: [0.087156, 0.257834, 0.962250],
   }
+  const mockFlank: api.FlankResponse = {
+    layer: { id: 'flank', glb_base64: 'Z2xURg==' },
+    coord_frame: 'T',
+    source: '离散临时，待解析覆盖',
+    resharpen_schedule: [
+      { i: 1, dL: 0.5, da: 0.07027, a_i: 6.86407 },
+      { i: 2, dL: 1.0, da: 0.14054, a_i: 6.93434 },
+    ],
+  }
+  const mockTooth: api.SingleToothResponse = {
+    layer: { id: 'singleTooth', glb_base64: 'Z2xURg==' },
+    coord_frame: 'T',
+    source: '模块③预览',
+  }
+  const mockAnalytic: api.AnalyticResponse = {
+    layer: { id: 'edge', glb_base64: 'Z2xURg==' },
+    coord_frame: 'T',
+    source: '解析（K-2.8）',
+    point_count: 100,
+    cross_check: { max_delta_um: 0.5, pass: true },
+  }
 
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -130,6 +151,9 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     vi.spyOn(api, 'fetchEnvelopeSweptCloud').mockResolvedValue(mockGen)
     vi.spyOn(api, 'fetchEnvelopeEdge').mockResolvedValue(mockEdge)
     vi.spyOn(api, 'fetchEnvelopeRake').mockResolvedValue(mockRake)
+    vi.spyOn(api, 'fetchEnvelopeFlank').mockResolvedValue(mockFlank)
+    vi.spyOn(api, 'fetchEnvelopeSingleTooth').mockResolvedValue(mockTooth)
+    vi.spyOn(api, 'fetchEnvelopeAnalytic').mockResolvedValue(mockAnalytic)
     workpieceState.result = null
     workpieceState.spec = null
     workpieceState.open = false
@@ -138,7 +162,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     workpieceState.pos = { x: 24, y: 64 }
   })
 
-  it('点「开始包络」→ 依次派发扫掠点云、刃形、前刀面三图层 + 诊断条显示', async () => {
+  it('点「开始包络」→ 依次派发扫掠点云、刃形、前刀面、后刀面、单齿五图层 + 诊断条显示', async () => {
     const wrapper = mountViewer()
     await nextTick()
     await nextTick()
@@ -154,7 +178,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     await nextTick()
 
     window.removeEventListener('gear:layer-ready', handler)
-    expect(layers).toEqual(['swept_cloud', 'edge', 'rake'])
+    expect(layers).toEqual(['swept_cloud', 'edge', 'rake', 'flank', 'singleTooth'])
     expect(wrapper.find('[data-test="diagnostic-strip"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('ffα')
     expect(wrapper.text()).toContain('覆盖')
@@ -175,6 +199,18 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     await nextTick()
 
     expect(wrapper.find('[data-test="diagnostic-strip"].failed').exists()).toBe(true)
+  })
+
+  it('勾选解析路线对拍 → 调 analytic + 显示互检偏差', async () => {
+    const wrapper = mountViewer()
+    await nextTick()
+    await nextTick()
+    await wrapper.find('input[data-test="use-analytic"]').setValue(true)
+    await wrapper.find('button[data-test="run-envelope"]').trigger('click')
+    await nextTick()
+    await nextTick()
+    expect(api.fetchEnvelopeAnalytic).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('互检')
   })
 
   it('工件齿轮未生成时「开始包络」按钮禁用', async () => {

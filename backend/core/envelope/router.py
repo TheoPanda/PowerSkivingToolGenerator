@@ -14,6 +14,9 @@ from core.envelope.edge import extract_edge
 from core.envelope.swept_cloud import WIREFRAME_COLOR, extract_gap_points, generate_envelope_cloud
 from core.envelope.process_plan import compute_process_plan
 from core.envelope.rake import build_plane_rake, normal_arrow, plane_patch
+from core.envelope.flank import generate_flank
+from core.envelope.single_tooth import build_single_tooth
+from core.envelope.analytic import compute_analytic_edge, cross_check
 from core.workpiece.router import GearParamsRequest
 
 router = APIRouter(prefix="/api/envelope", tags=["envelope"])
@@ -269,6 +272,140 @@ def envelope_rake(req: RakeRequest) -> dict:
             "plane": {"A": surf.A, "B": surf.B, "C": surf.C, "const": surf.const},
             "p_ref": list(surf.p_ref),
             "n_rake": list(surf.n_rake),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={"error": str(e), "code": 500})
+
+
+# ── 子 PRD-4 后刀面 + 单齿预览端点 ─────────────────────────────────
+
+
+class ResharpenParams(BaseModel):
+    """重磨参数（K-2.18 输入）."""
+
+    L: float = Field(2.0, gt=0, description="总重磨量 [mm]")
+    n_L: int = Field(4, ge=1, description="等分数")
+
+
+class FlankRequest(BaseModel):
+    """后刀面/单齿请求体."""
+
+    workpiece: GearParamsRequest
+    tool: ToolParams
+    resharpening: ResharpenParams = ResharpenParams()
+    discretization: DiscretizationParams = DiscretizationParams()
+
+
+@router.post("/flank")
+def envelope_flank(req: FlankRequest) -> dict:
+    """K-2.18/2.19 后刀面端点：前刀面刃形 + 分截面刃形 → 三角网后刀面 GLB."""
+    try:
+        p = req.workpiece.to_gear_params()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    try:
+        plan = compute_process_plan(
+            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
+            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
+            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
+        )
+        pts = extract_gap_points(p, req.discretization.n)
+        flank = generate_flank(
+            pts, plan, L=req.resharpening.L, n_L=req.resharpening.n_L,
+            alpha_0_deg=req.tool.alpha_0_deg, k_io=p.k_io,
+            m=req.discretization.m, theta_range_deg=req.discretization.theta_range_deg,
+            NR=req.discretization.NR,
+        )
+        geo = GeometrySpec(
+            kind="mesh", positions=flank.mesh_positions,
+            indices=flank.mesh_indices, normals=flank.mesh_normals, layer_id="flank",
+        )
+        glb = export_geometry_glb_base64([geo])
+        return {
+            "layer": {"id": "flank", "glb_base64": glb},
+            "coord_frame": "T",
+            "source": "离散临时，待解析覆盖",
+            "resharpen_schedule": [
+                {"i": s.i, "dL": s.dL, "da": s.da, "a_i": s.a_i} for s in flank.schedule
+            ],
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={"error": str(e), "code": 500})
+
+
+@router.post("/single_tooth")
+def envelope_single_tooth(req: FlankRequest) -> dict:
+    """K-3.1 单齿预览端点：前刀面 + 后刀面 + 刃形三件套非实体 GLB."""
+    try:
+        p = req.workpiece.to_gear_params()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    try:
+        plan = compute_process_plan(
+            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
+            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
+            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
+        )
+        pts = extract_gap_points(p, req.discretization.n)
+        geos = build_single_tooth(
+            pts, plan, gamma_0_deg=req.tool.gamma_0_deg, beta_t_deg=req.tool.beta_t_deg,
+            alpha_0_deg=req.tool.alpha_0_deg, L=req.resharpening.L, n_L=req.resharpening.n_L,
+            k_io=p.k_io, m=req.discretization.m,
+            theta_range_deg=req.discretization.theta_range_deg, NR=req.discretization.NR,
+        )
+        glb = export_geometry_glb_base64(geos)
+        return {
+            "layer": {"id": "singleTooth", "glb_base64": glb},
+            "coord_frame": "T",
+            "source": "模块③预览",
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={"error": str(e), "code": 500})
+
+
+# ── 子 PRD-5 解析路线端点 ─────────────────────────────────────────────
+
+
+@router.post("/analytic")
+def envelope_analytic(req: EnvelopeRequest) -> dict:
+    """K-2.8 解析刃形端点 + 双路线互检：逐点求轨迹 ∩ 前刀面 → 解析刃形 GLB."""
+    try:
+        p = req.workpiece.to_gear_params()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    try:
+        plan = compute_process_plan(
+            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
+            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
+            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
+        )
+        pts = extract_gap_points(p, req.discretization.n)
+        rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
+        edge_pts = compute_analytic_edge(pts, plan, rake, theta_range_deg=req.discretization.theta_range_deg)
+        # 双路线互检：解析 vs 离散（同一工件）
+        cloud = generate_envelope_cloud(
+            pts, plan, m=req.discretization.m, theta_range_deg=req.discretization.theta_range_deg,
+        )
+        discrete_edge = extract_edge(cloud.cloud, pts, plan, NR=req.discretization.NR)
+        discrete_pts = [pt for seg in discrete_edge.segments for pt in seg.pts]
+        cross = cross_check(edge_pts, discrete_pts)
+        geos = [GeometrySpec(kind="line", positions=[c for pt in edge_pts for c in pt], layer_id="edge")]
+        glb = export_geometry_glb_base64(geos)
+        return {
+            "layer": {"id": "edge", "glb_base64": glb},
+            "coord_frame": "T",
+            "source": "解析（K-2.8）",
+            "point_count": len(edge_pts),
+            "cross_check": cross,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
