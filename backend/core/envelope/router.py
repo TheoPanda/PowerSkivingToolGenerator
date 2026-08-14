@@ -391,6 +391,8 @@ def envelope_analytic(req: EnvelopeRequest) -> dict:
         pts = extract_gap_points(p, req.discretization.n)
         rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
         edge_pts = compute_analytic_edge(pts, plan, rake, theta_range_deg=req.discretization.theta_range_deg)
+        if not edge_pts:
+            raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
         # 双路线互检：解析（二分精化）vs 离散（扫掠采样），同一工件
         discrete_edge = extract_edge(
             pts, plan, rake, m=req.discretization.m,

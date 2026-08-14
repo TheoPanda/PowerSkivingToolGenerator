@@ -145,6 +145,9 @@ def generate_flank(
     schedule = compute_resharpen_schedule(plan.a, L, n_L, alpha_0_deg, k_io)
     # 前刀面刃形（a_0 = a，i=0）+ 分截面刃形（a_1..a_nL）
     sections = [_edge_polylines(profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io)]
+    if not sections[0]:
+        # 外齿轮（k_io=+1）前刀面 p_ref=+r_pt 与节圆切点 −r_pt 相反侧 → 刃形为空（T14）
+        raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
     for step in schedule:
         plan_i = replace(plan, a=step.a_i)
         sections.append(_edge_polylines(profile_pts, plan_i, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io))

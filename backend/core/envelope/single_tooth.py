@@ -45,6 +45,8 @@ def build_single_tooth(
     edge = extract_edge(
         profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io
     )
+    if not edge.segments:
+        raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
     edge_geos = [
         GeometrySpec(kind="line", positions=[c for pt in seg.pts for c in pt])
         for seg in edge.segments

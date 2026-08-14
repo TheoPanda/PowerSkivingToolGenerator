@@ -53,3 +53,20 @@ class TestGenerateFlank:
         assert len(flank.mesh_indices) > 0
         # 法向与 positions 等长
         assert len(flank.mesh_normals) == len(flank.mesh_positions)
+
+    def test_external_gear_empty_edge_raises(self):
+        """外齿轮（k_io=+1）刃形为空（T14 未销项）→ 抛明确 ValueError，而非底层 positions 为空."""
+        from core.workpiece.models import GearParams
+        p = GearParams(m_n=2.0, z_w=41, b_w=20.0, k_io=1)
+        plan = compute_process_plan(
+            z_w=41, z_t=41, m_n=2.0,
+            beta_w_deg=0.0, beta_t_deg=15.0,
+            j_w=1, j_t=-1, k_io=1,
+        )
+        rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
+        prof = extract_gap_points(p, n_points=50)
+        with pytest.raises(ValueError, match="T14"):
+            generate_flank(
+                prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=1,
+                m=31, theta_range_deg=20.0,
+            )
