@@ -70,3 +70,19 @@ class TestGenerateFlank:
                 prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=1,
                 m=31, theta_range_deg=20.0,
             )
+
+    def test_flank_expands_along_axis(self):
+        """后刀面沿 Z 轴展开（重磨轴向分量），不再塌在前刀面里（修复前 z 跨度仅 0.024mm）."""
+        from core.workpiece.models import GearParams
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
+        plan = self._plan()
+        rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
+        prof = extract_gap_points(p, n_points=50)
+        flank = generate_flank(
+            prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
+            m=31, theta_range_deg=20.0,
+        )
+        zs = [flank.mesh_positions[i] for i in range(2, len(flank.mesh_positions), 3)]
+        z_span = max(zs) - min(zs)
+        # 轴向展开应与总重磨量 L=2mm 同量级（修复前仅 ~0.024mm）
+        assert z_span > 1.0

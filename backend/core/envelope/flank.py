@@ -1,8 +1,11 @@
 """模块②c 后刀面 — 设计书 K-2.18/2.19 分截面包络 + 三角网连片拟合（纯数学）.
 
 由前刀面刃形 + 各重磨截面刃形按「距前刀面由近及远」顺序三角网连片成后刀面。
-K-2.18 Δa_i = ΔL_i·tan(α₀)，a_i = a − k_io·Δa_i（内齿轮 +、外齿轮 −，后者推导）。
-K-2.19 分截面重跑 ②b 离散包络。不依赖 OCCT。
+重磨同时含两个正交分量（[23] 式(3-1)/(3-2)「重磨使截面沿轴向移动，变位系数线性变化」）：
+  - 径向：K-2.18 Δa_i = ΔL_i·tan(α₀)，a_i = a − k_io·Δa_i（内齿轮 +、外齿轮 −，后者推导）。
+  - 轴向：前刀面沿 −Z 后退 ΔL_i（const += C·ΔL_i，C=cosγ·cosβ₁；设计书 K-2.19 伪代码
+    原遗漏此分量，2026-08-14 补正）。
+K-2.19 分截面重跑 K-2.8 离散刃形（轨迹 ∩ 后退后的前刀面）。不依赖 OCCT。
 """
 
 import math
@@ -150,7 +153,9 @@ def generate_flank(
         raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
     for step in schedule:
         plan_i = replace(plan, a=step.a_i)
-        sections.append(_edge_polylines(profile_pts, plan_i, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io))
+        # 轴向分量：前刀面沿 −Z 后退 ΔL_i（const += C·ΔL_i，C=cosγ·cosβ₁）
+        rake_i = replace(rake, const=rake.const + rake.C * step.dL)
+        sections.append(_edge_polylines(profile_pts, plan_i, rake_i, m=m, theta_range_deg=theta_range_deg, k_io=k_io))
 
     # 三角网连片：连接相邻截面（每条 ribbon 独立）
     n_ribbons = min(len(s) for s in sections)
