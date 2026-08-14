@@ -203,6 +203,21 @@ describe('gearViewport 多图层', () => {
     expect(lastScene).toBeTruthy()
   })
 
+  it('rake/flank/singleTooth 图层也施加 T→W 安装变换', () => {
+    const { vp } = createViewport()
+    vp.setEnvelopeInstall(39.55, 15.0)
+    vp.addLayer('rake', MESH_B64)
+    vp.addLayer('flank', MESH_B64)
+    vp.addLayer('singleTooth', MESH_B64)
+    const rake = findLayerGroup('rake') as THREE.Group
+    const flank = findLayerGroup('flank') as THREE.Group
+    const tooth = findLayerGroup('singleTooth') as THREE.Group
+    expect(rake.position.x).toBeCloseTo(39.55)
+    expect(rake.rotation.x).toBeCloseTo((15 * Math.PI) / 180)
+    expect(flank.position.x).toBeCloseTo(39.55)
+    expect(tooth.rotation.x).toBeCloseTo((15 * Math.PI) / 180)
+  })
+
   it('setEnvelopeInstall 画 6 个 X/Y/Z 标注（W/T 前缀）+ 2 个旋转指针', () => {
     const { vp } = createViewport()
     vp.setEnvelopeInstall(39.55, 15.0)

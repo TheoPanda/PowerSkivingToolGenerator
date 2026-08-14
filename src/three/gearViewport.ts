@@ -757,7 +757,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   /** 设置安装参数并（重）画坐标轴 + 对已挂载的刀具系图层施加变换. */
   function setEnvelopeInstall(a: number, sigmaDeg: number): void {
     envelopeInstall = { a, sigma: (sigmaDeg * Math.PI) / 180 }
-    for (const id of ['swept_cloud', 'edge'] as LayerId[]) {
+    for (const id of ['swept_cloud', 'rake', 'edge', 'flank', 'singleTooth'] as LayerId[]) {
       const g = layerGroups[id]
       if (g) applyInstallTransform(g)
     }
@@ -786,8 +786,8 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     group.name = id
     group.add(mesh)
     worldGroup!.add(group)
-    // 刀具系 T 图层（扫掠点云/刃形）施加安装变换 T→W（中心距 a + 轴交角 Σ）
-    if (id === 'swept_cloud' || id === 'edge') {
+    // 刀具系 T 图层（除 workpiece 外的包络图层）施加安装变换 T→W（中心距 a + 轴交角 Σ）
+    if (id !== 'workpiece') {
       applyInstallTransform(group)
     }
     layerGroups[id] = group
