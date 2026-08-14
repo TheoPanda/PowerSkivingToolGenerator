@@ -7,7 +7,7 @@
 
 from core.common.gltf_export import GeometrySpec
 from core.envelope.edge import compute_discrete_edge, split_flank_segments
-from core.envelope.flank import generate_flank
+from core.envelope.flank import generate_flank_helical_lead
 from core.envelope.rake import RakeSurface, build_plane_rake
 
 
@@ -42,7 +42,8 @@ def build_single_tooth(
     *,
     gamma_0_deg: float,
     beta_t_deg: float,
-    alpha_0_deg: float,
+    z_t: int,
+    m_n: float,
     L: float,
     n_L: int,
     k_io: int,
@@ -56,7 +57,7 @@ def build_single_tooth(
         plan: ProcessPlan
         gamma_0_deg: 前角 γ₀ [°]（前刀面）
         beta_t_deg: 刀具螺旋角 β_t [°]（前刀面）
-        alpha_0_deg: 后角 α₀ [°]（后刀面重磨方向）
+        z_t / m_n: 刀具齿数 / 法向模数 [mm]（后刀面螺旋导程 Ltp）
         L / n_L: 总重磨量 / 等分数
         k_io: 内/外齿轮系数
 
@@ -81,10 +82,10 @@ def build_single_tooth(
         for seg in split_flank_segments(edge_pts, closed=(k_io == -1))
     ]
 
-    # 后刀面片
-    flank = generate_flank(
-        profile_pts, plan, rake, L=L, n_L=n_L, alpha_0_deg=alpha_0_deg, k_io=k_io,
-        m=m, theta_range_deg=theta_range_deg,
+    # 后刀面片 = 螺旋导程法（圆柱刀 K-2.15/16；α₀=0 构造性后角）
+    flank = generate_flank_helical_lead(
+        profile_pts, plan, rake, z_t=z_t, m_n=m_n, beta_t_deg=beta_t_deg,
+        L=L, n_L=n_L, k_io=k_io, m=m, theta_range_deg=theta_range_deg,
     )
     flank_geo = GeometrySpec(
         kind="mesh",

@@ -187,12 +187,20 @@ export interface ResharpenParams {
   n_L: number
 }
 
+/** 刀型：圆柱 / 圆锥（圆锥二期）. */
+export type ToolType = 'cylindrical' | 'conical'
+
+/** 后刀面算法：螺旋导程法 / 轴向偏移法（轴向偏移二期）. */
+export type FlankMethod = 'helical_lead' | 'axial_offset'
+
 /** 后刀面/单齿请求体. */
 export interface FlankRequest {
   workpiece: WorkpieceRequestPayload
   tool: ToolParams
   resharpening?: ResharpenParams
   discretization?: DiscretizationParams
+  tool_type?: ToolType
+  flank_method?: FlankMethod
 }
 
 /** 重磨截面（K-2.18 输出）. */
@@ -208,6 +216,8 @@ export interface FlankResponse {
   layer: { id: 'flank'; glb_base64: string }
   coord_frame: string
   source: string
+  flank_method: string
+  lead_pitch: number
   resharpen_schedule: ResharpenStep[]
 }
 

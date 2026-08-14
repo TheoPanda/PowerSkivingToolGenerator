@@ -44,8 +44,10 @@ const toolParams = reactive({
   beta_t: 15,
   j_t: -1,        // 左旋 → Σ=+15°（内齿轮旋向相反）
   gamma_0: 5,     // 前角（子 PRD-3 前刀面 K-2.1 输入）
-  alpha_0: 8,     // 顶刃后角（子 PRD-4 后刀面 K-2.18 径向重磨分量 Δa=ΔL·tan α₀ 输入）
+  alpha_0: 8,     // 顶刃后角 α₀（圆锥刀专用；圆柱刀螺旋导程法 α₀=0 构造性后角，不参与）
   rake_type: 'plane',  // 前刀面形式（v1 仅 plane；equation/cone 灰置）
+  tool_type: 'cylindrical',     // 刀型：圆柱（圆锥二期）
+  flank_method: 'helical_lead', // 后刀面算法：螺旋导程法（轴向偏移法二期）
   L: 2,           // 总重磨量 [mm]（子 PRD-4 后刀面）
   n_L: 4,         // 重磨等分数（子 PRD-4 后刀面）
 })
@@ -232,6 +234,8 @@ async function runEnvelope(): Promise<void> {
       workpiece: req.workpiece,
       tool: req.tool,
       resharpening: { L: toolParams.L, n_L: toolParams.n_L },
+      tool_type: toolParams.tool_type as 'cylindrical' | 'conical',
+      flank_method: toolParams.flank_method as 'helical_lead' | 'axial_offset',
     }
     const flankResp = await fetchEnvelopeFlank(flankReq)
     dispatchLayer('flank', flankResp.layer.glb_base64)
@@ -284,10 +288,17 @@ async function runEnvelope(): Promise<void> {
           </select>
         </label>
         <label class="param-field">
+          <span class="param-label">刀型</span>
+          <select v-model="toolParams.tool_type" class="glass-input" data-test="tool-tool_type">
+            <option value="cylindrical">圆柱型</option>
+            <option value="conical" disabled>圆锥型（二期）</option>
+          </select>
+        </label>
+        <label class="param-field">
           <span class="param-label">前角 γ₀ (°)</span>
           <input v-model.number="toolParams.gamma_0" type="number" class="glass-input" data-test="tool-gamma_0" />
         </label>
-        <label class="param-field">
+        <label v-if="toolParams.tool_type === 'conical'" class="param-field">
           <span class="param-label">顶刃后角 α₀ (°)</span>
           <input v-model.number="toolParams.alpha_0" type="number" class="glass-input" data-test="tool-alpha_0" />
         </label>
@@ -297,6 +308,13 @@ async function runEnvelope(): Promise<void> {
             <option value="plane">平面</option>
             <option value="equation" disabled>方程（未实现）</option>
             <option value="cone" disabled>锥面（未实现）</option>
+          </select>
+        </label>
+        <label class="param-field">
+          <span class="param-label">后刀面算法</span>
+          <select v-model="toolParams.flank_method" class="glass-input" data-test="tool-flank_method">
+            <option value="helical_lead">螺旋导程法</option>
+            <option value="axial_offset" disabled>轴向偏移法（二期）</option>
           </select>
         </label>
         <label class="param-field">

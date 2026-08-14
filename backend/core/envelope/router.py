@@ -14,7 +14,7 @@ from core.envelope.edge import extract_edge
 from core.envelope.swept_cloud import WIREFRAME_COLOR, extract_gap_points, generate_envelope_cloud
 from core.envelope.process_plan import compute_process_plan
 from core.envelope.rake import build_plane_rake, normal_arrow, plane_patch
-from core.envelope.flank import generate_flank
+from core.envelope.flank import generate_flank_helical_lead
 from core.envelope.single_tooth import build_single_tooth
 from core.envelope.analytic import compute_analytic_edge, cross_check
 from core.workpiece.router import GearParamsRequest
@@ -297,6 +297,8 @@ class FlankRequest(BaseModel):
     tool: ToolParams
     resharpening: ResharpenParams = ResharpenParams()
     discretization: DiscretizationParams = DiscretizationParams()
+    tool_type: str = Field("cylindrical", description="刀型：cylindrical 圆柱 / conical 圆锥（圆锥二期）")
+    flank_method: str = Field("helical_lead", description="后刀面算法：helical_lead 螺旋导程法 / axial_offset 轴向偏移法（二期）")
 
 
 @router.post("/flank")
@@ -314,11 +316,19 @@ def envelope_flank(req: FlankRequest) -> dict:
         )
         pts = extract_gap_points(p, req.discretization.n)
         rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
-        flank = generate_flank(
-            pts, plan, rake, L=req.resharpening.L, n_L=req.resharpening.n_L,
-            alpha_0_deg=req.tool.alpha_0_deg, k_io=p.k_io,
-            m=req.discretization.m, theta_range_deg=req.discretization.theta_range_deg,
-        )
+        if req.tool_type == "cylindrical" and req.flank_method == "helical_lead":
+            flank = generate_flank_helical_lead(
+                pts, plan, rake,
+                z_t=req.tool.z_t, m_n=p.m_n, beta_t_deg=req.tool.beta_t_deg,
+                L=req.resharpening.L, n_L=req.resharpening.n_L, k_io=p.k_io,
+                m=req.discretization.m, theta_range_deg=req.discretization.theta_range_deg,
+            )
+            source = "螺旋导程法（K-2.15/16，圆柱刀）"
+        else:
+            raise ValueError(
+                f"tool_type={req.tool_type}/flank_method={req.flank_method} 未实现"
+                "（圆锥刀变位系数族法 K-2.14 / 轴向偏移法 K-2.17 二期）"
+            )
         geo = GeometrySpec(
             kind="mesh", positions=flank.mesh_positions,
             indices=flank.mesh_indices, normals=flank.mesh_normals, layer_id="flank",
@@ -327,7 +337,9 @@ def envelope_flank(req: FlankRequest) -> dict:
         return {
             "layer": {"id": "flank", "glb_base64": glb},
             "coord_frame": "T",
-            "source": "离散临时，待解析覆盖",
+            "source": source,
+            "flank_method": req.flank_method,
+            "lead_pitch": flank.lead_pitch,
             "resharpen_schedule": [
                 {"i": s.i, "dL": s.dL, "da": s.da, "a_i": s.a_i} for s in flank.schedule
             ],
@@ -353,12 +365,18 @@ def envelope_single_tooth(req: FlankRequest) -> dict:
             j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
         )
         pts = extract_gap_points(p, req.discretization.n)
-        geos = build_single_tooth(
-            pts, plan, gamma_0_deg=req.tool.gamma_0_deg, beta_t_deg=req.tool.beta_t_deg,
-            alpha_0_deg=req.tool.alpha_0_deg, L=req.resharpening.L, n_L=req.resharpening.n_L,
-            k_io=p.k_io, m=req.discretization.m,
-            theta_range_deg=req.discretization.theta_range_deg,
-        )
+        if req.tool_type == "cylindrical" and req.flank_method == "helical_lead":
+            geos = build_single_tooth(
+                pts, plan, gamma_0_deg=req.tool.gamma_0_deg, beta_t_deg=req.tool.beta_t_deg,
+                z_t=req.tool.z_t, m_n=p.m_n, L=req.resharpening.L, n_L=req.resharpening.n_L,
+                k_io=p.k_io, m=req.discretization.m,
+                theta_range_deg=req.discretization.theta_range_deg,
+            )
+        else:
+            raise ValueError(
+                f"tool_type={req.tool_type}/flank_method={req.flank_method} 未实现"
+                "（圆锥刀变位系数族法 K-2.14 / 轴向偏移法 K-2.17 二期）"
+            )
         glb = export_geometry_glb_base64(geos)
         return {
             "layer": {"id": "singleTooth", "glb_base64": glb},

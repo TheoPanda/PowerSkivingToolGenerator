@@ -126,10 +126,12 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
   const mockFlank: api.FlankResponse = {
     layer: { id: 'flank', glb_base64: 'Z2xURg==' },
     coord_frame: 'T',
-    source: '离散临时，待解析覆盖',
+    source: '螺旋导程法（K-2.15/16，圆柱刀）',
+    flank_method: 'helical_lead',
+    lead_pitch: 995.33,
     resharpen_schedule: [
-      { i: 1, dL: 0.5, da: 0.07027, a_i: 6.86407 },
-      { i: 2, dL: 1.0, da: 0.14054, a_i: 6.93434 },
+      { i: 1, dL: 0.5, da: 0, a_i: 39.5537 },
+      { i: 2, dL: 1.0, da: 0, a_i: 39.5537 },
     ],
   }
   const mockTooth: api.SingleToothResponse = {
@@ -272,22 +274,28 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     expect(wrapper.find('[data-test="mode-surface"]').classes()).not.toContain('active')
   })
 
-  it('顶刃后角 α₀ 输入框默认 8° 且随包络请求下发', async () => {
+  it('刀型/后刀面算法选择器渲染 + α₀ 圆柱刀下不渲染', async () => {
     const wrapper = mountViewer()
     await nextTick()
     await nextTick()
 
-    const alphaInput = wrapper.find('input[data-test="tool-alpha_0"]')
-    expect(alphaInput.exists()).toBe(true)
-    expect((alphaInput.element as HTMLInputElement).value).toBe('8')
+    expect(wrapper.find('[data-test="tool-tool_type"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="tool-flank_method"]').exists()).toBe(true)
+    // 圆柱刀（默认）→ α₀ 顶刃后角隐藏（构造性后角 α₀=0）
+    expect(wrapper.find('input[data-test="tool-alpha_0"]').exists()).toBe(false)
+  })
 
-    await alphaInput.setValue('10')
+  it('flankReq 携带 tool_type/flank_method', async () => {
+    const wrapper = mountViewer()
+    await nextTick()
+    await nextTick()
+
     await wrapper.find('button[data-test="run-envelope"]').trigger('click')
     await nextTick()
     await nextTick()
 
     expect(api.fetchEnvelopeFlank).toHaveBeenCalledWith(
-      expect.objectContaining({ tool: expect.objectContaining({ alpha_0_deg: 10 }) }),
+      expect.objectContaining({ tool_type: 'cylindrical', flank_method: 'helical_lead' }),
     )
   })
 })

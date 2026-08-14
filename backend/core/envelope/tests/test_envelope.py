@@ -183,13 +183,26 @@ def test_flank_returns_mesh_and_schedule():
     data = resp.json()
     assert data["coord_frame"] == "T"
     assert data["layer"]["id"] == "flank"
-    assert data["source"] == "离散临时，待解析覆盖"
+    assert data["source"] == "螺旋导程法（K-2.15/16，圆柱刀）"
+    assert data["flank_method"] == "helical_lead"
+    # 导程 Ltp = z_t·m_n·π/sin β_t（算例1 = 995.33mm）
+    assert data["lead_pitch"] == pytest.approx(
+        41 * 2.0 * math.pi / math.sin(math.radians(15.0)), rel=1e-6
+    )
     schedule = data["resharpen_schedule"]
     assert len(schedule) == 4
-    assert schedule[0]["da"] == pytest.approx(0.07027, abs=1e-5)
-    assert schedule[3]["da"] == pytest.approx(0.28108, abs=1e-5)
+    # 螺旋导程法无中心距变动（截面恒定）：da=0、a_i 不变
+    assert schedule[0]["da"] == 0.0
+    assert schedule[3]["da"] == 0.0
     blob = base64.b64decode(data["layer"]["glb_base64"])
     assert blob[:4] == b"glTF"
+
+
+def test_flank_rejects_unimplemented_tool_type():
+    client = TestClient(app)
+    resp = client.post("/api/envelope/flank", json=_flank_request(tool_type="conical"))
+    assert resp.status_code == 400
+    assert "未实现" in resp.json()["detail"]["error"]
 
 
 def test_single_tooth_returns_three_piece_glb():
