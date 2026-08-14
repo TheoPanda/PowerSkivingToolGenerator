@@ -1,8 +1,9 @@
 """模块②b 解析路线 — K-2.8 刃形求交（生成面 ∩ 前刀面）+ 双路线互检（纯数学）.
 
 解析路线：对工件廓形每一离散点，求其运动轨迹（螺旋线族）与前刀面的交点
-（K-2.8，[25] 式(8)），得解析刃形——与离散刃形（投影 z=0 内边界）是两条不同
-派生路径，最终以前刀面交线覆盖。k_io 无关（研究 docs/research/外齿轮解析路线.md）。
+（K-2.8，[25] 式(8)），得解析刃形（二分精化）——与离散刃形（edge.compute_discrete_edge
+扫掠采样 + 线性插值）是同一数学、两种数值方法，双路线互检。k_io 无关
+（研究 docs/research/外齿轮解析路线.md）。
 
 K-2.6 生成面（共轭面）+ K-2.7 啮合方程（n·v¹²=0）本子 PRD 先 skeleton 占位
 （二期补全，缺口纪律）。不依赖 OCCT。
@@ -95,7 +96,8 @@ def cross_check(
     ε_cross=1μm 为推导设定（T1，算例1 实测校准后固化）。两法同为刀具系 T，直接比。
     """
     if not analytic_pts or not discrete_pts:
-        return {"max_delta_um": float("inf"), "pass": False}
+        # 有限哨兵（μm），避免 Starlette JSONResponse(allow_nan=False) 序列化 inf 崩溃
+        return {"max_delta_um": 1e9, "pass": False}
     A = np.array(analytic_pts, dtype=np.float64)
     D = np.array(discrete_pts, dtype=np.float64)
     max_delta = 0.0

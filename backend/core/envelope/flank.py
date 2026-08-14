@@ -12,7 +12,7 @@ import numpy as np
 
 from core.envelope.edge import extract_edge
 from core.envelope.process_plan import ProcessPlan
-from core.envelope.swept_cloud import generate_envelope_cloud
+from core.envelope.rake import RakeSurface
 
 
 @dataclass(frozen=True)
@@ -62,10 +62,12 @@ def compute_resharpen_schedule(
     return steps
 
 
-def _edge_polylines(profile_pts, plan, *, m, theta_range_deg, NR):
-    """对给定 plan 跑 ②b 离散包络，返回刃形折线列表（upper/lower 各一条）."""
-    cloud = generate_envelope_cloud(profile_pts, plan, m=m, theta_range_deg=theta_range_deg)
-    edge = extract_edge(cloud.cloud, profile_pts, plan, NR=NR)
+def _edge_polylines(profile_pts, plan, rake, *, m, theta_range_deg, k_io):
+    """对给定 plan 跑 K-2.8 离散刃形，返回刃形折线列表（左右两段各一条）."""
+    edge = extract_edge(
+        profile_pts, plan, rake,
+        m=m, theta_range_deg=theta_range_deg, k_io=k_io,
+    )
     return [seg.pts for seg in edge.segments]
 
 
@@ -117,6 +119,7 @@ class FlankSurface:
 def generate_flank(
     profile_pts,
     plan: ProcessPlan,
+    rake: RakeSurface,
     *,
     L: float,
     n_L: int,
@@ -124,13 +127,13 @@ def generate_flank(
     k_io: int,
     m: int = 181,
     theta_range_deg: float = 20.0,
-    NR: int = 200,
 ) -> FlankSurface:
     """K-2.18/2.19 后刀面生成：前刀面刃形 + 分截面刃形 → 三角网连片.
 
     Args:
         profile_pts: 工件齿廓点 [(x, y), ...]
         plan: ProcessPlan（中心距 a 为原始值）
+        rake: RakeSurface（前刀面，刃形 = 前刀面 ∩ 生成面）
         L: 总重磨量 [mm]
         n_L: 等分数
         alpha_0_deg: 后角 α₀ [°]
@@ -141,10 +144,10 @@ def generate_flank(
     """
     schedule = compute_resharpen_schedule(plan.a, L, n_L, alpha_0_deg, k_io)
     # 前刀面刃形（a_0 = a，i=0）+ 分截面刃形（a_1..a_nL）
-    sections = [_edge_polylines(profile_pts, plan, m=m, theta_range_deg=theta_range_deg, NR=NR)]
+    sections = [_edge_polylines(profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io)]
     for step in schedule:
         plan_i = replace(plan, a=step.a_i)
-        sections.append(_edge_polylines(profile_pts, plan_i, m=m, theta_range_deg=theta_range_deg, NR=NR))
+        sections.append(_edge_polylines(profile_pts, plan_i, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io))
 
     # 三角网连片：连接相邻截面（每条 ribbon 独立）
     n_ribbons = min(len(s) for s in sections)

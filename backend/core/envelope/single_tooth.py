@@ -8,7 +8,6 @@ from core.common.gltf_export import GeometrySpec
 from core.envelope.edge import extract_edge
 from core.envelope.flank import generate_flank
 from core.envelope.rake import build_plane_rake, plane_patch
-from core.envelope.swept_cloud import generate_envelope_cloud
 
 
 def build_single_tooth(
@@ -23,7 +22,6 @@ def build_single_tooth(
     k_io: int,
     m: int = 181,
     theta_range_deg: float = 20.0,
-    NR: int = 200,
 ) -> list[GeometrySpec]:
     """三件套非实体（前刀面片 + 后刀面片 + 刃形线），均标 singleTooth.
 
@@ -43,9 +41,10 @@ def build_single_tooth(
     rake = build_plane_rake(gamma_0_deg, beta_t_deg, plan.r_pt)
     rake_patch = plane_patch(rake)
 
-    # 刃形（a_0 = a，前刀面刃形）
-    cloud = generate_envelope_cloud(profile_pts, plan, m=m, theta_range_deg=theta_range_deg)
-    edge = extract_edge(cloud.cloud, profile_pts, plan, NR=NR)
+    # 刃形（a_0 = a，前刀面刃形 = 前刀面 ∩ 生成面，K-2.8 离散）
+    edge = extract_edge(
+        profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io
+    )
     edge_geos = [
         GeometrySpec(kind="line", positions=[c for pt in seg.pts for c in pt])
         for seg in edge.segments
@@ -53,8 +52,8 @@ def build_single_tooth(
 
     # 后刀面片
     flank = generate_flank(
-        profile_pts, plan, L=L, n_L=n_L, alpha_0_deg=alpha_0_deg, k_io=k_io,
-        m=m, theta_range_deg=theta_range_deg, NR=NR,
+        profile_pts, plan, rake, L=L, n_L=n_L, alpha_0_deg=alpha_0_deg, k_io=k_io,
+        m=m, theta_range_deg=theta_range_deg,
     )
     flank_geo = GeometrySpec(
         kind="mesh",

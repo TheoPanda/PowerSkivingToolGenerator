@@ -4,6 +4,7 @@ import pytest
 
 from core.envelope.flank import compute_resharpen_schedule, generate_flank
 from core.envelope.process_plan import compute_process_plan
+from core.envelope.rake import build_plane_rake
 from core.envelope.swept_cloud import extract_gap_points
 
 
@@ -41,10 +42,11 @@ class TestGenerateFlank:
         from core.workpiece.models import GearParams
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = self._plan()
+        rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
         prof = extract_gap_points(p, n_points=50)
         flank = generate_flank(
-            prof, plan, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
-            m=31, theta_range_deg=20.0, NR=60,
+            prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
+            m=31, theta_range_deg=20.0,
         )
         assert len(flank.schedule) == 4
         assert len(flank.mesh_positions) > 0

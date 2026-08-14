@@ -190,7 +190,7 @@ def envelope_swept_cloud(req: EnvelopeRequest) -> dict:
 
 @router.post("/edge")
 def envelope_edge(req: EnvelopeRequest) -> dict:
-    """K-2.11~2.13 刃形端点：点云投影 → 内边界提取 → 覆盖 + ffα → 刃形 GLB."""
+    """K-2.8 刃形端点：前刀面交线刃形（轨迹 ∩ 前刀面）→ 覆盖 + ffα → 刃形 GLB."""
     try:
         p = req.workpiece.to_gear_params()
     except ValueError as e:
@@ -202,11 +202,11 @@ def envelope_edge(req: EnvelopeRequest) -> dict:
             j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
         )
         pts = extract_gap_points(p, req.discretization.n)
-        cloud = generate_envelope_cloud(
-            pts, plan, m=req.discretization.m,
-            theta_range_deg=req.discretization.theta_range_deg,
+        rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
+        edge = extract_edge(
+            pts, plan, rake, m=req.discretization.m,
+            theta_range_deg=req.discretization.theta_range_deg, k_io=p.k_io,
         )
-        edge = extract_edge(cloud.cloud, pts, plan, NR=req.discretization.NR)
 
         # 每个刃形段 → 一个 LINE_STRIP GeometrySpec
         geos = [
@@ -313,11 +313,11 @@ def envelope_flank(req: FlankRequest) -> dict:
             j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
         )
         pts = extract_gap_points(p, req.discretization.n)
+        rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
         flank = generate_flank(
-            pts, plan, L=req.resharpening.L, n_L=req.resharpening.n_L,
+            pts, plan, rake, L=req.resharpening.L, n_L=req.resharpening.n_L,
             alpha_0_deg=req.tool.alpha_0_deg, k_io=p.k_io,
             m=req.discretization.m, theta_range_deg=req.discretization.theta_range_deg,
-            NR=req.discretization.NR,
         )
         geo = GeometrySpec(
             kind="mesh", positions=flank.mesh_positions,
@@ -357,7 +357,7 @@ def envelope_single_tooth(req: FlankRequest) -> dict:
             pts, plan, gamma_0_deg=req.tool.gamma_0_deg, beta_t_deg=req.tool.beta_t_deg,
             alpha_0_deg=req.tool.alpha_0_deg, L=req.resharpening.L, n_L=req.resharpening.n_L,
             k_io=p.k_io, m=req.discretization.m,
-            theta_range_deg=req.discretization.theta_range_deg, NR=req.discretization.NR,
+            theta_range_deg=req.discretization.theta_range_deg,
         )
         glb = export_geometry_glb_base64(geos)
         return {
@@ -391,11 +391,11 @@ def envelope_analytic(req: EnvelopeRequest) -> dict:
         pts = extract_gap_points(p, req.discretization.n)
         rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
         edge_pts = compute_analytic_edge(pts, plan, rake, theta_range_deg=req.discretization.theta_range_deg)
-        # 双路线互检：解析 vs 离散（同一工件）
-        cloud = generate_envelope_cloud(
-            pts, plan, m=req.discretization.m, theta_range_deg=req.discretization.theta_range_deg,
+        # 双路线互检：解析（二分精化）vs 离散（扫掠采样），同一工件
+        discrete_edge = extract_edge(
+            pts, plan, rake, m=req.discretization.m,
+            theta_range_deg=req.discretization.theta_range_deg, k_io=p.k_io,
         )
-        discrete_edge = extract_edge(cloud.cloud, pts, plan, NR=req.discretization.NR)
         discrete_pts = [pt for seg in discrete_edge.segments for pt in seg.pts]
         cross = cross_check(edge_pts, discrete_pts)
         geos = [GeometrySpec(kind="line", positions=[c for pt in edge_pts for c in pt], layer_id="edge")]
