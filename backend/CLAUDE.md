@@ -29,7 +29,7 @@ backend/
 ```
 模块① 工件与工艺方案   → ProcessPlan + WorkpieceSurface
 模块②a 前刀面定义      → RakeSurface
-模块②b 刃形求解        → EdgeCurve + GeneratrixSurface
+模块②b 刃形求解        → EdgeCurve + SweptCloud
 模块②c 后刀面生成      → FlankSurface
 模块③ 三维几何与结构   → ToolSolid (STEP)
 模块④ 正向仿真验证     → SimReport

@@ -85,6 +85,14 @@ function firstMesh(group: THREE.Group): THREE.Mesh {
   return mesh as unknown as THREE.Mesh
 }
 
+/** 按 name 在 lastScene 全树查找首个匹配对象（Sprite / Group / Mesh 通用）. */
+function findByName(name: string): THREE.Object3D | null {
+  if (!lastScene) return null
+  let found: THREE.Object3D | null = null
+  lastScene.traverse((c) => { if (!found && c.name === name) found = c })
+  return found
+}
+
 beforeEach(() => {
   lastScene = null
   let rafCalled = false
@@ -96,18 +104,21 @@ beforeEach(() => {
     return 1
   })
   vi.stubGlobal('cancelAnimationFrame', (): void => {})
+  // 静音 jsdom 的 getContext "Not implemented" 噪声；返回 null 走 makeTextSprite 空标注占位分支（本测试只断言结构）
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('gearViewport 多图层', () => {
   it('addLayer 创建独立图层 group（各层独立）', () => {
     const { vp } = createViewport()
-    vp.addLayer('generatrix', MESH_B64)
+    vp.addLayer('swept_cloud', MESH_B64)
     vp.addLayer('edge', LINE_B64)
-    const gen = findLayerGroup('generatrix')
+    const gen = findLayerGroup('swept_cloud')
     const edge = findLayerGroup('edge')
     expect(gen).toBeTruthy()
     expect(edge).toBeTruthy()
@@ -116,21 +127,21 @@ describe('gearViewport 多图层', () => {
 
   it('setLayerVisible 正确显隐', () => {
     const { vp } = createViewport()
-    vp.addLayer('generatrix', MESH_B64)
-    const gen = findLayerGroup('generatrix') as THREE.Group
-    vp.setLayerVisible('generatrix', false)
+    vp.addLayer('swept_cloud', MESH_B64)
+    const gen = findLayerGroup('swept_cloud') as THREE.Group
+    vp.setLayerVisible('swept_cloud', false)
     expect(gen.visible).toBe(false)
-    vp.setLayerVisible('generatrix', true)
+    vp.setLayerVisible('swept_cloud', true)
     expect(gen.visible).toBe(true)
   })
 
   it('setLayerOpacity 只调本层（材质独立不串改）', () => {
     const { vp } = createViewport()
-    vp.addLayer('generatrix', MESH_B64)
+    vp.addLayer('swept_cloud', MESH_B64)
     vp.addLayer('rake', MESH_B64)
-    const gen = findLayerGroup('generatrix') as THREE.Group
+    const gen = findLayerGroup('swept_cloud') as THREE.Group
     const rake = findLayerGroup('rake') as THREE.Group
-    vp.setLayerOpacity('generatrix', 0.5)
+    vp.setLayerOpacity('swept_cloud', 0.5)
     const genMat = firstMesh(gen).material as THREE.MeshStandardMaterial
     const rakeMat = firstMesh(rake).material as THREE.MeshStandardMaterial
     expect(genMat.opacity).toBe(0.5)
@@ -140,9 +151,9 @@ describe('gearViewport 多图层', () => {
   it('clearLayers 清空非工件层（保留 workpiece）', () => {
     const { vp } = createViewport()
     vp.loadGear(MESH_B64)
-    vp.addLayer('generatrix', MESH_B64)
+    vp.addLayer('swept_cloud', MESH_B64)
     vp.clearLayers()
-    expect(findLayerGroup('generatrix')).toBeNull()
+    expect(findLayerGroup('swept_cloud')).toBeNull()
     expect(findLayerGroup('workpiece')).toBeTruthy()
   })
 
@@ -162,13 +173,65 @@ describe('gearViewport 多图层', () => {
 
   it('dispose 释放图层 geometry/material（无残留）', () => {
     const { vp } = createViewport()
-    vp.addLayer('generatrix', MESH_B64)
-    const gen = findLayerGroup('generatrix') as THREE.Group
+    vp.addLayer('swept_cloud', MESH_B64)
+    const gen = findLayerGroup('swept_cloud') as THREE.Group
     const mesh = firstMesh(gen)
     const geometryDispose = vi.spyOn(mesh.geometry, 'dispose')
     const materialDispose = vi.spyOn(mesh.material as THREE.Material, 'dispose')
     vp.dispose()
     expect(geometryDispose).toHaveBeenCalled()
     expect(materialDispose).toHaveBeenCalled()
+  })
+
+  it('addLayer 携带 motion 不抛错（空 geometry 守卫）', () => {
+    const { vp } = createViewport()
+    const motion = { n: 200, m: 181, theta_range_deg: 20.0, surface_indices_per_row: 1194, points_vertices_per_row: 200, wireframe_indices_per_row: 2388 }
+    expect(() => vp.addLayer('swept_cloud', MESH_B64, motion)).not.toThrow()
+    expect(findLayerGroup('swept_cloud')).toBeTruthy()
+  })
+
+  it('setSweptCloudReveal / setSweptCloudMode 无 swept_cloud 时安全 no-op', () => {
+    const { vp } = createViewport()
+    expect(() => vp.setSweptCloudReveal(0.5)).not.toThrow()
+    expect(() => vp.setSweptCloudMode('net')).not.toThrow()
+  })
+
+  it('setEnvelopeInstall 画坐标轴 + 施加 T→W 变换不抛错', () => {
+    const { vp } = createViewport()
+    expect(() => vp.setEnvelopeInstall(39.55, 15.0)).not.toThrow()
+    // 无图层时也能画坐标轴（W 原点 + T 偏移）
+    expect(lastScene).toBeTruthy()
+  })
+
+  it('setEnvelopeInstall 画 6 个 X/Y/Z 标注（W/T 前缀）+ 2 个旋转指针', () => {
+    const { vp } = createViewport()
+    vp.setEnvelopeInstall(39.55, 15.0)
+    for (const axis of ['X', 'Y', 'Z']) {
+      for (const frame of ['W', 'T']) {
+        expect(findByName(`axis-label-${axis}_${frame}`)).toBeTruthy()
+      }
+    }
+    expect(findByName('rotation-pointer-W')).toBeTruthy()
+    expect(findByName('rotation-pointer-T')).toBeTruthy()
+    // W/T 指针是各自独立对象
+    expect(findByName('rotation-pointer-W')).not.toBe(findByName('rotation-pointer-T'))
+  })
+
+  it('旋转指针含弧身 + 箭头锥体（2 个 Mesh）', () => {
+    const { vp } = createViewport()
+    vp.setEnvelopeInstall(39.55, 15.0)
+    const wPtr = findByName('rotation-pointer-W') as THREE.Group
+    let meshCount = 0
+    wPtr.traverse((c) => { if ((c as THREE.Mesh).isMesh) meshCount++ })
+    expect(meshCount).toBe(2) // 弧身（圆环管 TubeGeometry）+ 箭头（圆锥 ConeGeometry）
+  })
+
+  it('dispose 清空坐标轴标注与旋转指针', () => {
+    const { vp } = createViewport()
+    vp.setEnvelopeInstall(39.55, 15.0)
+    expect(findByName('axis-label-X_W')).toBeTruthy()
+    vp.dispose()
+    expect(findByName('axis-label-X_W')).toBeNull()
+    expect(findByName('rotation-pointer-W')).toBeNull()
   })
 })

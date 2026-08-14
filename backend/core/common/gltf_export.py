@@ -2,7 +2,7 @@
 
 单一职责：把任意几何体列表（三角网格 / 有序折线 / 点云）打包成 GLB。
 区别于 workpiece/exporter.py（专供模块① 实体 GearModel）；本模块供模块②
-的产形面 / 前刀面 / 刃形 / 后刀面等非实体几何可视化（子 PRD-1 能力前置）。
+的扫掠点云 / 前刀面 / 刃形 / 后刀面等非实体几何可视化（子 PRD-1 能力前置）。
 
 每个 GeometrySpec 对应 glTF 一个 mesh + 一个 node；node.name 写入 layer_id
 （仅作调试标签——前端 addLayer 显式传 id 识别，不解析 node.name，ADR-018）。
@@ -13,18 +13,19 @@ import struct
 from dataclasses import dataclass
 from typing import Sequence
 
-# glTF 2.0 primitive mode：0=POINTS, 3=LINE_STRIP, 4=TRIANGLES
-_PRIMITIVE_MODE = {"points": 0, "line": 3, "mesh": 4}
+# glTF 2.0 primitive mode：0=POINTS, 1=LINES, 3=LINE_STRIP, 4=TRIANGLES
+_PRIMITIVE_MODE = {"points": 0, "lines": 1, "line": 3, "mesh": 4}
 
 
 @dataclass
 class GeometrySpec:
     """一个待导出的非实体几何体."""
 
-    kind: str  # 'mesh' | 'line' | 'points'
+    kind: str  # 'mesh' | 'line' | 'lines' | 'points'
     positions: list[float]  # 扁平 [x0,y0,z0, x1,y1,z1, ...]
-    indices: list[int] | None = None  # mesh 三角形索引（line/points 忽略）
+    indices: list[int] | None = None  # mesh/lines 索引（line/points 忽略）
     normals: list[float] | None = None  # 可选顶点法向（扁平，与 positions 等长）
+    colors: list[float] | None = None  # 可选逐顶点 RGB（扁平 [r0,g0,b0, ...]，与 positions 等长 → COLOR_0）
     layer_id: str | None = None  # 写入 node.name（调试标签）
 
 
@@ -81,6 +82,15 @@ def export_geometry_glb(geometries: Sequence[GeometrySpec]) -> bytes:
             buffer_data += nrm_bytes
             accessors.append(Accessor(bufferView=nrm_bv_index, componentType=5126, count=n_vertices, type="VEC3"))
             attr_kwargs["NORMAL"] = len(accessors) - 1
+
+        # ── colors（可选，COLOR_0 顶点色） ──
+        if geo.colors is not None and len(geo.colors) > 0:
+            col_bytes = _pad4(struct.pack(f"<{len(geo.colors)}f", *geo.colors))
+            col_bv_index = len(buffer_views)
+            buffer_views.append(BufferView(buffer=0, byteOffset=len(buffer_data), byteLength=len(col_bytes)))
+            buffer_data += col_bytes
+            accessors.append(Accessor(bufferView=col_bv_index, componentType=5126, count=n_vertices, type="VEC3"))
+            attr_kwargs["COLOR_0"] = len(accessors) - 1
 
         # ── indices（可选，mesh 用） ──
         primitive_indices: int | None = None

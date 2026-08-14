@@ -6,7 +6,7 @@ import { MATERIAL_PRESETS, LAYER_VISUALS, LAYER_IDS } from './layerPalette'
 
 describe('layerPalette 纯数据', () => {
   it('6 个语义图层 id 齐全且顺序固定', () => {
-    expect(LAYER_IDS).toEqual(['workpiece', 'generatrix', 'rake', 'edge', 'flank', 'singleTooth'])
+    expect(LAYER_IDS).toEqual(['workpiece', 'swept_cloud', 'rake', 'edge', 'flank', 'singleTooth'])
   })
 
   it('每个图层 id 都有视觉定义且 id 自洽', () => {
@@ -23,8 +23,8 @@ describe('layerPalette 纯数据', () => {
     }
   })
 
-  it('产形面品牌蓝 + 前/后刀面/刃线用区分色（非主题蓝、非黑）', () => {
-    expect(MATERIAL_PRESETS.generatrix.color).toBe(0x0060a0) // 品牌蓝 #0060A0
+  it('扫掠点云品牌蓝 + 前/后刀面/刃线用区分色（非主题蓝、非黑）', () => {
+    expect(MATERIAL_PRESETS.swept_cloud.color).toBe(0x0060a0) // 品牌蓝 #0060A0
     expect(MATERIAL_PRESETS.rake.color).toBe(0xe8963a) // 琥珀橙
     expect(MATERIAL_PRESETS.flank.color).toBe(0x3aa06a) // 翡翠绿
     expect(MATERIAL_PRESETS.edge.color).toBe(0xe05050) // 珊瑚红（非黑）
@@ -35,11 +35,11 @@ describe('layerPalette 纯数据', () => {
     expect(MATERIAL_PRESETS.steel.transparent).toBe(false)
   })
 
-  it('三个面（产形面/前刀面/后刀面）默认半透明', () => {
-    expect(LAYER_VISUALS.generatrix.defaultOpacity).toBe(0.35)
+  it('三个面（扫掠点云/前刀面/后刀面）默认半透明', () => {
+    expect(LAYER_VISUALS.swept_cloud.defaultOpacity).toBe(0.35)
     expect(LAYER_VISUALS.rake.defaultOpacity).toBe(0.45)
     expect(LAYER_VISUALS.flank.defaultOpacity).toBe(0.5)
-    expect(MATERIAL_PRESETS.generatrix.transparent).toBe(true)
+    expect(MATERIAL_PRESETS.swept_cloud.transparent).toBe(true)
     expect(MATERIAL_PRESETS.rake.transparent).toBe(true)
     expect(MATERIAL_PRESETS.flank.transparent).toBe(true)
   })

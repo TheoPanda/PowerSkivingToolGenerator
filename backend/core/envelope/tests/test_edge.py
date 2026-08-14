@@ -11,7 +11,7 @@ from core.envelope.edge import (
     extract_inner_boundary,
     project_to_xy,
 )
-from core.envelope.gen_surface import extract_gap_points, generate_envelope_cloud
+from core.envelope.swept_cloud import extract_gap_points, generate_envelope_cloud
 from core.envelope.process_plan import compute_process_plan
 
 

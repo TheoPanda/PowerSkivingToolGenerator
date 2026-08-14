@@ -7,7 +7,7 @@
 
 ## 1. 目标
 
-把 `src/three/gearViewport.ts` 从「单模型替换」重构为「命名图层集（LayerSet）」，使模块② 的产形面 / 前刀面 / 刃形 / 后刀面 / 单齿能叠加在工件齿轮上展示；同时后端 exporter 新增「曲面片 / 点云 / 空间曲线 → GLB」非实体导出路径。
+把 `src/three/gearViewport.ts` 从「单模型替换」重构为「命名图层集（LayerSet）」，使模块② 的扫掠点云 / 前刀面 / 刃形 / 后刀面 / 单齿能叠加在工件齿轮上展示；同时后端 exporter 新增「曲面片 / 点云 / 空间曲线 → GLB」非实体导出路径。
 
 **硬性约束（用户明确要求）**：不得破坏模块① 已交付成果。工件齿轮 3D 生成（`loadGear` 路径、`WorkpieceViewer`、规格窗口）**零回归**，现有前端测试全绿。注：`gearViewport` 唯一消费者是 `MainView.vue`（经 `gear:model-ready` 事件），零回归门禁聚焦 `MainView`；`WorkpieceViewer` 只 emit 不碰视口，零改动自然满足。
 
@@ -31,19 +31,19 @@
 
 ```ts
 // layerPalette.ts
-type LayerId = 'workpiece' | 'generatrix' | 'rake' | 'edge' | 'flank' | 'singleTooth'
+type LayerId = 'workpiece' | 'swept_cloud' | 'rake' | 'edge' | 'flank' | 'singleTooth'
 
 interface LayerSpec {
   id: LayerId
   kind: 'mesh' | 'line' | 'points'
   glbBase64?: string
   opacity: number
-  materialPreset: 'steel' | 'carbide' | 'generatrix' | 'rake' | 'edge'
+  materialPreset: 'steel' | 'carbide' | 'swept_cloud' | 'rake' | 'flank' | 'edge'
   doubleSide?: boolean
 }
 ```
 
-材质预设（对齐父 PRD §5.5）：`steel` 浅灰钢（工件）、`carbide` 硬质合金深灰（后刀面/单齿）、`generatrix` 品牌蓝 #0060A0 半透明、`rake` 冰蓝 #E8F0F8 半透明、`edge` 深色 #1f2937 高亮曲线。
+材质预设（对齐父 PRD §5.5，以 `layerPalette.ts` 单源为准）：`steel` 浅灰钢（工件）、`carbide` 硬质合金深灰（单齿）、`swept_cloud` 品牌蓝 #0060A0 半透明、`rake` 琥珀橙 #E8963A 半透明、`flank` 翡翠绿 #3AA06A 半透明、`edge` 珊瑚红 #E05050 高亮曲线。
 
 ## 4. 交互与视觉（骨架）
 

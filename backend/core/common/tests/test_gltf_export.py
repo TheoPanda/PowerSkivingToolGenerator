@@ -24,7 +24,7 @@ def _points() -> GeometrySpec:
     return GeometrySpec(
         kind="points",
         positions=[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-        layer_id="generatrix",
+        layer_id="swept_cloud",
     )
 
 
@@ -67,7 +67,7 @@ class TestExportGeometryGlb:
         blob = export_geometry_glb([_line(), _points(), _mesh()])
         gltf = GLTF2.load_from_bytes(blob)
         names = [n.name for n in gltf.nodes]
-        assert names == ["edge", "generatrix", "flank"]
+        assert names == ["edge", "swept_cloud", "flank"]
         assert len(gltf.scenes[0].nodes) == 3
 
     def test_vertex_count_preserved(self):
@@ -85,3 +85,28 @@ class TestExportGeometryGlb:
         import pytest
         with pytest.raises(ValueError):
             export_geometry_glb([GeometrySpec(kind="bogus", positions=[0.0, 0.0, 0.0])])
+
+    def test_colors_written_as_color_0(self):
+        blob = export_geometry_glb([GeometrySpec(
+            kind="mesh",
+            positions=[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            indices=[0, 1, 2],
+            colors=[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        )])
+        gltf = GLTF2.load_from_bytes(blob)
+        prim = gltf.meshes[0].primitives[0]
+        assert prim.attributes.COLOR_0 is not None
+        color_acc = gltf.accessors[prim.attributes.COLOR_0]
+        assert color_acc.count == 3  # 每顶点一个 VEC3
+        assert color_acc.type == "VEC3"
+
+    def test_lines_mode_is_lines_with_indices(self):
+        blob = export_geometry_glb([GeometrySpec(
+            kind="lines",
+            positions=[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0],
+            indices=[0, 1, 2, 3],
+        )])
+        gltf = GLTF2.load_from_bytes(blob)
+        prim = gltf.meshes[0].primitives[0]
+        assert prim.mode == 1  # LINES
+        assert prim.indices is not None

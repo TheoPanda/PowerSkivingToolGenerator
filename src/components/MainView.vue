@@ -85,7 +85,7 @@ function onGearModelReady(e: Event): void {
 /** 包络图层 GLB 就绪 → 增量叠加到视口（与 gear:model-ready 并列）. */
 function onLayerReady(e: Event): void {
   const detail: LayerReadyDetail = (e as CustomEvent).detail as LayerReadyDetail
-  gearViewport?.addLayer(detail.id, detail.glbBase64)
+  gearViewport?.addLayer(detail.id, detail.glbBase64, detail.motion)
 }
 
 onMounted(() => {
@@ -121,8 +121,8 @@ onUnmounted(() => {
     <!-- 全屏 3D 画布 -->
     <div ref="viewportRef" class="canvas-fullscreen"></div>
 
-    <!-- 渲染模式切换 (右上角) -->
-    <div class="render-toggle">
+    <!-- 渲染模式切换 (右上角，登录后显示) -->
+    <div v-if="loggedIn" class="render-toggle">
       <button
         class="render-toggle-btn"
         :class="{ active: renderMode === 'solid' }"

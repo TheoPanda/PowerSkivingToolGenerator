@@ -2,7 +2,7 @@
  * gearViewport.ts — 齿轮 3D 视口的深模块（多图层）
  *
  * 从「单模型替换」重构为「命名图层集」：工件齿轮作为 workpiece 参考基准层，
- * 模块② 的产形面/前刀面/刃形/后刀面/单齿各自叠加为独立图层（子 PRD-1）。
+ * 模块② 的扫掠点云/前刀面/刃形/后刀面/单齿各自叠加为独立图层（子 PRD-1）。
  * 接口：loadGear（降级为工件层加载）/ addLayer / removeLayer / clearLayers /
  *       setLayerVisible / setLayerOpacity / focusLayer / setRenderMode /
  *       setLoggedIn / setModelLayout / resize / dispose
@@ -24,6 +24,7 @@ import {
   MATERIAL_PRESETS,
   type LayerId,
   type LayerVisual,
+  type SweptCloudMotion,
 } from './layerPalette'
 
 export type RenderMode = 'solid' | 'xray'
@@ -46,8 +47,14 @@ export interface GearViewportOptions {
 export interface GearViewport {
   /** 加载工件齿轮 GLB（降级：清空非工件层 + 加载 workpiece 层）并适配相机. */
   loadGear: (glbBase64: string) => void
-  /** 增量叠加一个图层（按 LayerId 从 palette 取材质/样式）. */
-  addLayer: (id: LayerId, glbBase64: string) => void
+  /** 增量叠加一个图层（按 LayerId 从 palette 取材质/样式；swept_cloud 可带 motion 揭示元数据）. */
+  addLayer: (id: LayerId, glbBase64: string, motion?: SweptCloudMotion) => void
+  /** 扫掠点云逐行揭示（fraction 0..1，蓝=0 起点 / 红=1 终点）. */
+  setSweptCloudReveal: (fraction: number) => void
+  /** 扫掠点云「面 / 网+点」两档互斥切换. */
+  setSweptCloudMode: (mode: 'surface' | 'net') => void
+  /** 设置安装参数（中心距 a + 轴交角 Σ），把刀具系 T 图层变换到工件系 W + 画 W/T 坐标轴. */
+  setEnvelopeInstall: (a: number, sigmaDeg: number) => void
   /** 删除一个图层（保留工件基准层）. */
   removeLayer: (id: LayerId) => void
   /** 清空所有非工件层. */
@@ -73,10 +80,45 @@ export interface GearViewport {
 /** provide/inject 键：gearViewport 实例（MainView provide，LayerPanel inject）. */
 export const GEAR_VIEWPORT_KEY = 'gearViewport' as const
 
-/** 按图层视觉定义 + child 类型创建独立材质实例（每层独立，防串改）；不匹配返回 null. */
+/** 判断几何是否带 COLOR_0 顶点色（GLTFLoader 解析为 geometry.attributes.color）. */
+function hasVertexColor(geo: THREE.BufferGeometry): boolean {
+  return geo.hasAttribute('color')
+}
+
+/** 圆环弧线（旋转指针弧身）：radius 半径、endAngle 扫掠角（正=逆时针、负=顺时针）. */
+class CircularArcCurve extends THREE.Curve<THREE.Vector3> {
+  constructor(private radius: number, private endAngle: number) {
+    super()
+  }
+  getPoint(t: number, optionalTarget?: THREE.Vector3): THREE.Vector3 {
+    const a = t * this.endAngle
+    const x = this.radius * Math.cos(a)
+    const y = this.radius * Math.sin(a)
+    if (optionalTarget) {
+      optionalTarget.set(x, y, 0)
+      return optionalTarget
+    }
+    return new THREE.Vector3(x, y, 0)
+  }
+}
+
+/** 按 child 类型 + 是否带顶点色创建独立材质实例（每子元素独立，防串改）；不匹配返回 null. */
 function createLayerMaterial(visual: LayerVisual, child: THREE.Object3D): THREE.Material | null {
   const def = MATERIAL_PRESETS[visual.materialPreset]
-  if (visual.kind === 'mesh' && child instanceof THREE.Mesh) {
+  if (child instanceof THREE.Mesh) {
+    const geo = child.geometry as THREE.BufferGeometry
+    // 顶点色优先（扫掠点云光谱）：白底 + vertexColors；否则走 palette 单色
+    if (hasVertexColor(geo)) {
+      return new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        vertexColors: true,
+        roughness: def.roughness,
+        metalness: def.metalness,
+        transparent: def.transparent,
+        opacity: def.opacity,
+        side: visual.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
+      })
+    }
     return new THREE.MeshStandardMaterial({
       color: def.color,
       roughness: def.roughness,
@@ -86,10 +128,18 @@ function createLayerMaterial(visual: LayerVisual, child: THREE.Object3D): THREE.
       side: visual.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
     })
   }
-  if (visual.kind === 'line' && (child instanceof THREE.Line || child instanceof THREE.LineSegments)) {
+  if (child instanceof THREE.Line || child instanceof THREE.LineSegments) {
+    const geo = child.geometry as THREE.BufferGeometry
+    if (hasVertexColor(geo)) {
+      return new THREE.LineBasicMaterial({ color: 0xffffff, vertexColors: true })
+    }
     return new THREE.LineBasicMaterial({ color: def.color })
   }
-  if (visual.kind === 'points' && child instanceof THREE.Points) {
+  if (child instanceof THREE.Points) {
+    const geo = child.geometry as THREE.BufferGeometry
+    if (hasVertexColor(geo)) {
+      return new THREE.PointsMaterial({ color: 0xffffff, vertexColors: true, size: 0.5 })
+    }
     return new THREE.PointsMaterial({ color: def.color, size: 0.5 })
   }
   return null
@@ -117,6 +167,36 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   const layerMaterials = new Map<LayerId, THREE.Material[]>() // 每层材质实例（dispose 用）
   const growingGeometries = new Map<THREE.BufferGeometry, number>() // 逐点生长动画：geometry → 目标顶点数
   let animationId: number | null = null
+
+  // ── 扫掠点云（swept_cloud）多 primitive + 揭示状态 ──
+  const START_BLUE = 0x00007f // 光谱蓝端（≈#00007F，与后端 jet(0) 一致）
+  let sweptSurface: THREE.Mesh | null = null // 实心光谱面
+  let sweptPoints: THREE.Points | null = null // 光谱网格点
+  let sweptWireframe: THREE.LineSegments | null = null // 灰线框
+  let sweptMotion: SweptCloudMotion | null = null // 揭示元数据
+  let sweptStartLine: THREE.Line | null = null // 固定蓝起始线（行 0）
+  let sweptFrontLine: THREE.Line | null = null // 移动前缘线（行 k）
+  let sweptMode: 'surface' | 'net' = 'surface' // 当前档
+  let sweptRevealF = 1.0 // 当前揭示分数 0..1（默认满显）
+
+  // ── 安装变换 + 坐标轴（刀具系 T ↔ 工件系 W） ──
+  const AXIS_LENGTH = 120.0 // 坐标轴长度 [mm]
+  const AXIS_LABEL_OFFSET = 10.0 // 标注文字距轴尖偏移 [mm]
+  const AXIS_LABEL_HEIGHT = 14.0 // 标注文字世界高度 [mm]
+  const ROTATION_POINTER_RADIUS = 15.0 // 旋转指针圆弧半径 [mm]
+  const ROTATION_POINTER_ARC = Math.PI * 1.5 // 圆弧扫掠角 ≈ 270°（留 90° 缺口放箭头）
+  const ROTATION_POINTER_COLOR = 0xff9500 // 琥珀色（旋转指针 = 运动示意）
+  const ROTATION_POINTER_OMEGA = Math.PI // 旋转指针角速度 ≈ 1 圈/2 秒 [rad/s]
+  let rotationPointers: Array<{ group: THREE.Group; dir: 1 | -1 }> = [] // 渲染循环驱动的旋转指针
+  let lastPointerTime = 0 // 指针动画上一帧时间戳 [ms]
+  let envelopeInstall: { a: number; sigma: number } | null = null // a [mm], sigma [rad]
+  let axesGroup: THREE.Group | null = null // W/T 坐标轴 group
+
+  /** 清空旋转指针登记（坐标轴重建 / 清层 / dispose 时调用，并复位时间戳防跳变）. */
+  function clearRotationPointers(): void {
+    rotationPointers = []
+    lastPointerTime = 0
+  }
   const verticalAxis = new THREE.Vector3(0, 1, 0) // 上下
   let currentSpinAxis = verticalAxis.clone()
   let targetSpinAxis = verticalAxis.clone()
@@ -399,6 +479,17 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
         spinGroup.rotateOnWorldAxis(currentSpinAxis, spinSpeed)
         sceneDirty = true
       }
+      // 坐标轴旋转指针（示意旋转方向）匀速转动：W 逆时针、T 顺时针
+      if (rotationPointers.length > 0) {
+        const now = performance.now()
+        if (lastPointerTime === 0) lastPointerTime = now
+        const dt = (now - lastPointerTime) / 1000
+        lastPointerTime = now
+        for (const p of rotationPointers) {
+          p.group.rotation.z += p.dir * ROTATION_POINTER_OMEGA * dt
+        }
+        sceneDirty = true
+      }
       controls?.update()
       if (renderer && scene && camera && (renderRequested || sceneDirty)) {
         renderRequested = false
@@ -421,6 +512,14 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
       mats.forEach((m) => m.dispose())
       layerMaterials.delete(id)
     }
+    if (id === 'swept_cloud') {
+      sweptSurface = null
+      sweptPoints = null
+      sweptWireframe = null
+      sweptMotion = null
+      sweptStartLine = null
+      sweptFrontLine = null
+    }
   }
 
   /** 对线类图层的 geometry 启动逐点生长动画（drawRange 0→N，各段各自生长）. */
@@ -435,8 +534,238 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     })
   }
 
+  /** jet 光谱色（蓝→青→绿→黄→红），与后端 swept_cloud.jet 一致；返回 THREE.Color. */
+  function jetColor(t: number): THREE.Color {
+    const u = Math.min(1, Math.max(0, t))
+    let r: number
+    let g: number
+    let b: number
+    if (u < 0.125) {
+      r = 0; g = 0; b = 0.5 + 0.5 * (u / 0.125)
+    } else if (u < 0.375) {
+      r = 0; g = (u - 0.125) / 0.25; b = 1
+    } else if (u < 0.625) {
+      r = (u - 0.375) / 0.25; g = 1; b = 1 - (u - 0.375) / 0.25
+    } else if (u < 0.875) {
+      r = 1; g = 1 - (u - 0.625) / 0.25; b = 0
+    } else {
+      r = 1; g = 0; b = 0
+    }
+    return new THREE.Color(r, g, b)
+  }
+
+  /** 提取扫掠点云网格第 k 行的 n 个点（positions 行优先），返回 (n*3) Float32Array. */
+  function extractSweptCloudRow(k: number): Float32Array {
+    const pos = sweptSurface!.geometry.getAttribute('position') as THREE.BufferAttribute
+    const arr = pos.array as Float32Array
+    const n = sweptMotion!.n
+    const out = new Float32Array(n * 3)
+    out.set(arr.subarray(k * n * 3, (k + 1) * n * 3))
+    return out
+  }
+
+  /** 扫掠点云「面 / 网+点」两档互斥显示子元素. */
+  function applySweptCloudMode(mode: 'surface' | 'net'): void {
+    sweptMode = mode
+    if (sweptSurface) sweptSurface.visible = mode === 'surface'
+    if (sweptPoints) sweptPoints.visible = mode === 'net'
+    if (sweptWireframe) sweptWireframe.visible = mode === 'net'
+    requestRender()
+  }
+
+  /** 扫掠点云逐行揭示：按 fraction 设面/点/线框 drawRange + 前缘线位置与光谱色. */
+  function applySweptCloudReveal(fraction: number): void {
+    sweptRevealF = Math.min(1, Math.max(0, fraction))
+    if (!sweptMotion) return
+    const k = Math.round(sweptRevealF * (sweptMotion.m - 1))
+    if (sweptSurface) sweptSurface.geometry.setDrawRange(0, k * sweptMotion.surface_indices_per_row)
+    if (sweptPoints) sweptPoints.geometry.setDrawRange(0, (k + 1) * sweptMotion.points_vertices_per_row)
+    if (sweptWireframe) sweptWireframe.geometry.setDrawRange(0, k * sweptMotion.wireframe_indices_per_row)
+    if (sweptFrontLine && sweptSurface) {
+      const pos = sweptFrontLine.geometry.getAttribute('position') as THREE.BufferAttribute
+      pos.copyArray(extractSweptCloudRow(k))
+      pos.needsUpdate = true
+      ;(sweptFrontLine.material as THREE.LineBasicMaterial).color = jetColor(sweptRevealF)
+    }
+    requestRender()
+  }
+
+  /** 定位扫掠点云子元素 + 构建起止/前缘线 + 应用默认档/满显（在 mountLayer 内调用）. */
+  function setupSweptCloud(group: THREE.Group, motion: SweptCloudMotion): void {
+    sweptMotion = motion
+    let surface: THREE.Mesh | null = null
+    let points: THREE.Points | null = null
+    let wireframe: THREE.LineSegments | null = null
+    group.traverse((child) => {
+      if (!surface && child instanceof THREE.Mesh) surface = child
+      else if (!points && child instanceof THREE.Points) points = child
+      else if (!wireframe && child instanceof THREE.LineSegments) wireframe = child
+    })
+    sweptSurface = surface
+    sweptPoints = points
+    sweptWireframe = wireframe
+
+    const mesh = surface as THREE.Mesh | null
+    if (mesh && sweptMotion && mesh.geometry.getAttribute('position')) {
+      const startGeo = new THREE.BufferGeometry()
+      startGeo.setAttribute('position', new THREE.BufferAttribute(extractSweptCloudRow(0), 3))
+      sweptStartLine = new THREE.Line(startGeo, new THREE.LineBasicMaterial({ color: START_BLUE }))
+      sweptStartLine.frustumCulled = false
+      const frontGeo = new THREE.BufferGeometry()
+      frontGeo.setAttribute('position', new THREE.BufferAttribute(extractSweptCloudRow(motion.m - 1), 3))
+      sweptFrontLine = new THREE.Line(frontGeo, new THREE.LineBasicMaterial({ color: 0xffffff }))
+      sweptFrontLine.frustumCulled = false
+      group.add(sweptStartLine)
+      group.add(sweptFrontLine)
+    }
+
+    applySweptCloudMode(sweptMode)
+    applySweptCloudReveal(sweptRevealF)
+  }
+
+  /** 把刀具系 T 图层 group 施加安装变换 T→W（中心距 a 沿 X + 绕 X 轴交角 Σ）. */
+  function applyInstallTransform(group: THREE.Group): void {
+    if (!envelopeInstall) return
+    group.position.set(envelopeInstall.a, 0, 0)
+    group.rotation.x = envelopeInstall.sigma
+  }
+
+  /** 用 Canvas 生成文字 Sprite（始终面向相机、屏幕大小恒定）；无 2D 上下文时退回空占位（测试环境）. */
+  function makeTextSprite(text: string, color: string): THREE.Sprite {
+    const fontPx = 64
+    const pad = 12
+    const font = `600 ${fontPx}px "Segoe UI", "Microsoft YaHei", sans-serif`
+    const material = new THREE.SpriteMaterial({ transparent: true })
+    const sprite = new THREE.Sprite(material)
+    const canvas = document.createElement('canvas')
+
+    let ctx: CanvasRenderingContext2D | null = null
+    try {
+      ctx = canvas.getContext('2d')
+    } catch {
+      ctx = null
+    }
+    if (!ctx) {
+      sprite.scale.set(AXIS_LABEL_HEIGHT, AXIS_LABEL_HEIGHT, 1)
+      return sprite // jsdom 等无 2D 上下文：空标注占位（测试仅断言结构）
+    }
+
+    ctx.font = font
+    const textW = Math.ceil(ctx.measureText(text).width)
+    const w = textW + pad * 2
+    const h = Math.ceil(fontPx * 1.35)
+    canvas.width = w
+    canvas.height = h
+    ctx = canvas.getContext('2d')! // 重设宽高会重置上下文状态，重取
+    ctx.font = font
+    ctx.fillStyle = color
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(text, w / 2, h / 2)
+
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.minFilter = THREE.LinearFilter
+    tex.generateMipmaps = false
+    material.map = tex
+    sprite.scale.set(AXIS_LABEL_HEIGHT * (w / h), AXIS_LABEL_HEIGHT, 1)
+    return sprite
+  }
+
+  /** 构造绕 Z 轴旋转的示意指针（圆弧箭头：弧身 + 末端切向箭头锥体），返回 { group, dir }（dir=扫掠方向）. */
+  function makeRotationPointer(prefix: 'W' | 'T'): { group: THREE.Group; dir: 1 | -1 } {
+    const dir: 1 | -1 = prefix === 'W' ? 1 : -1 // W 逆时针(+Z)、T 顺时针(−Z)
+    const group = new THREE.Group()
+    group.name = `rotation-pointer-${prefix}`
+    const radius = ROTATION_POINTER_RADIUS
+    const endAngle = dir * ROTATION_POINTER_ARC
+
+    // 弧身：圆环管绕 Z 轴扫掠，dir 决定顺/逆时针（正=逆时针、负=顺时针）
+    const arc = new THREE.Mesh(
+      new THREE.TubeGeometry(new CircularArcCurve(radius, endAngle), 48, 0.8, 8, false),
+      new THREE.MeshBasicMaterial({ color: ROTATION_POINTER_COLOR }),
+    )
+    group.add(arc)
+
+    // 箭头锥体：置于弧末端，指向切向（扫掠方向）
+    const tipAngle = endAngle
+    const tip = new THREE.Vector3(radius * Math.cos(tipAngle), radius * Math.sin(tipAngle), 0)
+    const tangent = new THREE.Vector3(-Math.sin(tipAngle), Math.cos(tipAngle), 0).multiplyScalar(dir)
+    const cone = new THREE.Mesh(
+      new THREE.ConeGeometry(1.6, 4, 8),
+      new THREE.MeshBasicMaterial({ color: ROTATION_POINTER_COLOR }),
+    )
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent)
+    cone.position.copy(tip).addScaledVector(tangent, 2)
+    group.add(cone)
+
+    return { group, dir }
+  }
+
+  /** 单套坐标轴（X 红 / Y 绿 / Z 蓝，长 length [mm]）+ X/Y/Z 文字标注 + Z 轴旋转指针；返回 group. */
+  function makeAxisTriad(length: number, prefix: 'W' | 'T'): THREE.Group {
+    const g = new THREE.Group()
+    const defs = [
+      { v: new THREE.Vector3(1, 0, 0), color: 0xff4444, label: 'X' },
+      { v: new THREE.Vector3(0, 1, 0), color: 0x44cc44, label: 'Y' },
+      { v: new THREE.Vector3(0, 0, 1), color: 0x4488ff, label: 'Z' },
+    ]
+    for (const d of defs) {
+      const geo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, 0),
+        d.v.clone().multiplyScalar(length),
+      ])
+      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: d.color }))
+      line.frustumCulled = false
+      g.add(line)
+
+      // 轴末端文字标注（跟轴同色，略超出轴尖）
+      const sprite = makeTextSprite(`${d.label}_${prefix}`, `#${d.color.toString(16).padStart(6, '0')}`)
+      sprite.name = `axis-label-${d.label}_${prefix}`
+      sprite.position.copy(d.v.clone().multiplyScalar(length + AXIS_LABEL_OFFSET))
+      g.add(sprite)
+    }
+
+    // Z 轴尖端旋转指针（示意旋转方向，绕 Z 连续转）
+    const pointer = makeRotationPointer(prefix)
+    pointer.group.position.set(0, 0, length)
+    g.add(pointer.group)
+    rotationPointers.push(pointer)
+    return g
+  }
+
+  /** 画 W（原点）与 T（偏移 a、倾斜 Σ）两套坐标轴. */
+  function drawCoordinateAxes(): void {
+    if (axesGroup) {
+      worldGroup?.remove(axesGroup)
+      disposeGroup(axesGroup)
+      axesGroup = null
+    }
+    clearRotationPointers()
+    if (!worldGroup || !envelopeInstall) return
+    axesGroup = new THREE.Group()
+    axesGroup.name = 'coordinate-axes'
+    axesGroup.add(makeAxisTriad(AXIS_LENGTH, 'W')) // W 轴（工件，原点）
+    const tGroup = new THREE.Group()
+    tGroup.position.set(envelopeInstall.a, 0, 0)
+    tGroup.rotation.x = envelopeInstall.sigma
+    tGroup.add(makeAxisTriad(AXIS_LENGTH * 0.85, 'T')) // T 轴（刀具，稍短）
+    axesGroup.add(tGroup)
+    worldGroup.add(axesGroup)
+    requestRender()
+  }
+
+  /** 设置安装参数并（重）画坐标轴 + 对已挂载的刀具系图层施加变换. */
+  function setEnvelopeInstall(a: number, sigmaDeg: number): void {
+    envelopeInstall = { a, sigma: (sigmaDeg * Math.PI) / 180 }
+    for (const id of ['swept_cloud', 'edge'] as LayerId[]) {
+      const g = layerGroups[id]
+      if (g) applyInstallTransform(g)
+    }
+    drawCoordinateAxes()
+  }
+
   /** 把解析好的图层 scene 挂载为命名图层 group（赋材质 + 建 group + 加入 worldGroup）. */
-  function mountLayer(id: LayerId, mesh: THREE.Group): void {
+  function mountLayer(id: LayerId, mesh: THREE.Group, motion?: SweptCloudMotion): void {
     const visual = LAYER_VISUALS[id]
     const mats: THREE.Material[] = []
     mesh.traverse((child: THREE.Object3D) => {
@@ -457,12 +786,19 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     group.name = id
     group.add(mesh)
     worldGroup!.add(group)
+    // 刀具系 T 图层（扫掠点云/刃形）施加安装变换 T→W（中心距 a + 轴交角 Σ）
+    if (id === 'swept_cloud' || id === 'edge') {
+      applyInstallTransform(group)
+    }
     layerGroups[id] = group
     layerMaterials.set(id, mats)
     requestRender()
     applyRenderModeInternal(renderMode.value)
     if (visual.kind === 'line') {
       startGrowAnimation(group)
+    }
+    if (id === 'swept_cloud' && motion) {
+      setupSweptCloud(group, motion)
     }
   }
 
@@ -480,9 +816,9 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   }
 
   // ── 增量叠加图层 ──
-  function addLayer(id: LayerId, glbBase64: string): void {
+  function addLayer(id: LayerId, glbBase64: string, motion?: SweptCloudMotion): void {
     if (!scene || !worldGroup) return
-    parseGlb(glbBase64, (mesh) => mountLayer(id, mesh))
+    parseGlb(glbBase64, (mesh) => mountLayer(id, mesh, motion))
   }
 
   // ── 工件齿轮 GLB 加载（降级：清空非工件层 + 加载工件层） ──
@@ -516,6 +852,14 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
       if (id === 'workpiece') continue
       removeLayerGroup(id)
     }
+    // 清空非工件层时同步清坐标轴 + 安装参数
+    if (axesGroup) {
+      worldGroup?.remove(axesGroup)
+      disposeGroup(axesGroup)
+      axesGroup = null
+    }
+    clearRotationPointers()
+    envelopeInstall = null
     requestRender()
   }
 
@@ -572,6 +916,12 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
         child.geometry.dispose()
         const mat = (child as THREE.LineSegments).material
         if (mat instanceof THREE.Material) mat.dispose()
+      } else if (child instanceof THREE.Sprite) {
+        const mat = child.material as THREE.SpriteMaterial
+        if (mat instanceof THREE.SpriteMaterial) {
+          if (mat.map instanceof THREE.Texture) mat.map.dispose()
+          mat.dispose()
+        }
       }
     })
   }
@@ -594,6 +944,15 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     layerMaterials.forEach((mats) => mats.forEach((m) => m.dispose()))
     layerMaterials.clear()
     growingGeometries.clear()
+    sweptSurface = null
+    sweptPoints = null
+    sweptWireframe = null
+    sweptMotion = null
+    sweptStartLine = null
+    sweptFrontLine = null
+    axesGroup = null
+    clearRotationPointers()
+    envelopeInstall = null
     if (flatMaterial) {
       flatMaterial.dispose()
       flatMaterial = null
@@ -645,6 +1004,9 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   return {
     loadGear,
     addLayer,
+    setSweptCloudReveal: applySweptCloudReveal,
+    setSweptCloudMode: applySweptCloudMode,
+    setEnvelopeInstall,
     removeLayer,
     clearLayers,
     setLayerVisible,

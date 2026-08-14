@@ -99,9 +99,11 @@ describe('WorkpieceViewer — 全局结果状态', () => {
 })
 
 describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
-  const mockGen: api.GeneratrixResponse = {
-    layer: { id: 'generatrix', glb_base64: 'Z2xURg==' },
+  const mockGen: api.SweptCloudResponse = {
+    layer: { id: 'swept_cloud', glb_base64: 'Z2xURg==' },
     coord_frame: 'T',
+    motion: { n: 200, m: 181, theta_range_deg: 20.0, surface_indices_per_row: 1194, points_vertices_per_row: 200, wireframe_indices_per_row: 2388 },
+    install: { a: 39.55, sigma_deg: 15.0 },
   }
   const mockEdge: api.EdgeResponse = {
     layer: { id: 'edge', glb_base64: 'Z2xURg==' },
@@ -112,13 +114,22 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
       { count: 100, continuity: 'continuous' },
       { count: 100, continuity: 'continuous' },
     ],
+    install: { a: 39.55, sigma_deg: 15.0 },
+  }
+  const mockRake: api.RakeResponse = {
+    layer: { id: 'rake', glb_base64: 'Z2xURg==' },
+    coord_frame: 'T',
+    plane: { A: 0.087156, B: 0.257834, C: 0.962250, const: -3.7002 },
+    p_ref: [42.455, 0.0, 0.0],
+    n_rake: [0.087156, 0.257834, 0.962250],
   }
 
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.spyOn(api, 'fetchWorkpiece').mockResolvedValue(mockResponse)
-    vi.spyOn(api, 'fetchEnvelopeGeneratrix').mockResolvedValue(mockGen)
+    vi.spyOn(api, 'fetchEnvelopeSweptCloud').mockResolvedValue(mockGen)
     vi.spyOn(api, 'fetchEnvelopeEdge').mockResolvedValue(mockEdge)
+    vi.spyOn(api, 'fetchEnvelopeRake').mockResolvedValue(mockRake)
     workpieceState.result = null
     workpieceState.spec = null
     workpieceState.open = false
@@ -127,7 +138,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     workpieceState.pos = { x: 24, y: 64 }
   })
 
-  it('点「开始包络」→ 依次派发产形面、刃形两图层 + 诊断条显示', async () => {
+  it('点「开始包络」→ 依次派发扫掠点云、刃形、前刀面三图层 + 诊断条显示', async () => {
     const wrapper = mountViewer()
     await nextTick()
     await nextTick()
@@ -143,7 +154,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     await nextTick()
 
     window.removeEventListener('gear:layer-ready', handler)
-    expect(layers).toEqual(['generatrix', 'edge'])
+    expect(layers).toEqual(['swept_cloud', 'edge', 'rake'])
     expect(wrapper.find('[data-test="diagnostic-strip"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('ffα')
     expect(wrapper.text()).toContain('覆盖')
@@ -175,5 +186,53 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     const btn = wrapper.find('button[data-test="run-envelope"]')
     expect(btn.attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('请先生成工件齿轮模型')
+  })
+
+  it('扫掠点云揭示控件在包络后出现 + 事件携带 motion + 默认满显', async () => {
+    const wrapper = mountViewer()
+    await nextTick()
+    await nextTick()
+
+    const details: Array<{ id: string; motion?: unknown }> = []
+    const handler = (e: Event): void => {
+      const d = (e as CustomEvent).detail as { id: string; motion?: unknown }
+      details.push({ id: d.id, motion: d.motion })
+    }
+    window.addEventListener('gear:layer-ready', handler)
+
+    await wrapper.find('button[data-test="run-envelope"]').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    window.removeEventListener('gear:layer-ready', handler)
+
+    // 扫掠点云事件携带 motion，刃形不带
+    expect(details[0].id).toBe('swept_cloud')
+    expect(details[0].motion).toEqual(mockGen.motion)
+    expect(details[1].id).toBe('edge')
+    expect(details[1].motion).toBeUndefined()
+
+    // 显示控制块 + 面/网切换 + 滑块 + 播放；默认满显（100%）
+    expect(wrapper.find('[data-test="swept_cloud-controls"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="mode-surface"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="mode-net"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="reveal-slider"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="reveal-play"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="reveal-label"]').text()).toContain('100%')
+  })
+
+  it('面/网切换更新按钮激活态', async () => {
+    const wrapper = mountViewer()
+    await nextTick()
+    await nextTick()
+    await wrapper.find('button[data-test="run-envelope"]').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.find('[data-test="mode-surface"]').classes()).toContain('active')
+    await wrapper.find('[data-test="mode-net"]').trigger('click')
+    await nextTick()
+    expect(wrapper.find('[data-test="mode-net"]').classes()).toContain('active')
+    expect(wrapper.find('[data-test="mode-surface"]').classes()).not.toContain('active')
   })
 })

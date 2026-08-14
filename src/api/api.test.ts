@@ -2,7 +2,7 @@
  * fetchWorkpiece API 客户端测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchWorkpiece, fetchEnvelopeGeneratrix, fetchEnvelopeEdge } from './index'
+import { fetchWorkpiece, fetchEnvelopeSweptCloud, fetchEnvelopeEdge, fetchEnvelopeRake } from './index'
 import { toPayload, type GearParams } from '../composables/useGearParams'
 
 const mockParams: GearParams = {
@@ -107,16 +107,16 @@ describe('fetchEnvelope（子 PRD-2 离散包络）', () => {
     vi.restoreAllMocks()
   })
 
-  it('fetchEnvelopeGeneratrix 发送嵌套 body（workpiece + tool）', async () => {
+  it('fetchEnvelopeSweptCloud 发送嵌套 body（workpiece + tool）', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ layer: { id: 'generatrix', glb_base64: '' }, coord_frame: 'T' }),
+      json: () => Promise.resolve({ layer: { id: 'swept_cloud', glb_base64: '' }, coord_frame: 'T' }),
     })
 
-    await fetchEnvelopeGeneratrix({ workpiece: toPayload(mockParams), tool })
+    await fetchEnvelopeSweptCloud({ workpiece: toPayload(mockParams), tool })
 
     const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(url).toContain('/api/envelope/generatrix')
+    expect(url).toContain('/api/envelope/swept_cloud')
     expect(options.method).toBe('POST')
     const body: Record<string, unknown> = JSON.parse(options.body as string)
     expect((body.tool as Record<string, unknown>).z_t).toBe(41)
@@ -139,5 +139,28 @@ describe('fetchEnvelope（子 PRD-2 离散包络）', () => {
     expect(resp.layer.id).toBe('edge')
     expect(resp.coverage_report.pass).toBe(true)
     expect(resp.ffa_um).toBe(0.05)
+  })
+
+  it('fetchEnvelopeRake 发送 rake_type 并返回系数 + 法矢', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        layer: { id: 'rake', glb_base64: '' },
+        coord_frame: 'T',
+        plane: { A: 0.087156, B: 0.257834, C: 0.962250, const: -3.7002 },
+        p_ref: [42.455, 0.0, 0.0],
+        n_rake: [0.087156, 0.257834, 0.962250],
+      }),
+    })
+
+    const resp = await fetchEnvelopeRake({ workpiece: toPayload(mockParams), tool, rake_type: 'plane' })
+
+    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toContain('/api/envelope/rake')
+    const body: Record<string, unknown> = JSON.parse(options.body as string)
+    expect(body.rake_type).toBe('plane')
+    expect(resp.layer.id).toBe('rake')
+    expect(resp.plane.A).toBe(0.087156)
+    expect(resp.n_rake[2]).toBe(0.962250)
   })
 })

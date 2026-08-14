@@ -3,7 +3,7 @@
  * 前后端通信统一使用 HTTP，以便未来迁移至 Web 端
  */
 import { toPayload, type GearParams, type WorkpieceRequestPayload } from '../composables/useGearParams'
-import type { LayerId } from '../three/layerPalette'
+import type { LayerId, SweptCloudMotion, EnvelopeInstall } from '../three/layerPalette'
 
 const BASE_URL: string = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5199'
 
@@ -67,14 +67,14 @@ export interface EnvelopeDemoResponse {
   layers: EnvelopeDemoLayer[]
 }
 
-/** 获取包络占位演示图层（产形面/刃形/后刀面）的 GLB. */
+/** 获取包络占位演示图层（扫掠点云/刃形/后刀面）的 GLB. */
 export async function fetchEnvelopeDemo(): Promise<EnvelopeDemoResponse> {
   return request<EnvelopeDemoResponse>('/api/envelope/demo', { method: 'POST' })
 }
 
 // ── 子 PRD-2 离散包络 ──────────────────────────────────────────────
 
-/** 刀具参数（组B 子集）— generatrix/edge 共用. */
+/** 刀具参数（组B 子集）— swept_cloud/edge 共用. */
 export interface ToolParams {
   z_t: number
   beta_t_deg: number
@@ -91,17 +91,19 @@ export interface DiscretizationParams {
   theta_range_deg?: number
 }
 
-/** 离散包络请求体（generatrix / edge 共用）. */
+/** 离散包络请求体（swept_cloud / edge 共用）. */
 export interface EnvelopeRequest {
   workpiece: WorkpieceRequestPayload
   tool: ToolParams
   discretization?: DiscretizationParams
 }
 
-/** 产形面响应（POST /api/envelope/generatrix）. */
-export interface GeneratrixResponse {
-  layer: { id: 'generatrix'; glb_base64: string }
+/** 扫掠点云响应（POST /api/envelope/swept_cloud）. */
+export interface SweptCloudResponse {
+  layer: { id: 'swept_cloud'; glb_base64: string }
   coord_frame: string
+  motion: SweptCloudMotion
+  install: EnvelopeInstall
 }
 
 /** 覆盖判据报告（K-2.12）. */
@@ -119,11 +121,12 @@ export interface EdgeResponse {
   coverage_report: CoverageReport
   ffa_um: number
   segments_meta: { count: number; continuity: string }[]
+  install: EnvelopeInstall
 }
 
-/** 产形面：工件齿槽点云经运动包络 → 三角网 GLB. */
-export async function fetchEnvelopeGeneratrix(params: EnvelopeRequest): Promise<GeneratrixResponse> {
-  return request<GeneratrixResponse>('/api/envelope/generatrix', {
+/** 扫掠点云：工件齿槽点云经运动包络 → 三角网 GLB. */
+export async function fetchEnvelopeSweptCloud(params: EnvelopeRequest): Promise<SweptCloudResponse> {
+  return request<SweptCloudResponse>('/api/envelope/swept_cloud', {
     method: 'POST',
     body: JSON.stringify(params),
   })
@@ -132,6 +135,40 @@ export async function fetchEnvelopeGeneratrix(params: EnvelopeRequest): Promise<
 /** 刃形：点云投影 → 内边界提取 → 覆盖 + ffα → 刃形多段 GLB. */
 export async function fetchEnvelopeEdge(params: EnvelopeRequest): Promise<EdgeResponse> {
   return request<EdgeResponse>('/api/envelope/edge', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+// ── 子 PRD-3 前刀面 ──────────────────────────────────────────────
+
+/** 前刀面系数（K-2.1 输出）. */
+export interface PlaneCoeff {
+  A: number
+  B: number
+  C: number
+  const: number
+}
+
+/** 前刀面请求体（rake 端点）. */
+export interface RakeRequest {
+  workpiece: WorkpieceRequestPayload
+  tool: ToolParams
+  rake_type: 'plane'
+}
+
+/** 前刀面响应（POST /api/envelope/rake）. */
+export interface RakeResponse {
+  layer: { id: 'rake'; glb_base64: string }
+  coord_frame: string
+  plane: PlaneCoeff
+  p_ref: [number, number, number]
+  n_rake: [number, number, number]
+}
+
+/** 前刀面：γ₀/β_t/r_pt → 平面前刀面 + 法矢箭头 GLB. */
+export async function fetchEnvelopeRake(params: RakeRequest): Promise<RakeResponse> {
+  return request<RakeResponse>('/api/envelope/rake', {
     method: 'POST',
     body: JSON.stringify(params),
   })

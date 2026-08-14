@@ -12,6 +12,9 @@ function fakeViewport(): GearViewport {
   return {
     loadGear: vi.fn(),
     addLayer: vi.fn(),
+    setSweptCloudReveal: vi.fn(),
+    setSweptCloudMode: vi.fn(),
+    setEnvelopeInstall: vi.fn(),
     removeLayer: vi.fn(),
     clearLayers: vi.fn(),
     setLayerVisible: vi.fn(),
@@ -46,8 +49,8 @@ describe('LayerPanel 图层列表', () => {
   it('眼睛开关触发 setLayerVisible（toggle 为 false）', async () => {
     const vp = fakeViewport()
     const wrapper = mountPanel(vp)
-    await wrapper.find('[data-test="layer-eye-generatrix"]').trigger('click')
-    expect(vp.setLayerVisible).toHaveBeenCalledWith('generatrix', false)
+    await wrapper.find('[data-test="layer-eye-swept_cloud"]').trigger('click')
+    expect(vp.setLayerVisible).toHaveBeenCalledWith('swept_cloud', false)
   })
 
   it('点名称触发 focusLayer', async () => {
@@ -60,8 +63,8 @@ describe('LayerPanel 图层列表', () => {
   it('透明度滑条触发 setLayerOpacity', async () => {
     const vp = fakeViewport()
     const wrapper = mountPanel(vp)
-    await wrapper.find('[data-test="layer-opacity-generatrix"]').setValue('0.5')
-    expect(vp.setLayerOpacity).toHaveBeenCalledWith('generatrix', 0.5)
+    await wrapper.find('[data-test="layer-opacity-swept_cloud"]').setValue('0.5')
+    expect(vp.setLayerOpacity).toHaveBeenCalledWith('swept_cloud', 0.5)
   })
 
   it('全部显示对每个图层 setLayerVisible(true)', async () => {
