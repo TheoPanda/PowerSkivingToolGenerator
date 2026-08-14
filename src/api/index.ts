@@ -88,7 +88,7 @@ export interface ToolParams {
   alpha_0_deg: number
 }
 
-/** 离散参数（可缺省，后端默认 n=200/m=181/NR=200/θ=±20°）. */
+/** 离散参数（可缺省，后端默认 n=200/m=181/NR=200/θ=±40°）. */
 export interface DiscretizationParams {
   n?: number
   m?: number

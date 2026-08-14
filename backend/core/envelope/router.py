@@ -106,7 +106,7 @@ class DiscretizationParams(BaseModel):
     n: int = Field(200, ge=2)
     m: int = Field(181, ge=2)
     NR: int = Field(200, ge=2)
-    theta_range_deg: float = Field(20.0, gt=0)
+    theta_range_deg: float = Field(40.0, gt=0)
 
 
 class EnvelopeRequest(BaseModel):

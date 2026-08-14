@@ -42,6 +42,11 @@ describe('useGearParams — 单一 schema', () => {
     expect(p.chamfer_tip).toBe(0)
     expect(p.toothMethod).toBe('x_w')
     expect(p.d_rim).toBeNull() // ADR-015 内齿轮圈外径可选
+    // 默认值 = 算例1 内齿轮
+    expect(p.k_io).toBe(-1)
+    expect(p.m_n).toBe(2.0)
+    expect(p.z_w).toBe(82)
+    expect(p.b_w).toBe(20.0)
   })
 
   it('toPayload 把 camelCase 映射为 snake_case 并与后端请求体对齐', () => {
@@ -49,7 +54,7 @@ describe('useGearParams — 单一 schema', () => {
     const wire = toPayload({ ...p, m_n: 2.5, z_w: 41, b_w: 20, β_w: 15, α_n: 20.5, ρ_f: 0.4 })
     expect(wire).toEqual({
       profile_type: 'involute',
-      k_io: 1,
+      k_io: -1,
       m_n: 2.5,
       z_w: 41,
       beta_w_deg: 15,

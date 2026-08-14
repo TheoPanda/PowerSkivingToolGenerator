@@ -63,16 +63,17 @@ export interface WorkpieceRequestPayload {
   chamfer_tip: number
 }
 
-/** 默认参数（含 rho_tip = 0 锐角齿顶，与 ADR-013 一致；m_n/z_w/b_w 待用户填写为 null）. */
+/** 默认参数 = 算例1 内齿轮（m_n=2 / z_w=82 / β_w=0 / k_io=−1，匹配刀具 z_t=41）.
+ * 含 rho_tip = 0 锐角齿顶（ADR-013）。 */
 export function createGearParams(): GearParams {
   return {
     profile_type: 'involute',
-    k_io: 1,
-    m_n: null,
-    z_w: null,
+    k_io: -1,
+    m_n: 2.0,
+    z_w: 82,
     β_w: 0,
     j_w: 1,
-    b_w: null,
+    b_w: 20.0,
     toothMethod: 'x_w',
     x_w: 0,
     W_k: null,

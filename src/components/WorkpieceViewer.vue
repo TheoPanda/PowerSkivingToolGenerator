@@ -62,8 +62,8 @@ const revealF = ref<number>(1.0) // 揭示分数 0..1（默认满显）
 const sweptCloudMode = ref<'surface' | 'net'>('surface')
 const playing = ref<boolean>(false)
 
-/** 扫掠范围半角 θ（°），缺省 20（与后端默认一致）. */
-const thetaRange = computed<number>(() => sweptMotion.value?.theta_range_deg ?? 20.0)
+/** 扫掠范围半角 θ（°），缺省 40（与后端默认一致）. */
+const thetaRange = computed<number>(() => sweptMotion.value?.theta_range_deg ?? 40.0)
 
 /** 滑块值 = φ_t 角度（°），双向映射到 revealF. */
 const sliderPhiT = computed<number>({
@@ -194,7 +194,7 @@ async function runEnvelope(): Promise<void> {
         gamma_0_deg: toolParams.gamma_0,
         alpha_0_deg: toolParams.alpha_0,
       },
-      // discretization 缺省 → 后端默认 n=200/m=181/NR=200/θ=±20°
+      // discretization 缺省 → 后端默认 n=200/m=181/NR=200/θ=±40°
     }
 
     // 扫掠点云（先叠加）：记录 motion、重置揭示/档位

@@ -41,14 +41,15 @@ describe('MainPanel — 步骤联动', () => {
       expect(wrapper.vm).toBeDefined()
     })
 
-    it('初始 step1Valid 为 false', async () => {
+    it('初始 step1Valid 为 true（默认预填算例1 内齿轮）', async () => {
       await wrapper.vm.$nextTick()
-      expect(wrapper.vm.step1Valid).toBe(false)
+      expect(wrapper.vm.step1Valid).toBe(true)
     })
   })
 
   describe('步骤导航交互', () => {
     it('点击步骤 2 且 step1Valid=false 时显示引导文字', async () => {
+      wrapper.vm.step1Valid = false
       wrapper.vm.currentStep = 1
       await wrapper.vm.$nextTick()
 
@@ -67,7 +68,8 @@ describe('MainPanel — 步骤联动', () => {
       expect(btn.exists()).toBe(false)
     })
 
-    it('步骤 1 时"下一步"按钮存在但 disabled（初始状态）', async () => {
+    it('步骤 1 时"下一步"按钮存在但 disabled（step1Valid=false 时）', async () => {
+      wrapper.vm.step1Valid = false
       wrapper.vm.currentStep = 1
       await wrapper.vm.$nextTick()
 
@@ -79,6 +81,7 @@ describe('MainPanel — 步骤联动', () => {
 
   describe('nextStep 校验屏障', () => {
     it('nextStep 在 step1Valid=false 时不推进', async () => {
+      wrapper.vm.step1Valid = false
       wrapper.vm.currentStep = 1
       await wrapper.vm.$nextTick()
 
