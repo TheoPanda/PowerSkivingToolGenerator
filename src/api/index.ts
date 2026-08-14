@@ -39,8 +39,13 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   })
 
   if (!response.ok) {
-    const error: { error?: string; code?: number } = await response.json()
-    throw new Error(error.error || `HTTP ${response.status}`)
+    // FastAPI HTTPException → { detail: { error, code } }；兼容直接 { error, code }
+    const body = (await response.json().catch(() => ({}))) as {
+      detail?: { error?: string; code?: number }
+      error?: string
+    }
+    const message: string = body.detail?.error ?? body.error ?? `HTTP ${response.status}`
+    throw new Error(message)
   }
 
   return response.json() as Promise<T>

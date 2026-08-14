@@ -98,6 +98,15 @@ describe('fetchWorkpiece', () => {
 
     await expect(fetchWorkpiece(mockParams)).rejects.toThrow('模数 m_n 必须大于 0')
   })
+
+  it('解析 FastAPI 的 detail 错误结构', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ detail: { error: '刃形为空（外齿轮前刀面符号 T14 未销项）', code: 400 } }),
+    })
+
+    await expect(fetchWorkpiece(mockParams)).rejects.toThrow('刃形为空（外齿轮前刀面符号 T14 未销项）')
+  })
 })
 
 describe('fetchEnvelope（子 PRD-2 离散包络）', () => {
