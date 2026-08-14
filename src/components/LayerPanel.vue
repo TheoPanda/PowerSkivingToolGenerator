@@ -21,6 +21,8 @@ const visible = reactive<Record<LayerId, boolean>>(
 const opacity = reactive<Record<LayerId, number>>(
   Object.fromEntries(LAYER_IDS.map((id) => [id, LAYER_VISUALS[id].defaultOpacity])) as Record<LayerId, number>,
 )
+/** 工件视图模式：实体（false）/ 透明线框（true）. */
+const workpieceWireframe = ref<boolean>(false)
 
 function toggleVisible(id: LayerId): void {
   visible[id] = !visible[id]
@@ -36,6 +38,12 @@ function focusLayer(id: LayerId): void {
   viewportRef.value?.focusLayer(id)
 }
 
+/** 工件透明线框切换：实体 ↔ 透明线框. */
+function toggleWorkpieceWireframe(): void {
+  workpieceWireframe.value = !workpieceWireframe.value
+  viewportRef.value?.setWorkpieceView(workpieceWireframe.value ? 'wireframe' : 'solid')
+}
+
 function showAll(): void {
   for (const id of LAYER_IDS) {
     visible[id] = true
@@ -43,6 +51,9 @@ function showAll(): void {
     viewportRef.value?.setLayerVisible(id, true)
     viewportRef.value?.setLayerOpacity(id, LAYER_VISUALS[id].defaultOpacity)
   }
+  // 工件视图一并回到实体
+  workpieceWireframe.value = false
+  viewportRef.value?.setWorkpieceView('solid')
 }
 
 /** 图层重新生成（重新点「开始包络」→ gear:layer-ready）→ 重置该层显隐/透明度为默认（图层默认显示）. */
@@ -93,6 +104,15 @@ function colorOf(id: LayerId): string {
             <line v-if="!visible[id]" x1="4" y1="4" x2="20" y2="20" />
           </svg>
         </button>
+        <button
+          v-if="id === 'workpiece'"
+          class="lp-wire"
+          :class="{ active: workpieceWireframe }"
+          type="button"
+          :title="workpieceWireframe ? '切回实体' : '透明线框'"
+          :data-test="`layer-wire-${id}`"
+          @click="toggleWorkpieceWireframe"
+        >线框</button>
         <input
           class="lp-slider"
           type="range"
@@ -200,6 +220,27 @@ function colorOf(id: LayerId): string {
 }
 .lp-eye.off {
   opacity: 0.4;
+}
+.lp-wire {
+  flex: none;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--brand-border, rgba(0, 0, 0, 0.12));
+  border-radius: 5px;
+  background: transparent;
+  color: var(--brand-text-secondary, #5c6b7a);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lp-wire:hover {
+  background: rgba(0, 96, 160, 0.1);
+  color: var(--brand-blue, #0060a0);
+}
+.lp-wire.active {
+  background: var(--brand-blue, #0060a0);
+  color: #fff;
+  border-color: var(--brand-blue, #0060a0);
 }
 .lp-slider {
   width: 52px;

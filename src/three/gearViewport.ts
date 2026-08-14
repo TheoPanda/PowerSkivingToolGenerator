@@ -29,6 +29,9 @@ import {
 
 export type RenderMode = 'solid' | 'xray'
 
+/** 工件视图模式：实体（不透明钢） / 透明线框（透明面 + 深色边线，便于观察内部刀具层）. */
+export type WorkpieceViewMode = 'solid' | 'wireframe'
+
 export interface GearViewportOptions {
   /** 挂载容器（canvas 被 append 进这里）. */
   container: HTMLElement
@@ -67,6 +70,8 @@ export interface GearViewport {
   focusLayer: (id: LayerId) => void
   /** 切换渲染模式（实体 / 线框）. */
   setRenderMode: (mode: RenderMode) => void
+  /** 工件视图切换：实体 / 透明线框（透明钢面 + 深色边线，观察内部刀具层）. */
+  setWorkpieceView: (mode: WorkpieceViewMode) => void
   /** 登录状态（影响自旋速度）. */
   setLoggedIn: (v: boolean) => void
   /** 设置模型目标缩放 / 右移（面板展开联动；字段可选，缺省不改）. */
@@ -203,6 +208,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   let spinSpeed = 0.006 // 欢迎界面转速
   let userInteracted = false
   let renderRequested = true // on-demand 渲染标志
+  let workpieceViewMode: WorkpieceViewMode = 'solid' // 工件视图模式（实体 / 透明线框）
   const BG_SOLID = new THREE.Color(0xebeff3) // 实体模式背景
   const BG_XRAY = new THREE.Color(0xffffff) // 线框模式背景 (图纸白底)
   // 业务联动目标（经 setter 注入）
@@ -244,7 +250,52 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
         child.material = child.userData.solidMaterial as THREE.Material
       }
     })
+    // 全局渲染模式改完后，再按工件视图模式修正工件层（透明线框优先于全局实体/线框，只动工件层）
+    applyWorkpieceView()
     requestRender()
+  }
+
+  /** 把工件层按 workpieceViewMode 应用实体 / 透明线框（透明钢面 + 深色边线，只动工件层）. */
+  function applyWorkpieceView(): void {
+    const group = layerGroups['workpiece']
+    if (!group) return
+    group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return
+      // 移除旧线框边线
+      if (child.userData.workpieceWireLine) {
+        child.remove(child.userData.workpieceWireLine)
+        child.userData.workpieceWireLine.geometry?.dispose()
+        child.userData.workpieceWireLine = null
+      }
+      if (workpieceViewMode === 'wireframe') {
+        // 首次进入线框：暂存原始实体材质（用于切回）
+        if (!child.userData.workpieceSolidMaterial) {
+          child.userData.workpieceSolidMaterial = child.material
+        }
+        const def = MATERIAL_PRESETS.steel
+        child.material = new THREE.MeshStandardMaterial({
+          color: def.color,
+          roughness: def.roughness,
+          metalness: def.metalness,
+          transparent: true,
+          opacity: 0.15,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        })
+        // 空几何（无 position）跳过边线生成（EdgesGeometry 需有效顶点）
+        const posAttr = child.geometry.getAttribute('position')
+        if (posAttr && posAttr.count > 0) {
+          const edges = new THREE.EdgesGeometry(child.geometry, 30)
+          const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x1f2937 }))
+          line.renderOrder = 2
+          child.add(line)
+          child.userData.workpieceWireLine = line
+        }
+      } else if (child.userData.workpieceSolidMaterial) {
+        child.material = child.userData.workpieceSolidMaterial as THREE.Material
+        child.userData.workpieceSolidMaterial = undefined
+      }
+    })
   }
 
   /** 相机适配到给定包围盒（near/far/距离/旋转中心）. */
@@ -953,6 +1004,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     axesGroup = null
     clearRotationPointers()
     envelopeInstall = null
+    workpieceViewMode = 'solid'
     if (flatMaterial) {
       flatMaterial.dispose()
       flatMaterial = null
@@ -1013,6 +1065,10 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     setLayerOpacity,
     focusLayer,
     setRenderMode: applyRenderModeInternal,
+    setWorkpieceView: (mode: WorkpieceViewMode) => {
+      workpieceViewMode = mode
+      applyWorkpieceView()
+    },
     setLoggedIn: (v: boolean) => {
       loggedIn = v
     },

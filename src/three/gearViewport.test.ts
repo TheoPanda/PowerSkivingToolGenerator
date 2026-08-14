@@ -164,6 +164,39 @@ describe('gearViewport 多图层', () => {
     expect(findLayerGroup('workpiece')).toBeTruthy()
   })
 
+  it('setWorkpieceView 工件透明线框：透明面 + 边线 + 切回实体', () => {
+    const { vp } = createViewport()
+    vp.loadGear(MESH_B64)
+    const wp = findLayerGroup('workpiece') as THREE.Group
+    const mesh = firstMesh(wp)
+    // 空 mock 几何补一个三角形，便于验证边线生成
+    mesh.geometry = new THREE.BufferGeometry()
+    mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 1, 0], 3))
+    const solidMat = mesh.material
+
+    // 切到透明线框：材质变透明 + 挂载一条边线 LineSegments
+    vp.setWorkpieceView('wireframe')
+    const wireMat = mesh.material as THREE.MeshStandardMaterial
+    expect(wireMat.transparent).toBe(true)
+    expect(wireMat.opacity).toBeCloseTo(0.15)
+    let lines = 0
+    mesh.traverse((c) => { if ((c as THREE.LineSegments).isLineSegments) lines++ })
+    expect(lines).toBe(1)
+
+    // 切回实体：材质还原为原实体材质 + 边线移除
+    vp.setWorkpieceView('solid')
+    expect(mesh.material).toBe(solidMat)
+    let lines2 = 0
+    mesh.traverse((c) => { if ((c as THREE.LineSegments).isLineSegments) lines2++ })
+    expect(lines2).toBe(0)
+  })
+
+  it('setWorkpieceView 无工件层时安全 no-op', () => {
+    const { vp } = createViewport()
+    expect(() => vp.setWorkpieceView('wireframe')).not.toThrow()
+    expect(() => vp.setWorkpieceView('solid')).not.toThrow()
+  })
+
   it('dispose 移除画布 DOM + 释放 renderer', () => {
     const { vp, container, fake } = createViewport()
     vp.dispose()

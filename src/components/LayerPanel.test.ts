@@ -21,6 +21,7 @@ function fakeViewport(): GearViewport {
     setLayerOpacity: vi.fn(),
     focusLayer: vi.fn(),
     setRenderMode: vi.fn(),
+    setWorkpieceView: vi.fn(),
     setLoggedIn: vi.fn(),
     setModelLayout: vi.fn(),
     resize: vi.fn(),
@@ -74,6 +75,28 @@ describe('LayerPanel 图层列表', () => {
     for (const id of LAYER_IDS) {
       expect(vp.setLayerVisible).toHaveBeenCalledWith(id, true)
     }
+  })
+
+  it('工件「线框」按钮切换透明线框（实体 ↔ 线框）', async () => {
+    const vp = fakeViewport()
+    const wrapper = mountPanel(vp)
+    const btn = wrapper.find('[data-test="layer-wire-workpiece"]')
+    expect(btn.exists()).toBe(true)
+    // 初始实体 → 点击切到透明线框
+    await btn.trigger('click')
+    expect(vp.setWorkpieceView).toHaveBeenCalledWith('wireframe')
+    // 再点切回实体
+    await btn.trigger('click')
+    expect(vp.setWorkpieceView).toHaveBeenCalledWith('solid')
+  })
+
+  it('全部显示把工件视图一并重置为实体', async () => {
+    const vp = fakeViewport()
+    const wrapper = mountPanel(vp)
+    await wrapper.find('[data-test="layer-wire-workpiece"]').trigger('click') // 切到线框
+    expect(vp.setWorkpieceView).toHaveBeenCalledWith('wireframe')
+    await wrapper.find('[data-test="layer-show-all"]').trigger('click')
+    expect(vp.setWorkpieceView).toHaveBeenCalledWith('solid')
   })
 
   it('gear:layer-ready 事件把对应图层重置为可见（重新包络后联动）', async () => {
