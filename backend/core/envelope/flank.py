@@ -155,7 +155,13 @@ def generate_flank(
         plan_i = replace(plan, a=step.a_i)
         # 轴向分量：前刀面沿 −Z 后退 ΔL_i（const += C·ΔL_i，C=cosγ·cosβ₁）
         rake_i = replace(rake, const=rake.const + rake.C * step.dL)
-        sections.append(_edge_polylines(profile_pts, plan_i, rake_i, m=m, theta_range_deg=theta_range_deg, k_io=k_io))
+        section = _edge_polylines(profile_pts, plan_i, rake_i, m=m, theta_range_deg=theta_range_deg, k_io=k_io)
+        if not section:
+            raise ValueError(
+                f"重磨截面 i={step.i} 刃形为空：重磨量 L={L} 使前刀面后退 ΔL={step.dL:.2f}mm "
+                f"超出轨迹范围（theta_range={theta_range_deg}°），请减小 L 或增大 theta_range"
+            )
+        sections.append(section)
 
     # 三角网连片：连接相邻截面（每条 ribbon 独立）
     n_ribbons = min(len(s) for s in sections)

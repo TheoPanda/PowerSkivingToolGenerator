@@ -86,3 +86,16 @@ class TestGenerateFlank:
         z_span = max(zs) - min(zs)
         # 轴向展开应与总重磨量 L=2mm 同量级（修复前仅 ~0.024mm）
         assert z_span > 1.0
+
+    def test_large_L_empty_section_raises(self):
+        """重磨量 L 太大 → 某截面刃形为空 → 抛明确 ValueError，而非空 geometry."""
+        from core.workpiece.models import GearParams
+        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
+        plan = self._plan()
+        rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
+        prof = extract_gap_points(p, n_points=50)
+        with pytest.raises(ValueError, match="刃形为空"):
+            generate_flank(
+                prof, plan, rake, L=5.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
+                m=31, theta_range_deg=20.0,
+            )
