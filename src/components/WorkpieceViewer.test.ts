@@ -271,4 +271,23 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     expect(wrapper.find('[data-test="mode-net"]').classes()).toContain('active')
     expect(wrapper.find('[data-test="mode-surface"]').classes()).not.toContain('active')
   })
+
+  it('顶刃后角 α₀ 输入框默认 8° 且随包络请求下发', async () => {
+    const wrapper = mountViewer()
+    await nextTick()
+    await nextTick()
+
+    const alphaInput = wrapper.find('input[data-test="tool-alpha_0"]')
+    expect(alphaInput.exists()).toBe(true)
+    expect((alphaInput.element as HTMLInputElement).value).toBe('8')
+
+    await alphaInput.setValue('10')
+    await wrapper.find('button[data-test="run-envelope"]').trigger('click')
+    await nextTick()
+    await nextTick()
+
+    expect(api.fetchEnvelopeFlank).toHaveBeenCalledWith(
+      expect.objectContaining({ tool: expect.objectContaining({ alpha_0_deg: 10 }) }),
+    )
+  })
 })

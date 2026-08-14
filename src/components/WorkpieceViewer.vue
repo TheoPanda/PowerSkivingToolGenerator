@@ -44,7 +44,7 @@ const toolParams = reactive({
   beta_t: 15,
   j_t: -1,        // 左旋 → Σ=+15°（内齿轮旋向相反）
   gamma_0: 5,     // 前角（子 PRD-3 前刀面 K-2.1 输入）
-  alpha_0: 8,     // 后角（子 PRD-4 后刀面 K-2.18 重磨方向输入）
+  alpha_0: 8,     // 顶刃后角（子 PRD-4 后刀面 K-2.18 径向重磨分量 Δa=ΔL·tan α₀ 输入）
   rake_type: 'plane',  // 前刀面形式（v1 仅 plane；equation/cone 灰置）
   L: 2,           // 总重磨量 [mm]（子 PRD-4 后刀面）
   n_L: 4,         // 重磨等分数（子 PRD-4 后刀面）
@@ -286,6 +286,10 @@ async function runEnvelope(): Promise<void> {
         <label class="param-field">
           <span class="param-label">前角 γ₀ (°)</span>
           <input v-model.number="toolParams.gamma_0" type="number" class="glass-input" data-test="tool-gamma_0" />
+        </label>
+        <label class="param-field">
+          <span class="param-label">顶刃后角 α₀ (°)</span>
+          <input v-model.number="toolParams.alpha_0" type="number" class="glass-input" data-test="tool-alpha_0" />
         </label>
         <label class="param-field">
           <span class="param-label">前刀面形式</span>

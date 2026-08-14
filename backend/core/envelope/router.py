@@ -96,8 +96,8 @@ class ToolParams(BaseModel):
     z_t: int = Field(..., ge=1, description="刀具齿数")
     beta_t_deg: float = Field(..., ge=0.0, description="刀具螺旋角 [°]")
     j_t: int = Field(1, description="刀具旋向 +1/−1")
-    gamma_0_deg: float = Field(5.0, description="设计前角 [°]（保留位，MVP 忽略）")
-    alpha_0_deg: float = Field(8.0, description="后角 [°]（保留位，MVP 忽略）")
+    gamma_0_deg: float = Field(5.0, description="设计前角 γ₀ [°]（K-2.1 前刀面输入）")
+    alpha_0_deg: float = Field(8.0, description="顶刃后角 α₀ [°]（K-2.18 径向重磨分量）")
 
 
 class DiscretizationParams(BaseModel):
