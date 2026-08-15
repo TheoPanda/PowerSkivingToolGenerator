@@ -25,7 +25,7 @@ class TestAnalyticEdge:
         plan = _plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
         prof = extract_gap_points(p, n_points=100)
-        edge = compute_analytic_edge(prof, plan, rake, theta_range_deg=20.0)
+        edge = compute_analytic_edge(prof, plan, rake, theta_range_deg=40.0)
         assert len(edge) > 0
         for (x, y, z) in edge:
             assert rake.A * x + rake.B * y + rake.C * z + rake.const == pytest.approx(0.0, abs=1e-6)
@@ -37,8 +37,8 @@ class TestAnalyticEdge:
         plan = _plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
         prof = extract_gap_points(p, n_points=100)
-        analytic = compute_analytic_edge(prof, plan, rake, theta_range_deg=20.0)
-        edge = extract_edge(prof, plan, rake, m=181, theta_range_deg=20.0, k_io=-1)
+        analytic = compute_analytic_edge(prof, plan, rake, theta_range_deg=40.0)
+        edge = extract_edge(prof, plan, rake, m=181, theta_range_deg=40.0, k_io=-1)
         discrete = [pt for seg in edge.segments for pt in seg.pts]
         result = cross_check(analytic, discrete)
         assert "max_delta_um" in result

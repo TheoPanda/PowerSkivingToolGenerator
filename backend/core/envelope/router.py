@@ -192,7 +192,7 @@ def envelope_swept_cloud(req: EnvelopeRequest) -> dict:
 
 @router.post("/edge")
 def envelope_edge(req: EnvelopeRequest) -> dict:
-    """K-2.8 刃形端点：前刀面交线刃形（轨迹 ∩ 前刀面）→ 覆盖 + ffα → 刃形 GLB."""
+    """K-2.8 刃形端点：产形面 ∩ 前刀面（共轭法）→ 覆盖 + ffα → 刃形 GLB."""
     try:
         p = req.workpiece.to_gear_params()
     except ValueError as e:
@@ -437,7 +437,7 @@ def envelope_single_tooth(req: FlankRequest) -> dict:
 
 @router.post("/analytic")
 def envelope_analytic(req: EnvelopeRequest) -> dict:
-    """K-2.8 解析刃形端点 + 双路线互检：逐点求轨迹 ∩ 前刀面 → 解析刃形 GLB."""
+    """K-2.8 解析刃形端点 + 双路线互检：逐点二分 h(φ)=0（产形面 ∩ 前刀面消元）→ 解析刃形 GLB."""
     try:
         p = req.workpiece.to_gear_params()
     except ValueError as e:

@@ -48,7 +48,7 @@ def build_single_tooth(
     n_L: int,
     k_io: int,
     m: int = 181,
-    theta_range_deg: float = 20.0,
+    theta_range_deg: float = 40.0,
 ) -> list[GeometrySpec]:
     """三件套非实体（前刀面片 + 后刀面片 + 刃形线），均标 singleTooth.
 

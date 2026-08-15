@@ -130,7 +130,7 @@ def generate_flank(
     alpha_0_deg: float,
     k_io: int,
     m: int = 181,
-    theta_range_deg: float = 20.0,
+    theta_range_deg: float = 40.0,
 ) -> FlankSurface:
     """K-2.18/2.19 后刀面生成：前刀面刃形 + 分截面刃形 → 三角网连片.
 
@@ -198,7 +198,7 @@ def generate_flank_helical_lead(
     n_L: int,
     k_io: int,
     m: int = 181,
-    theta_range_deg: float = 20.0,
+    theta_range_deg: float = 40.0,
 ) -> FlankSurface:
     """K-2.15/16 螺旋导程法（圆柱刀）后刀面：基刃形沿刀具轴螺旋扫掠（截面恒定）.
 

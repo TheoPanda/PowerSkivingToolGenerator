@@ -88,12 +88,13 @@ export interface ToolParams {
   alpha_0_deg: number
 }
 
-/** 离散参数（可缺省，后端默认 n=200/m=181/NR=200/θ=±40°）. */
+/** 离散参数（可缺省，后端默认 n=200/m=181/NR=200/θ=±40°/n_z=21）. */
 export interface DiscretizationParams {
   n?: number
   m?: number
   NR?: number
   theta_range_deg?: number
+  n_z?: number
 }
 
 /** 离散包络请求体（swept_cloud / edge 共用）. */
@@ -137,7 +138,7 @@ export async function fetchEnvelopeSweptCloud(params: EnvelopeRequest): Promise<
   })
 }
 
-/** 刃形：点云投影 → 内边界提取 → 覆盖 + ffα → 刃形多段 GLB. */
+/** 刃形：产形面 ∩ 前刀面（共轭法，K-2.8）→ 覆盖 + ffα → 刃形多段 GLB. */
 export async function fetchEnvelopeEdge(params: EnvelopeRequest): Promise<EdgeResponse> {
   return request<EdgeResponse>('/api/envelope/edge', {
     method: 'POST',
@@ -261,7 +262,7 @@ export interface AnalyticResponse {
   cross_check: CrossCheckResult
 }
 
-/** 解析刃形：逐点求轨迹 ∩ 前刀面 → 解析刃形 GLB + 双路线互检. */
+/** 解析刃形：逐点二分 h(φ)=0（产形面 ∩ 前刀面消元）→ 解析刃形 GLB + 双路线互检. */
 export async function fetchEnvelopeAnalytic(params: EnvelopeRequest): Promise<AnalyticResponse> {
   return request<AnalyticResponse>('/api/envelope/analytic', {
     method: 'POST',

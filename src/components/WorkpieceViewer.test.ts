@@ -197,7 +197,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
   it('ffα 超限时诊断条标失败态', async () => {
     vi.spyOn(api, 'fetchEnvelopeEdge').mockResolvedValue({
       ...mockEdge,
-      ffa_um: 0.5,
+      ffa_um: 1.5,
       coverage_report: { ...mockEdge.coverage_report, pass: false, coverage_ratio: 0.9 },
     })
     const wrapper = mountViewer()

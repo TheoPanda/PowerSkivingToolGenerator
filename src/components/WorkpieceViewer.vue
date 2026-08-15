@@ -124,10 +124,15 @@ const coveragePercent = computed<number | null>(() => {
   return Math.round(coverageReport.value.coverage_ratio * 100)
 })
 
-/** 诊断条总体通过（ffα < 0.1μm 且覆盖 100%）. */
+/** 诊断条总体通过（覆盖 100% 且 ffα 闭包残差 < 1μm）.
+
+ * ffα 现为「正反闭包自证」残差（链可逆性数值误差，m=181 插值 ~0.1μm 量级），
+ * 非设计书 K-2.13 正向包络误差（后者留 K-4.1）。阈值 <1μm 与后端
+ * test_segments_structure 的「数值自洽误差量级」一致。
+ */
 const envelopePassed = computed<boolean>(() => {
   if (ffaUm.value === null || coverageReport.value === null) return false
-  return ffaUm.value < 0.1 && coverageReport.value.pass
+  return ffaUm.value < 1.0 && coverageReport.value.pass
 })
 
 // ── 事件 ──
@@ -219,7 +224,7 @@ async function runEnvelope(): Promise<void> {
     const conjugateResp = await fetchEnvelopeConjugate(req)
     dispatchLayer('conjugate', conjugateResp.layer.glb_base64)
 
-    // 解析路线（子 PRD-5，可选）：K-2.8 解析刃形覆盖离散刃形 + 双路线互检
+    // 解析路线（子 PRD-5，可选）：K-2.8 解析刃形（二分精化，与离散同法）覆盖刃形图层 + 双路线互检
     if (useAnalytic.value) {
       const analyticResp = await fetchEnvelopeAnalytic(req)
       dispatchLayer('edge', analyticResp.layer.glb_base64)
@@ -393,7 +398,7 @@ async function runEnvelope(): Promise<void> {
 
       <!-- 诊断条：ffα + 覆盖判据 -->
       <div v-if="ffaUm !== null" class="diagnostic-strip" :class="{ failed: !envelopePassed }" data-test="diagnostic-strip">
-        <span class="diag-item" :class="ffaUm < 0.1 ? 'ok' : 'bad'">
+        <span class="diag-item" :class="ffaUm < 1.0 ? 'ok' : 'bad'">
           <span class="diag-dot"></span>
           ffα = {{ ffaUm.toFixed(3) }} μm
         </span>

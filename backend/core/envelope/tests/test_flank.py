@@ -49,7 +49,7 @@ class TestGenerateFlank:
         prof = extract_gap_points(p, n_points=50)
         flank = generate_flank(
             prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
-            m=31, theta_range_deg=20.0,
+            m=31, theta_range_deg=40.0,
         )
         assert len(flank.schedule) == 4
         assert len(flank.mesh_positions) > 0
@@ -71,7 +71,7 @@ class TestGenerateFlank:
         with pytest.raises(ValueError, match="T14"):
             generate_flank(
                 prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=1,
-                m=31, theta_range_deg=20.0,
+                m=31, theta_range_deg=40.0,
             )
 
     def test_flank_expands_along_axis(self):
@@ -83,25 +83,28 @@ class TestGenerateFlank:
         prof = extract_gap_points(p, n_points=50)
         flank = generate_flank(
             prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
-            m=31, theta_range_deg=20.0,
+            m=31, theta_range_deg=40.0,
         )
         zs = [flank.mesh_positions[i] for i in range(2, len(flank.mesh_positions), 3)]
         z_span = max(zs) - min(zs)
         # 轴向展开应与总重磨量 L=2mm 同量级（修复前仅 ~0.024mm）
         assert z_span > 1.0
 
-    def test_large_L_empty_section_raises(self):
-        """重磨量 L 太大 → 某截面刃形为空 → 抛明确 ValueError，而非空 geometry."""
+    def test_large_L_full_coverage(self):
+        """大重磨量下重磨截面刃形仍全命中——共轭法无旧穿面法的「空截面」失效模式."""
+        from dataclasses import replace
+
         from core.workpiece.models import GearParams
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = self._plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
         prof = extract_gap_points(p, n_points=50)
-        with pytest.raises(ValueError, match="刃形为空"):
-            generate_flank(
-                prof, plan, rake, L=5.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
-                m=31, theta_range_deg=20.0,
-            )
+        sched = compute_resharpen_schedule(plan.a, L=20.0, n_L=4, alpha_0_deg=8.0, k_io=-1)
+        for step in sched:
+            plan_i = replace(plan, a=step.a_i)
+            rake_i = replace(rake, const=rake.const + rake.C * step.dL)
+            edge = extract_edge(prof, plan_i, rake_i, m=31, theta_range_deg=40.0, k_io=-1)
+            assert edge.coverage_report["pass"] is True, f"重磨截面 i={step.i} 覆盖不全"
 
     def test_helical_lead_constant_cross_section(self):
         """螺旋导程法（圆柱刀 K-2.15/16）：截面恒定——顶缘半径跨截面不变（无重磨集成法的径向膨胀）."""
@@ -112,14 +115,14 @@ class TestGenerateFlank:
         prof = extract_gap_points(p, n_points=50)
         flank = generate_flank_helical_lead(
             prof, plan, rake, z_t=41, m_n=2.0, beta_t_deg=15.0,
-            L=2.0, n_L=4, k_io=-1, m=31, theta_range_deg=20.0,
+            L=2.0, n_L=4, k_io=-1, m=31, theta_range_deg=40.0,
         )
         # 导程 Ltp = z_t·m_n·π/sin β_t（算例1 = 995.33mm）
         assert flank.lead_pitch == pytest.approx(
             41 * 2.0 * math.pi / math.sin(math.radians(15.0)), rel=1e-9
         )
         # 截面恒定：后刀面顶缘半径 == 基刃形顶缘半径（螺旋扫掠纯旋转+平移，不改半径）
-        edge = extract_edge(prof, plan, rake, m=31, theta_range_deg=20.0, k_io=-1)
+        edge = extract_edge(prof, plan, rake, m=31, theta_range_deg=40.0, k_io=-1)
         base_rmax = max(math.hypot(q[0], q[1]) for seg in edge.segments for q in seg.pts)
         flank_rs = [
             math.hypot(flank.mesh_positions[i], flank.mesh_positions[i + 1])
