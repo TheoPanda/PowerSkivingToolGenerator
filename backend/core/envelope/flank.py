@@ -65,11 +65,11 @@ def compute_resharpen_schedule(
     return steps
 
 
-def _edge_polylines(profile_pts, plan, rake, *, m, theta_range_deg, k_io):
+def _edge_polylines(profile_pts, plan, rake, *, m, theta_range_deg, k_io, normals=None):
     """对给定 plan 跑 K-2.8 离散刃形，返回刃形折线列表（左右两段各一条）."""
     edge = extract_edge(
         profile_pts, plan, rake,
-        m=m, theta_range_deg=theta_range_deg, k_io=k_io,
+        m=m, theta_range_deg=theta_range_deg, k_io=k_io, normals=normals,
     )
     return [seg.pts for seg in edge.segments]
 
@@ -131,6 +131,7 @@ def generate_flank(
     k_io: int,
     m: int = 181,
     theta_range_deg: float = 40.0,
+    normals=None,
 ) -> FlankSurface:
     """K-2.18/2.19 后刀面生成：前刀面刃形 + 分截面刃形 → 三角网连片.
 
@@ -148,7 +149,7 @@ def generate_flank(
     """
     schedule = compute_resharpen_schedule(plan.a, L, n_L, alpha_0_deg, k_io)
     # 前刀面刃形（a_0 = a，i=0）+ 分截面刃形（a_1..a_nL）
-    sections = [_edge_polylines(profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io)]
+    sections = [_edge_polylines(profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io, normals=normals)]
     if not sections[0]:
         # 外齿轮（k_io=+1）前刀面 p_ref=+r_pt 与节圆切点 −r_pt 相反侧 → 刃形为空（T14）
         raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
@@ -156,7 +157,7 @@ def generate_flank(
         plan_i = replace(plan, a=step.a_i)
         # 轴向分量：前刀面沿 −Z 后退 ΔL_i（const += C·ΔL_i，C=cosγ·cosβ₁）
         rake_i = replace(rake, const=rake.const + rake.C * step.dL)
-        section = _edge_polylines(profile_pts, plan_i, rake_i, m=m, theta_range_deg=theta_range_deg, k_io=k_io)
+        section = _edge_polylines(profile_pts, plan_i, rake_i, m=m, theta_range_deg=theta_range_deg, k_io=k_io, normals=normals)
         if not section:
             raise ValueError(
                 f"重磨截面 i={step.i} 刃形为空：重磨量 L={L} 使前刀面后退 ΔL={step.dL:.2f}mm "
@@ -199,6 +200,7 @@ def generate_flank_helical_lead(
     k_io: int,
     m: int = 181,
     theta_range_deg: float = 40.0,
+    normals=None,
 ) -> FlankSurface:
     """K-2.15/16 螺旋导程法（圆柱刀）后刀面：基刃形沿刀具轴螺旋扫掠（截面恒定）.
 
@@ -219,7 +221,7 @@ def generate_flank_helical_lead(
         FlankSurface（schedule + 三角网 mesh + lead_pitch）
     """
     # 基刃形（只算一次，i=0）
-    base = _edge_polylines(profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io)
+    base = _edge_polylines(profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io, normals=normals)
     if not base:
         raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
 

@@ -49,6 +49,7 @@ def build_single_tooth(
     k_io: int,
     m: int = 181,
     theta_range_deg: float = 40.0,
+    normals=None,
 ) -> list[GeometrySpec]:
     """三件套非实体（前刀面片 + 后刀面片 + 刃形线），均标 singleTooth.
 
@@ -68,7 +69,7 @@ def build_single_tooth(
 
     # 完整刃形环（a_0 = a，前刀面 ∩ 生成面，K-2.8 离散；不拆段）
     edge_pts, _roots, _found = compute_discrete_edge(
-        profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg
+        profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, normals=normals
     )
     if not edge_pts:
         raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
@@ -85,7 +86,7 @@ def build_single_tooth(
     # 后刀面片 = 螺旋导程法（圆柱刀 K-2.15/16；α₀=0 构造性后角）
     flank = generate_flank_helical_lead(
         profile_pts, plan, rake, z_t=z_t, m_n=m_n, beta_t_deg=beta_t_deg,
-        L=L, n_L=n_L, k_io=k_io, m=m, theta_range_deg=theta_range_deg,
+        L=L, n_L=n_L, k_io=k_io, m=m, theta_range_deg=theta_range_deg, normals=normals,
     )
     flank_geo = GeometrySpec(
         kind="mesh",

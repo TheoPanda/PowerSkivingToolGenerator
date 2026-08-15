@@ -59,6 +59,7 @@ def compute_discrete_edge(
     *,
     m: int = 181,
     theta_range_deg: float = 40.0,
+    normals=None,
 ) -> tuple[list[list[float]], list[float], list[bool]]:
     """K-2.8 刃形 = 产形面 ∩ 前刀面：逐点解 g=0 ∧ F=0（消元 → h(φ)=0 求根）.
 
@@ -88,7 +89,7 @@ def compute_discrete_edge(
 
     xs = np.array([pt[0] for pt in profile_pts], dtype=np.float64)
     ys = np.array([pt[1] for pt in profile_pts], dtype=np.float64)
-    norms = profile_normals(profile_pts)
+    norms = normals if normals is not None else profile_normals(profile_pts)
     nxs = np.array([nm[0] for nm in norms], dtype=np.float64)
     nys = np.array([nm[1] for nm in norms], dtype=np.float64)
 
@@ -213,6 +214,7 @@ def extract_edge(
     m: int = 181,
     theta_range_deg: float = 40.0,
     k_io: int = 1,
+    normals=None,
 ) -> EdgeResult:
     """K-2.8 完整刃形管线：产形面∩前刀面刃形 + 覆盖 + ffα + 分左右两段.
 
@@ -235,7 +237,7 @@ def extract_edge(
             "外齿轮（k_io=+1）刃形未支持：运动链旋向/前刀面符号 T14 未销项，请使用内齿轮（k_io=−1）"
         )
     edge_pts, roots_phi, found = compute_discrete_edge(
-        profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg
+        profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, normals=normals
     )
     n = len(profile_pts)
     uncovered = [

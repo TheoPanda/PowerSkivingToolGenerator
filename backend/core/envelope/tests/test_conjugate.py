@@ -19,7 +19,7 @@ def _internal_case():
         j_w=1, j_t=-1, k_io=-1,
     )
     p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
-    prof = extract_gap_points(p, n_points=50)
+    prof = extract_gap_points(p, n_points=50)[0]
     return p, plan, prof
 
 

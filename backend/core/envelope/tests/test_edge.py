@@ -37,7 +37,7 @@ class TestComputeDiscreteEdge:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = _plan()
         rake = _rake(plan)
-        prof = extract_gap_points(p, n_points=100)
+        prof = extract_gap_points(p, n_points=100)[0]
         pts, roots, found = compute_discrete_edge(prof, plan, rake, m=181, theta_range_deg=40.0)
         assert len(pts) == len(roots) == len(prof)
         assert all(found)
@@ -71,7 +71,7 @@ class TestExtractEdge:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = _plan()
         rake = _rake(plan)
-        prof = extract_gap_points(p, n_points=200)
+        prof = extract_gap_points(p, n_points=200)[0]
         edge = extract_edge(prof, plan, rake, m=181, theta_range_deg=40.0, k_io=-1)
         assert len(edge.segments) == 2
         for seg in edge.segments:
@@ -88,7 +88,7 @@ class TestExtractEdge:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = _plan()
         rake = _rake(plan)
-        prof = extract_gap_points(p, n_points=100)
+        prof = extract_gap_points(p, n_points=100)[0]
         edge = extract_edge(prof, plan, rake, m=181, theta_range_deg=40.0, k_io=-1)
         assert edge.coverage_report["pass"] is True
         assert edge.coverage_report["coverage_ratio"] == 1.0
@@ -133,19 +133,22 @@ def _closest_point_on_triangle(p, a, b, c):
 
 class TestEdgeOnConjugateSurface:
     def test_edge_lies_on_conjugate_surface(self):
-        """刃形点应落在产形面上（几何不变量，≤ 60 μm；旧穿面法偏离 ~0.2mm 会失败）."""
+        """刃形点应落在产形面上（几何不变量，≤ 60 μm；旧穿面法偏离 ~0.2mm 会失败）.
+
+        只检查齿面内部刃形点——齿顶/齿根圆弧段刃形点对应产形面已修剪的边界
+        （产形面 = 刀具侧刃面，不含齿顶/齿根圆弧）。
+        """
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = _plan()
         rake = _rake(plan)
         n_pt = 60
-        prof = extract_gap_points(p, n_points=n_pt)
+        prof, norms = extract_gap_points(p, n_points=n_pt)
         edge_pts, _roots, _found = compute_discrete_edge(
-            prof, plan, rake, m=181, theta_range_deg=40.0
+            prof, plan, rake, m=181, theta_range_deg=40.0, normals=norms
         )
-        assert len(edge_pts) == n_pt
 
         surf = compute_conjugate_surface(
-            prof, plan, b_w=p.b_w, k_io=-1, n_z=21, m=181, theta_range_deg=40.0
+            prof, plan, b_w=p.b_w, k_io=-1, n_z=21, m=181, theta_range_deg=40.0, normals=norms
         )
         pos = np.array(surf.mesh_positions, dtype=np.float64).reshape(-1, 3)
         idx = np.array(surf.mesh_indices, dtype=np.int64).reshape(-1, 3)
@@ -153,14 +156,23 @@ class TestEdgeOnConjugateSurface:
         tri_b = pos[idx[:, 1]]
         tri_c = pos[idx[:, 2]]
 
+        # 齿面内部 = 半径在 (r_min+trim, r_max−trim) 内（产形面边界修剪一致）
+        r_prof = np.array([math.hypot(x, y) for (x, y) in prof])
+        r_lo, r_hi = r_prof.min(), r_prof.max()
+        trim = 0.01 * (r_hi - r_lo)
+
         max_d = 0.0
-        for q in edge_pts:
+        checked = 0
+        for q, rr in zip(edge_pts, r_prof):
+            if not (r_lo + trim < rr < r_hi - trim):
+                continue
+            checked += 1
             qa = np.array(q, dtype=np.float64)
-            # 全三角形最近距离（numpy 向量化 per-triangle）
             best = float("inf")
             for i in range(len(idx)):
                 cp = _closest_point_on_triangle(qa, tri_a[i], tri_b[i], tri_c[i])
                 best = min(best, float(np.linalg.norm(cp - qa)))
             max_d = max(max_d, best)
+        assert checked > 0, "齿面内部刃形点应非空"
         # 网格分片线性近似误差 ~ 单元尺度；刃形点应严格位于表面（< 60 μm）
         assert max_d < 0.06, f"刃形点到产形面最大距离 {max_d:.4f} mm 超容差 0.06"

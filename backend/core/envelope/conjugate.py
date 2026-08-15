@@ -47,6 +47,7 @@ def compute_conjugate_surface(
     n_z: int = 21,
     m: int = 181,
     theta_range_deg: float = 40.0,
+    normals=None,
 ) -> ConjugateSurface:
     """K-2.6 离散数值啮合产形面：齿面网格 × 啮合方程求根 → 三角网.
 
@@ -79,7 +80,7 @@ def compute_conjugate_surface(
     if b_w <= 0:
         raise ValueError(f"齿宽 b_w={b_w} 必须 > 0")
 
-    norms = profile_normals(profile_pts)
+    norms = normals if normals is not None else profile_normals(profile_pts)
 
     # 齿面网格：行主序 index = iz·n + iu（n_z 行 × n 列）
     xs = np.array([pt[0] for pt in profile_pts], dtype=np.float64)
@@ -105,16 +106,27 @@ def compute_conjugate_surface(
     nt = rotate_normals_batch(Ms, NX, NY)    # (m, N, 3)
     phi_root, found, kk, tt = contact_roots(phis, P, nt)
 
+    # 排除齿顶/齿根圆弧段 + 渐开线端点：这些点接触为极限/径向（与齿面接触不连续），
+    # 计入三角网会产生撕裂（尖角处中心差分法向被污染 → 伪根 → 接触点跳 1–10mm）。
+    # 用半径判据：轮廓最小/最大半径（r_a/r_f）附近 ε 带内的点不计入（保留齿面内部）。
+    r_prof = np.hypot(X, Y)
+    r_lo, r_hi = float(r_prof.min()), float(r_prof.max())
+    trim = 0.01 * (r_hi - r_lo)  # 齿高 1% 的修剪带（算例1 ≈ 0.045mm，覆盖圆弧+端点）
+    boundary = (r_prof <= r_lo + trim) | (r_prof >= r_hi - trim)
+    found = found & ~boundary
+
     cols = np.arange(N)
     pts = P[kk, cols] + tt[:, None] * (P[kk + 1, cols] - P[kk, cols])  # (N, 3)
 
+    # 覆盖率只统计齿面内部点（圆弧段/渐开线端点已被边界修剪排除，不计入分母）
+    n_total = int((~boundary).sum())
     n_found = int(found.sum())
     coverage = {
-        "total_points": N,
+        "total_points": n_total,
         "found": n_found,
-        "uncovered": N - n_found,
-        "coverage_ratio": n_found / N if N else 1.0,
-        "pass": n_found == N,
+        "uncovered": max(0, n_total - n_found),
+        "coverage_ratio": n_found / n_total if n_total else 1.0,
+        "pass": n_found == n_total,
     }
 
     # 三角网连片（仅四角全命中的单元；内齿轮闭合廓形沿廓形向回绕）
@@ -132,7 +144,7 @@ def compute_conjugate_surface(
             c = a + n
             d = iz * n + iu2 + n
             if found[a] and found[b] and found[c] and found[d]:
-                indices += [a, c, b, b, c, d]
+                indices += [a, b, c, b, d, c]
 
     normals = _compute_vertex_normals(positions, indices)
     return ConjugateSurface(

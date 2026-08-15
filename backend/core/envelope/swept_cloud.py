@@ -52,8 +52,42 @@ class SweptCloud:
     wireframe_indices: list[int]  # 三角网线框段（LINES 模式，三角片边序，每条 2 索引，含重复共享边）
 
 
-def _sample_segments(segs: list[Segment], n_points: int) -> list[tuple[float, float]]:
-    """段列表（Arc/Polyline）→ 按累计弧长均匀采样 n_points 个点（闭合去重）."""
+def _segment_normals(segs: list[Segment], dense_pts: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """段列表 → 逐密集点解析法向（圆弧段=径向、折线段=切向垂直，端点单侧差分）.
+
+    与 _sample_segments 的密集采样同序：Arc 每段 48 点（含端点）、Polyline 逐点。
+    避免中心差分跨齿顶/齿根尖角（G0）污染法向（尖角处径向/渐开线法向相差 ~90°，
+    中心差分会取到两者的平均 → 啮合方程挑到伪根 → 产形面撕裂）。
+    """
+    norms: list[tuple[float, float]] = []
+    for seg in segs:
+        if isinstance(seg, Arc):
+            cx, cy = seg.center
+            for k in range(48):
+                t = k / 48
+                a = seg.a0 + (seg.a1 - seg.a0) * t
+                x = cx + seg.radius * math.cos(a)
+                y = cy + seg.radius * math.sin(a)
+                nx, ny = x - cx, y - cy  # 径向
+                L = math.hypot(nx, ny)
+                norms.append((nx / L, ny / L) if L > 1e-12 else (0.0, 0.0))
+        else:  # Polyline
+            pts = seg.points
+            m = len(pts)
+            for j in range(m):
+                p0 = pts[max(0, j - 1)]
+                p1 = pts[min(m - 1, j + 1)]
+                tx, ty = p1[0] - p0[0], p1[1] - p0[1]
+                L = math.hypot(tx, ty)
+                norms.append((-ty / L, tx / L) if L > 1e-12 else (0.0, 0.0))
+    # 对齐 dense_pts 长度（防御；正常等长）
+    if len(norms) != len(dense_pts):
+        norms = [(0.0, 0.0)] * len(dense_pts)
+    return norms
+
+
+def _sample_segments(segs: list[Segment], n_points: int) -> tuple[list, list]:
+    """段列表（Arc/Polyline）→ 按累计弧长均匀采样 n_points 个点 + 解析法向（闭合去重）."""
     dense: list[tuple[float, float]] = []
     for seg in segs:
         if isinstance(seg, Arc):
@@ -64,21 +98,25 @@ def _sample_segments(segs: list[Segment], n_points: int) -> list[tuple[float, fl
                 dense.append((cx + seg.radius * math.cos(a), cy + seg.radius * math.sin(a)))
         else:
             dense.extend(seg.points)
+    dense_norm = _segment_normals(segs, dense)
     if len(dense) < 2:
-        return dense
-    # 去重相邻重复点
+        return dense, dense_norm
+    # 去重相邻重复点（点 + 法向同步）
     dedup = [dense[0]]
-    for p in dense[1:]:
-        if math.hypot(p[0] - dedup[-1][0], p[1] - dedup[-1][1]) > 1e-9:
-            dedup.append(p)
+    dedup_norm = [dense_norm[0]]
+    for i in range(1, len(dense)):
+        if math.hypot(dense[i][0] - dedup[-1][0], dense[i][1] - dedup[-1][1]) > 1e-9:
+            dedup.append(dense[i])
+            dedup_norm.append(dense_norm[i])
     # 累计弧长
     cum = [0.0]
     for i in range(1, len(dedup)):
         cum.append(cum[-1] + math.hypot(dedup[i][0] - dedup[i - 1][0], dedup[i][1] - dedup[i - 1][1]))
     total = cum[-1]
     if total < 1e-12:
-        return dedup
+        return dedup, dedup_norm
     pts: list[tuple[float, float]] = []
+    norms: list[tuple[float, float]] = []
     for k in range(n_points):
         s = total * k / n_points
         lo, hi = 0, len(dedup) - 1
@@ -93,11 +131,19 @@ def _sample_segments(segs: list[Segment], n_points: int) -> list[tuple[float, fl
         x = dedup[lo][0] + (dedup[hi][0] - dedup[lo][0]) * t
         y = dedup[lo][1] + (dedup[hi][1] - dedup[lo][1]) * t
         pts.append((x, y))
-    return pts
+        # 法向线性插值（重新归一化）
+        nx = dedup_norm[lo][0] + (dedup_norm[hi][0] - dedup_norm[lo][0]) * t
+        ny = dedup_norm[lo][1] + (dedup_norm[hi][1] - dedup_norm[lo][1]) * t
+        L = math.hypot(nx, ny)
+        norms.append((nx / L, ny / L) if L > 1e-12 else (0.0, 0.0))
+    return pts, norms
 
 
-def extract_gap_points(p, n_points: int = 200) -> list[tuple[float, float]]:
-    """从 GearParams 提取单齿廓形点（离散包络输入）.
+def extract_gap_points(p, n_points: int = 200) -> tuple[list, list]:
+    """从 GearParams 提取单齿廓形点 + 解析法向（离散包络输入）.
+
+    返回 (points, normals)：points = [(x,y), ...]，normals = [(nx,ny), ...]（单位法向，
+    解析自段：圆弧段径向、渐开线折线段切向垂直，避免尖角中心差分污染）。
 
     内齿轮 k_io=−1 用 tooth_gap_segments（齿槽 = 刀具齿的反包络源，ADR-017）；
     外齿轮 k_io=+1 用 _tooth_open_segments（开放单齿轮廓：左齿根→左齿面→齿顶→

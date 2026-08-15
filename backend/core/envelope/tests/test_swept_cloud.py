@@ -108,7 +108,7 @@ class TestExtractGapPoints:
     def test_internal_gear_gap_points(self):
         from core.workpiece.models import GearParams
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
-        pts = extract_gap_points(p, n_points=200)
+        pts = extract_gap_points(p, n_points=200)[0]
         assert len(pts) == 200
         assert all(len(pt) == 2 for pt in pts)
         # 点落在齿根/齿顶环带内（齿顶小径 80、齿根大径 84.5）
@@ -121,7 +121,7 @@ class TestExtractGapPoints:
         import math
         from core.workpiece.models import GearParams
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=1)
-        pts = extract_gap_points(p, n_points=200)
+        pts = extract_gap_points(p, n_points=200)[0]
         assert len(pts) == 200
         # 角跨度 < 10°（一个齿距量级），杜绝 350° 闭合回归
         ang = [math.atan2(y, x) for (x, y) in pts]

@@ -24,7 +24,7 @@ class TestAnalyticEdge:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = _plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
-        prof = extract_gap_points(p, n_points=100)
+        prof = extract_gap_points(p, n_points=100)[0]
         edge = compute_analytic_edge(prof, plan, rake, theta_range_deg=40.0)
         assert len(edge) > 0
         for (x, y, z) in edge:
@@ -36,7 +36,7 @@ class TestAnalyticEdge:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = _plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
-        prof = extract_gap_points(p, n_points=100)
+        prof = extract_gap_points(p, n_points=100)[0]
         analytic = compute_analytic_edge(prof, plan, rake, theta_range_deg=40.0)
         edge = extract_edge(prof, plan, rake, m=181, theta_range_deg=40.0, k_io=-1)
         discrete = [pt for seg in edge.segments for pt in seg.pts]

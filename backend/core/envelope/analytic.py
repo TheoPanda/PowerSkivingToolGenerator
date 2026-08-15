@@ -102,6 +102,7 @@ def compute_analytic_edge(
     rake: RakeSurface,
     *,
     theta_range_deg: float = 40.0,
+    normals=None,
 ) -> list[list[float]]:
     """K-2.8 解析刃形：逐点二分 h(φ)=0（产形面 ∩ 前刀面消元）.
 
@@ -115,7 +116,7 @@ def compute_analytic_edge(
         解析刃形点列 [[x, y, z], ...]（落在前刀面上，坐标 T）
     """
     theta_range = math.radians(theta_range_deg)
-    norms = profile_normals(profile_pts)
+    norms = normals if normals is not None else profile_normals(profile_pts)
     edge_pts: list[list[float]] = []
     for pt, nrm in zip(profile_pts, norms):
         root = _find_root(plan, pt, rake, nrm, theta_range)

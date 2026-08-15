@@ -46,7 +46,7 @@ class TestGenerateFlank:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = self._plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
-        prof = extract_gap_points(p, n_points=50)
+        prof = extract_gap_points(p, n_points=50)[0]
         flank = generate_flank(
             prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
             m=31, theta_range_deg=40.0,
@@ -67,7 +67,7 @@ class TestGenerateFlank:
             j_w=1, j_t=-1, k_io=1,
         )
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
-        prof = extract_gap_points(p, n_points=50)
+        prof = extract_gap_points(p, n_points=50)[0]
         with pytest.raises(ValueError, match="T14"):
             generate_flank(
                 prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=1,
@@ -80,7 +80,7 @@ class TestGenerateFlank:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = self._plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
-        prof = extract_gap_points(p, n_points=50)
+        prof = extract_gap_points(p, n_points=50)[0]
         flank = generate_flank(
             prof, plan, rake, L=2.0, n_L=4, alpha_0_deg=8.0, k_io=-1,
             m=31, theta_range_deg=40.0,
@@ -98,7 +98,7 @@ class TestGenerateFlank:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = self._plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
-        prof = extract_gap_points(p, n_points=50)
+        prof = extract_gap_points(p, n_points=50)[0]
         sched = compute_resharpen_schedule(plan.a, L=20.0, n_L=4, alpha_0_deg=8.0, k_io=-1)
         for step in sched:
             plan_i = replace(plan, a=step.a_i)
@@ -112,7 +112,7 @@ class TestGenerateFlank:
         p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
         plan = self._plan()
         rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
-        prof = extract_gap_points(p, n_points=50)
+        prof = extract_gap_points(p, n_points=50)[0]
         flank = generate_flank_helical_lead(
             prof, plan, rake, z_t=41, m_n=2.0, beta_t_deg=15.0,
             L=2.0, n_L=4, k_io=-1, m=31, theta_range_deg=40.0,
