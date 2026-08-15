@@ -24,7 +24,6 @@ import {
   MATERIAL_PRESETS,
   type LayerId,
   type LayerVisual,
-  type SweptCloudMotion,
 } from './layerPalette'
 
 export type RenderMode = 'solid' | 'xray'
@@ -50,12 +49,8 @@ export interface GearViewportOptions {
 export interface GearViewport {
   /** 加载工件齿轮 GLB（降级：清空非工件层 + 加载 workpiece 层）并适配相机. */
   loadGear: (glbBase64: string) => void
-  /** 增量叠加一个图层（按 LayerId 从 palette 取材质/样式；swept_cloud 可带 motion 揭示元数据）. */
-  addLayer: (id: LayerId, glbBase64: string, motion?: SweptCloudMotion) => void
-  /** 扫掠点云逐行揭示（fraction 0..1，蓝=0 起点 / 红=1 终点）. */
-  setSweptCloudReveal: (fraction: number) => void
-  /** 扫掠点云「面 / 网+点」两档互斥切换. */
-  setSweptCloudMode: (mode: 'surface' | 'net') => void
+  /** 增量叠加一个图层（按 LayerId 从 palette 取材质/样式）. */
+  addLayer: (id: LayerId, glbBase64: string) => void
   /** 设置安装参数（中心距 a + 轴交角 Σ），把刀具系 T 图层变换到工件系 W + 画 W/T 坐标轴. */
   setEnvelopeInstall: (a: number, sigmaDeg: number) => void
   /** 删除一个图层（保留工件基准层）. */
@@ -172,17 +167,6 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   const layerMaterials = new Map<LayerId, THREE.Material[]>() // 每层材质实例（dispose 用）
   const growingGeometries = new Map<THREE.BufferGeometry, number>() // 逐点生长动画：geometry → 目标顶点数
   let animationId: number | null = null
-
-  // ── 扫掠点云（swept_cloud）多 primitive + 揭示状态 ──
-  const START_BLUE = 0x00007f // 光谱蓝端（≈#00007F，与后端 jet(0) 一致）
-  let sweptSurface: THREE.Mesh | null = null // 实心光谱面
-  let sweptPoints: THREE.Points | null = null // 光谱网格点
-  let sweptWireframe: THREE.LineSegments | null = null // 灰线框
-  let sweptMotion: SweptCloudMotion | null = null // 揭示元数据
-  let sweptStartLine: THREE.Line | null = null // 固定蓝起始线（行 0）
-  let sweptFrontLine: THREE.Line | null = null // 移动前缘线（行 k）
-  let sweptMode: 'surface' | 'net' = 'surface' // 当前档
-  let sweptRevealF = 1.0 // 当前揭示分数 0..1（默认满显）
 
   // ── 安装变换 + 坐标轴（刀具系 T ↔ 工件系 W） ──
   const AXIS_LENGTH = 120.0 // 坐标轴长度 [mm]
@@ -563,14 +547,6 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
       mats.forEach((m) => m.dispose())
       layerMaterials.delete(id)
     }
-    if (id === 'swept_cloud') {
-      sweptSurface = null
-      sweptPoints = null
-      sweptWireframe = null
-      sweptMotion = null
-      sweptStartLine = null
-      sweptFrontLine = null
-    }
   }
 
   /** 对线类图层的 geometry 启动逐点生长动画（drawRange 0→N，各段各自生长）. */
@@ -583,95 +559,6 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
       geo.setDrawRange(0, 0)
       growingGeometries.set(geo, target)
     })
-  }
-
-  /** jet 光谱色（蓝→青→绿→黄→红），与后端 swept_cloud.jet 一致；返回 THREE.Color. */
-  function jetColor(t: number): THREE.Color {
-    const u = Math.min(1, Math.max(0, t))
-    let r: number
-    let g: number
-    let b: number
-    if (u < 0.125) {
-      r = 0; g = 0; b = 0.5 + 0.5 * (u / 0.125)
-    } else if (u < 0.375) {
-      r = 0; g = (u - 0.125) / 0.25; b = 1
-    } else if (u < 0.625) {
-      r = (u - 0.375) / 0.25; g = 1; b = 1 - (u - 0.375) / 0.25
-    } else if (u < 0.875) {
-      r = 1; g = 1 - (u - 0.625) / 0.25; b = 0
-    } else {
-      r = 1; g = 0; b = 0
-    }
-    return new THREE.Color(r, g, b)
-  }
-
-  /** 提取扫掠点云网格第 k 行的 n 个点（positions 行优先），返回 (n*3) Float32Array. */
-  function extractSweptCloudRow(k: number): Float32Array {
-    const pos = sweptSurface!.geometry.getAttribute('position') as THREE.BufferAttribute
-    const arr = pos.array as Float32Array
-    const n = sweptMotion!.n
-    const out = new Float32Array(n * 3)
-    out.set(arr.subarray(k * n * 3, (k + 1) * n * 3))
-    return out
-  }
-
-  /** 扫掠点云「面 / 网+点」两档互斥显示子元素. */
-  function applySweptCloudMode(mode: 'surface' | 'net'): void {
-    sweptMode = mode
-    if (sweptSurface) sweptSurface.visible = mode === 'surface'
-    if (sweptPoints) sweptPoints.visible = mode === 'net'
-    if (sweptWireframe) sweptWireframe.visible = mode === 'net'
-    requestRender()
-  }
-
-  /** 扫掠点云逐行揭示：按 fraction 设面/点/线框 drawRange + 前缘线位置与光谱色. */
-  function applySweptCloudReveal(fraction: number): void {
-    sweptRevealF = Math.min(1, Math.max(0, fraction))
-    if (!sweptMotion) return
-    const k = Math.round(sweptRevealF * (sweptMotion.m - 1))
-    if (sweptSurface) sweptSurface.geometry.setDrawRange(0, k * sweptMotion.surface_indices_per_row)
-    if (sweptPoints) sweptPoints.geometry.setDrawRange(0, (k + 1) * sweptMotion.points_vertices_per_row)
-    if (sweptWireframe) sweptWireframe.geometry.setDrawRange(0, k * sweptMotion.wireframe_indices_per_row)
-    if (sweptFrontLine && sweptSurface) {
-      const pos = sweptFrontLine.geometry.getAttribute('position') as THREE.BufferAttribute
-      pos.copyArray(extractSweptCloudRow(k))
-      pos.needsUpdate = true
-      ;(sweptFrontLine.material as THREE.LineBasicMaterial).color = jetColor(sweptRevealF)
-    }
-    requestRender()
-  }
-
-  /** 定位扫掠点云子元素 + 构建起止/前缘线 + 应用默认档/满显（在 mountLayer 内调用）. */
-  function setupSweptCloud(group: THREE.Group, motion: SweptCloudMotion): void {
-    sweptMotion = motion
-    let surface: THREE.Mesh | null = null
-    let points: THREE.Points | null = null
-    let wireframe: THREE.LineSegments | null = null
-    group.traverse((child) => {
-      if (!surface && child instanceof THREE.Mesh) surface = child
-      else if (!points && child instanceof THREE.Points) points = child
-      else if (!wireframe && child instanceof THREE.LineSegments) wireframe = child
-    })
-    sweptSurface = surface
-    sweptPoints = points
-    sweptWireframe = wireframe
-
-    const mesh = surface as THREE.Mesh | null
-    if (mesh && sweptMotion && mesh.geometry.getAttribute('position')) {
-      const startGeo = new THREE.BufferGeometry()
-      startGeo.setAttribute('position', new THREE.BufferAttribute(extractSweptCloudRow(0), 3))
-      sweptStartLine = new THREE.Line(startGeo, new THREE.LineBasicMaterial({ color: START_BLUE }))
-      sweptStartLine.frustumCulled = false
-      const frontGeo = new THREE.BufferGeometry()
-      frontGeo.setAttribute('position', new THREE.BufferAttribute(extractSweptCloudRow(motion.m - 1), 3))
-      sweptFrontLine = new THREE.Line(frontGeo, new THREE.LineBasicMaterial({ color: 0xffffff }))
-      sweptFrontLine.frustumCulled = false
-      group.add(sweptStartLine)
-      group.add(sweptFrontLine)
-    }
-
-    applySweptCloudMode(sweptMode)
-    applySweptCloudReveal(sweptRevealF)
   }
 
   /** 把刀具系 T 图层 group 施加安装变换 T→W（中心距 a 沿 X + 绕 X 轴交角 Σ）. */
@@ -808,7 +695,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   /** 设置安装参数并（重）画坐标轴 + 对已挂载的刀具系图层施加变换. */
   function setEnvelopeInstall(a: number, sigmaDeg: number): void {
     envelopeInstall = { a, sigma: (sigmaDeg * Math.PI) / 180 }
-    for (const id of ['swept_cloud', 'rake', 'edge', 'flank', 'singleTooth', 'conjugate'] as LayerId[]) {
+    for (const id of ['rake', 'edge', 'flank', 'singleTooth', 'conjugate', 'conjugateGear', 'interference'] as LayerId[]) {
       const g = layerGroups[id]
       if (g) applyInstallTransform(g)
     }
@@ -816,7 +703,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   }
 
   /** 把解析好的图层 scene 挂载为命名图层 group（赋材质 + 建 group + 加入 worldGroup）. */
-  function mountLayer(id: LayerId, mesh: THREE.Group, motion?: SweptCloudMotion): void {
+  function mountLayer(id: LayerId, mesh: THREE.Group): void {
     const visual = LAYER_VISUALS[id]
     const mats: THREE.Material[] = []
     mesh.traverse((child: THREE.Object3D) => {
@@ -848,9 +735,6 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     if (visual.kind === 'line') {
       startGrowAnimation(group)
     }
-    if (id === 'swept_cloud' && motion) {
-      setupSweptCloud(group, motion)
-    }
   }
 
   // ── 图层 GLB 解码 + 加载 ──
@@ -867,9 +751,9 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   }
 
   // ── 增量叠加图层 ──
-  function addLayer(id: LayerId, glbBase64: string, motion?: SweptCloudMotion): void {
+  function addLayer(id: LayerId, glbBase64: string): void {
     if (!scene || !worldGroup) return
-    parseGlb(glbBase64, (mesh) => mountLayer(id, mesh, motion))
+    parseGlb(glbBase64, (mesh) => mountLayer(id, mesh))
   }
 
   // ── 工件齿轮 GLB 加载（降级：清空非工件层 + 加载工件层） ──
@@ -995,12 +879,6 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     layerMaterials.forEach((mats) => mats.forEach((m) => m.dispose()))
     layerMaterials.clear()
     growingGeometries.clear()
-    sweptSurface = null
-    sweptPoints = null
-    sweptWireframe = null
-    sweptMotion = null
-    sweptStartLine = null
-    sweptFrontLine = null
     axesGroup = null
     clearRotationPointers()
     envelopeInstall = null
@@ -1056,8 +934,6 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   return {
     loadGear,
     addLayer,
-    setSweptCloudReveal: applySweptCloudReveal,
-    setSweptCloudMode: applySweptCloudMode,
     setEnvelopeInstall,
     removeLayer,
     clearLayers,

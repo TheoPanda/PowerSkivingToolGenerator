@@ -85,7 +85,7 @@ function onGearModelReady(e: Event): void {
 /** 包络图层 GLB 就绪 → 增量叠加到视口（与 gear:model-ready 并列）. */
 function onLayerReady(e: Event): void {
   const detail: LayerReadyDetail = (e as CustomEvent).detail as LayerReadyDetail
-  gearViewport?.addLayer(detail.id, detail.glbBase64, detail.motion)
+  gearViewport?.addLayer(detail.id, detail.glbBase64)
 }
 
 onMounted(() => {

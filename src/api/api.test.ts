@@ -2,7 +2,7 @@
  * fetchWorkpiece API 客户端测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchWorkpiece, fetchEnvelopeSweptCloud, fetchEnvelopeEdge, fetchEnvelopeRake } from './index'
+import { fetchWorkpiece, fetchEnvelopeEdge, fetchEnvelopeRake, fetchEnvelopeConjugateGear, fetchEnvelopeInterference } from './index'
 import { toPayload, type GearParams } from '../composables/useGearParams'
 
 const mockParams: GearParams = {
@@ -116,22 +116,6 @@ describe('fetchEnvelope（子 PRD-2 离散包络）', () => {
     vi.restoreAllMocks()
   })
 
-  it('fetchEnvelopeSweptCloud 发送嵌套 body（workpiece + tool）', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ layer: { id: 'swept_cloud', glb_base64: '' }, coord_frame: 'T' }),
-    })
-
-    await fetchEnvelopeSweptCloud({ workpiece: toPayload(mockParams), tool })
-
-    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(url).toContain('/api/envelope/swept_cloud')
-    expect(options.method).toBe('POST')
-    const body: Record<string, unknown> = JSON.parse(options.body as string)
-    expect((body.tool as Record<string, unknown>).z_t).toBe(41)
-    expect((body.workpiece as Record<string, unknown>).m_n).toBe(2.5)
-  })
-
   it('fetchEnvelopeEdge 返回覆盖报告与 ffα', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -171,5 +155,46 @@ describe('fetchEnvelope（子 PRD-2 离散包络）', () => {
     expect(resp.layer.id).toBe('rake')
     expect(resp.plane.A).toBe(0.087156)
     expect(resp.n_rake[2]).toBe(0.962250)
+  })
+
+  it('fetchEnvelopeConjugateGear 发送到 /api/envelope/conjugate_gear 并返回 conjugateGear 图层', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        layer: { id: 'conjugateGear', glb_base64: '' },
+        coord_frame: 'T',
+        coverage_report: { total_points: 200, found: 200, uncovered: 0, coverage_ratio: 1.0, pass: true },
+        install: { a: 39.55, sigma_deg: 15.0 },
+      }),
+    })
+
+    const resp = await fetchEnvelopeConjugateGear({ workpiece: toPayload(mockParams), tool })
+
+    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toContain('/api/envelope/conjugate_gear')
+    expect(options.method).toBe('POST')
+    expect(resp.layer.id).toBe('conjugateGear')
+    expect(resp.coverage_report.pass).toBe(true)
+  })
+
+  it('fetchEnvelopeInterference 发送到 /api/envelope/interference 并返回 interference 图层', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        layer: { id: 'interference', glb_base64: '' },
+        coord_frame: 'T',
+        coverage_report: { total_points: 200, found: 200, uncovered: 0, coverage_ratio: 1.0, pass: true },
+        install: { a: 39.55, sigma_deg: 15.0 },
+        clamp_mm: 0.5,
+      }),
+    })
+
+    const resp = await fetchEnvelopeInterference({ workpiece: toPayload(mockParams), tool })
+
+    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toContain('/api/envelope/interference')
+    expect(options.method).toBe('POST')
+    expect(resp.layer.id).toBe('interference')
+    expect(resp.clamp_mm).toBe(0.5)
   })
 })

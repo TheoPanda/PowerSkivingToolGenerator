@@ -3,26 +3,26 @@
  * WorkpieceViewer.vue — 步骤2：工件齿轮生成 + 包络计算
  *
  * - 挂载即调用 fetchWorkpiece 生成齿轮 GLB（模块①，结果/spec 写全局单例）
- * - 「包络计算」区块：输入刀具参数 → 依次调 swept_cloud / edge / rake 端点
- *   （子 PRD-2 离散包络 + 子 PRD-3 前刀面），经 gear:layer-ready 事件叠加
- *   扫掠点云 / 刃形 / 前刀面三图层
+ * - 「包络计算」区块：输入刀具参数 → 依次调 edge / conjugate / conjugateGear /
+ *   rake / flank / singleTooth 端点（共轭法），经 gear:layer-ready 事件叠加图层
  * - 诊断条显示 ffα 与覆盖判据（成功绿勾 / 失败红叉）
  */
-import { ref, inject, onMounted, onUnmounted, reactive, computed, type Ref } from 'vue'
+import { ref, inject, onMounted, reactive, computed, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   fetchWorkpiece,
-  fetchEnvelopeSweptCloud,
   fetchEnvelopeEdge,
   fetchEnvelopeRake,
   fetchEnvelopeFlank,
   fetchEnvelopeSingleTooth,
   fetchEnvelopeAnalytic,
   fetchEnvelopeConjugate,
+  fetchEnvelopeConjugateGear,
+  fetchEnvelopeInterference,
   type CoverageReport,
   type CrossCheckResult,
 } from '../api'
-import type { LayerReadyDetail, SweptCloudMotion } from '../three/layerPalette'
+import type { LayerReadyDetail } from '../three/layerPalette'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 import { gearParamsKey, toPayload } from '../composables/useGearParams'
 import { setWorkpieceResult } from '../composables/useWorkpieceState'
@@ -31,7 +31,7 @@ import { setWorkpieceResult } from '../composables/useWorkpieceState'
 const gearParams = inject(gearParamsKey)
 if (!gearParams) throw new Error('WorkpieceViewer: gearParams not provided')
 
-// ── 从 MainView 注入 3D 视口（扫掠点云揭示/面网切换） ──
+// ── 从 MainView 注入 3D 视口（安装变换/坐标轴） ──
 const viewportRef = inject<Ref<GearViewport | null>>(GEAR_VIEWPORT_KEY, ref(null))
 
 // ── 工件生成状态 ──
@@ -58,65 +58,6 @@ const ffaUm = ref<number | null>(null)
 const coverageReport = ref<CoverageReport | null>(null)
 const useAnalytic = ref<boolean>(false)         // 解析路线对拍（可选，覆盖离散刃形）
 const crossCheck = ref<CrossCheckResult | null>(null)
-
-// ── 扫掠点云可视化（面/网切换 + 揭示滑块 + 播放） ──
-const sweptMotion = ref<SweptCloudMotion | null>(null)
-const revealF = ref<number>(1.0) // 揭示分数 0..1（默认满显）
-const sweptCloudMode = ref<'surface' | 'net'>('surface')
-const playing = ref<boolean>(false)
-
-/** 扫掠范围半角 θ（°），缺省 40（与后端默认一致）. */
-const thetaRange = computed<number>(() => sweptMotion.value?.theta_range_deg ?? 40.0)
-
-/** 滑块值 = φ_t 角度（°），双向映射到 revealF. */
-const sliderPhiT = computed<number>({
-  get: (): number => (2 * revealF.value - 1) * thetaRange.value,
-  set: (v: number): void => {
-    if (playing.value) stopPlay()
-    revealF.value = (v + thetaRange.value) / (2 * thetaRange.value)
-    viewportRef.value?.setSweptCloudReveal(revealF.value)
-  },
-})
-
-/** 进度百分比（滑块旁展示）. */
-const progressPercent = computed<number>(() => Math.round(revealF.value * 100))
-
-let playRafId: number | null = null
-
-/** 播放：从当前揭示分数单向扫到 1.0（约 3s），逐帧设 reveal. */
-function play(): void {
-  if (playing.value || sweptMotion.value === null) return
-  playing.value = true
-  const startF = revealF.value
-  const startTime = performance.now()
-  const duration = 3000
-  const step = (now: number): void => {
-    const t = Math.min(1, (now - startTime) / duration)
-    const f = startF + (1 - startF) * t
-    revealF.value = f
-    viewportRef.value?.setSweptCloudReveal(f)
-    if (t < 1) {
-      playRafId = requestAnimationFrame(step)
-    } else {
-      playing.value = false
-    }
-  }
-  playRafId = requestAnimationFrame(step)
-}
-
-function stopPlay(): void {
-  if (playRafId !== null) {
-    cancelAnimationFrame(playRafId)
-    playRafId = null
-  }
-  playing.value = false
-}
-
-/** 面 / 网两档切换（同步到视口）. */
-function onModeChange(mode: 'surface' | 'net'): void {
-  sweptCloudMode.value = mode
-  viewportRef.value?.setSweptCloudMode(mode)
-}
 
 /** 覆盖率百分比（诊断条展示）. */
 const coveragePercent = computed<number | null>(() => {
@@ -145,10 +86,6 @@ onMounted(() => {
   generate()
 })
 
-onUnmounted(() => {
-  stopPlay()
-})
-
 // ── 工件生成（模块①） ──
 async function generate(): Promise<void> {
   generating.value = true
@@ -170,12 +107,12 @@ async function generate(): Promise<void> {
 }
 
 // ── 派发包络图层到视口（经 gear:layer-ready 事件） ──
-function dispatchLayer(id: 'swept_cloud' | 'edge' | 'rake' | 'flank' | 'singleTooth' | 'conjugate', glbBase64: string, motion?: SweptCloudMotion): void {
-  const detail: LayerReadyDetail = { id, glbBase64, motion }
+function dispatchLayer(id: 'edge' | 'rake' | 'flank' | 'singleTooth' | 'conjugate' | 'conjugateGear' | 'interference', glbBase64: string): void {
+  const detail: LayerReadyDetail = { id, glbBase64 }
   window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail }))
 }
 
-// ── 包络计算（子 PRD-2 离散包络：扫掠点云 → 刃形） ──
+// ── 包络计算（共轭法：刃形 → 产形面 → 后刀面） ──
 async function runEnvelope(): Promise<void> {
   if (gearParams!.m_n === null || gearParams!.z_w === null) {
     ElMessage.warning('请先在步骤1 填写法向模数 m_n 与工件齿数 z_w')
@@ -189,8 +126,6 @@ async function runEnvelope(): Promise<void> {
   envelopeError.value = null
   ffaUm.value = null
   coverageReport.value = null
-  sweptMotion.value = null
-  stopPlay()
 
   try {
     const req = {
@@ -205,24 +140,24 @@ async function runEnvelope(): Promise<void> {
       // discretization 缺省 → 后端默认 n=200/m=181/NR=200/θ=±40°
     }
 
-    // 扫掠点云（先叠加）：记录 motion、重置揭示/档位
-    const gen = await fetchEnvelopeSweptCloud(req)
-    sweptMotion.value = gen.motion
-    revealF.value = 1.0
-    sweptCloudMode.value = 'surface'
-    // 设置安装变换（刀具系 T → 工件系 W）+ 画 W/T 坐标轴
-    viewportRef.value?.setEnvelopeInstall(gen.install.a, gen.install.sigma_deg)
-    dispatchLayer('swept_cloud', gen.layer.glb_base64, gen.motion)
-
-    // 刃形（后叠加）+ 诊断
+    // 刃形（先叠加）+ 诊断 + 安装变换（刀具系 T → 工件系 W）+ 画 W/T 坐标轴
     const edgeResp = await fetchEnvelopeEdge(req)
     dispatchLayer('edge', edgeResp.layer.glb_base64)
     ffaUm.value = edgeResp.ffa_um
     coverageReport.value = edgeResp.coverage_report
+    viewportRef.value?.setEnvelopeInstall(edgeResp.install.a, edgeResp.install.sigma_deg)
 
     // 产形面（共轭面，K-2.6 数值啮合）：刃形 = 产形面 ∩ 前刀面，随后叠加
     const conjugateResp = await fetchEnvelopeConjugate(req)
     dispatchLayer('conjugate', conjugateResp.layer.glb_base64)
+
+    // 等效产形齿轮：单齿槽产形面阵列 z_t 份 + 齿顶/齿根回转面（完整齿轮全貌）
+    const conjugateGearResp = await fetchEnvelopeConjugateGear(req)
+    dispatchLayer('conjugateGear', conjugateGearResp.layer.glb_base64)
+
+    // 干涉热力图：产形面符号距离着色（红=干涉/白=相切/蓝=间隙）
+    const interferenceResp = await fetchEnvelopeInterference(req)
+    dispatchLayer('interference', interferenceResp.layer.glb_base64)
 
     // 解析路线（子 PRD-5，可选）：K-2.8 解析刃形（二分精化，与离散同法）覆盖刃形图层 + 双路线互检
     if (useAnalytic.value) {
@@ -352,46 +287,6 @@ async function runEnvelope(): Promise<void> {
       </button>
       <div v-if="glbBase64 === null && !generating" class="envelope-hint">
         请先生成工件齿轮模型，再开始包络计算
-      </div>
-
-      <!-- 扫掠点云显示控制：面/网切换 + φ_t 揭示滑块 + 播放 -->
-      <div v-if="sweptMotion !== null" class="swept_cloud-controls" data-test="swept_cloud-controls">
-        <div class="mode-toggle">
-          <button
-            class="glass-btn mode-btn"
-            :class="{ active: sweptCloudMode === 'surface' }"
-            type="button"
-            data-test="mode-surface"
-            @click="onModeChange('surface')"
-          >面</button>
-          <button
-            class="glass-btn mode-btn"
-            :class="{ active: sweptCloudMode === 'net' }"
-            type="button"
-            data-test="mode-net"
-            @click="onModeChange('net')"
-          >网+点</button>
-        </div>
-
-        <div class="reveal-row">
-          <input
-            class="reveal-slider"
-            type="range"
-            :min="-thetaRange"
-            :max="thetaRange"
-            step="0.1"
-            v-model.number="sliderPhiT"
-            data-test="reveal-slider"
-          />
-          <span class="reveal-label" data-test="reveal-label">φ_t = {{ sliderPhiT.toFixed(1) }}°（{{ progressPercent }}%）</span>
-          <button
-            class="glass-btn play-btn"
-            type="button"
-            data-test="reveal-play"
-            :disabled="playing"
-            @click="play"
-          >{{ playing ? '播放中…' : '播放' }}</button>
-        </div>
       </div>
 
       <div v-if="envelopeError" class="error-msg">{{ envelopeError }}</div>
@@ -543,54 +438,5 @@ async function runEnvelope(): Promise<void> {
 
 .diag-item.bad .diag-dot {
   background: #e74c3c;
-}
-
-.swept_cloud-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 0;
-  border-top: 1px dashed var(--glass-border, rgba(255,255,255,0.2));
-}
-
-.mode-toggle {
-  display: flex;
-  gap: 6px;
-}
-
-.mode-btn {
-  flex: 1;
-  padding: 4px 0;
-  font-size: 12px;
-  opacity: 0.7;
-}
-
-.mode-btn.active {
-  opacity: 1;
-  background: #0060A0;
-  color: #fff;
-  border-color: #0060A0;
-}
-
-.reveal-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.reveal-slider {
-  flex: 1;
-  min-width: 0;
-}
-
-.reveal-label {
-  font-size: 11px;
-  color: var(--brand-text-secondary, #5C6B7A);
-  white-space: nowrap;
-}
-
-.play-btn {
-  padding: 4px 10px;
-  font-size: 12px;
 }
 </style>

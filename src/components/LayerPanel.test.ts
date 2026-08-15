@@ -12,8 +12,6 @@ function fakeViewport(): GearViewport {
   return {
     loadGear: vi.fn(),
     addLayer: vi.fn(),
-    setSweptCloudReveal: vi.fn(),
-    setSweptCloudMode: vi.fn(),
     setEnvelopeInstall: vi.fn(),
     removeLayer: vi.fn(),
     clearLayers: vi.fn(),
@@ -50,8 +48,8 @@ describe('LayerPanel 图层列表', () => {
   it('眼睛开关触发 setLayerVisible（toggle 为 false）', async () => {
     const vp = fakeViewport()
     const wrapper = mountPanel(vp)
-    await wrapper.find('[data-test="layer-eye-swept_cloud"]').trigger('click')
-    expect(vp.setLayerVisible).toHaveBeenCalledWith('swept_cloud', false)
+    await wrapper.find('[data-test="layer-eye-rake"]').trigger('click')
+    expect(vp.setLayerVisible).toHaveBeenCalledWith('rake', false)
   })
 
   it('点名称触发 focusLayer', async () => {
@@ -64,8 +62,8 @@ describe('LayerPanel 图层列表', () => {
   it('透明度滑条触发 setLayerOpacity', async () => {
     const vp = fakeViewport()
     const wrapper = mountPanel(vp)
-    await wrapper.find('[data-test="layer-opacity-swept_cloud"]').setValue('0.5')
-    expect(vp.setLayerOpacity).toHaveBeenCalledWith('swept_cloud', 0.5)
+    await wrapper.find('[data-test="layer-opacity-rake"]').setValue('0.5')
+    expect(vp.setLayerOpacity).toHaveBeenCalledWith('rake', 0.5)
   })
 
   it('全部显示对每个图层 setLayerVisible(true)', async () => {
@@ -102,12 +100,12 @@ describe('LayerPanel 图层列表', () => {
   it('gear:layer-ready 事件把对应图层重置为可见（重新包络后联动）', async () => {
     const vp = fakeViewport()
     const wrapper = mountPanel(vp)
-    // 先隐藏 swept_cloud
-    await wrapper.find('[data-test="layer-eye-swept_cloud"]').trigger('click')
-    expect(wrapper.find('[data-test="layer-eye-swept_cloud"]').classes()).toContain('off')
+    // 先隐藏 rake
+    await wrapper.find('[data-test="layer-eye-rake"]').trigger('click')
+    expect(wrapper.find('[data-test="layer-eye-rake"]').classes()).toContain('off')
     // 重新包络 → dispatch gear:layer-ready
-    window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail: { id: 'swept_cloud', glbBase64: 'x' } }))
+    window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail: { id: 'rake', glbBase64: 'x' } }))
     await nextTick()
-    expect(wrapper.find('[data-test="layer-eye-swept_cloud"]').classes()).not.toContain('off')
+    expect(wrapper.find('[data-test="layer-eye-rake"]').classes()).not.toContain('off')
   })
 })

@@ -116,44 +116,44 @@ afterEach(() => {
 describe('gearViewport 多图层', () => {
   it('addLayer 创建独立图层 group（各层独立）', () => {
     const { vp } = createViewport()
-    vp.addLayer('swept_cloud', MESH_B64)
+    vp.addLayer('rake', MESH_B64)
     vp.addLayer('edge', LINE_B64)
-    const gen = findLayerGroup('swept_cloud')
+    const rake = findLayerGroup('rake')
     const edge = findLayerGroup('edge')
-    expect(gen).toBeTruthy()
+    expect(rake).toBeTruthy()
     expect(edge).toBeTruthy()
-    expect(gen).not.toBe(edge)
+    expect(rake).not.toBe(edge)
   })
 
   it('setLayerVisible 正确显隐', () => {
     const { vp } = createViewport()
-    vp.addLayer('swept_cloud', MESH_B64)
-    const gen = findLayerGroup('swept_cloud') as THREE.Group
-    vp.setLayerVisible('swept_cloud', false)
-    expect(gen.visible).toBe(false)
-    vp.setLayerVisible('swept_cloud', true)
-    expect(gen.visible).toBe(true)
+    vp.addLayer('rake', MESH_B64)
+    const rake = findLayerGroup('rake') as THREE.Group
+    vp.setLayerVisible('rake', false)
+    expect(rake.visible).toBe(false)
+    vp.setLayerVisible('rake', true)
+    expect(rake.visible).toBe(true)
   })
 
   it('setLayerOpacity 只调本层（材质独立不串改）', () => {
     const { vp } = createViewport()
-    vp.addLayer('swept_cloud', MESH_B64)
+    vp.addLayer('conjugate', MESH_B64)
     vp.addLayer('rake', MESH_B64)
-    const gen = findLayerGroup('swept_cloud') as THREE.Group
+    const conj = findLayerGroup('conjugate') as THREE.Group
     const rake = findLayerGroup('rake') as THREE.Group
-    vp.setLayerOpacity('swept_cloud', 0.5)
-    const genMat = firstMesh(gen).material as THREE.MeshStandardMaterial
+    vp.setLayerOpacity('conjugate', 0.5)
+    const conjMat = firstMesh(conj).material as THREE.MeshStandardMaterial
     const rakeMat = firstMesh(rake).material as THREE.MeshStandardMaterial
-    expect(genMat.opacity).toBe(0.5)
+    expect(conjMat.opacity).toBe(0.5)
     expect(rakeMat.opacity).toBe(0.45) // rake 默认透明度不被串改
   })
 
   it('clearLayers 清空非工件层（保留 workpiece）', () => {
     const { vp } = createViewport()
     vp.loadGear(MESH_B64)
-    vp.addLayer('swept_cloud', MESH_B64)
+    vp.addLayer('rake', MESH_B64)
     vp.clearLayers()
-    expect(findLayerGroup('swept_cloud')).toBeNull()
+    expect(findLayerGroup('rake')).toBeNull()
     expect(findLayerGroup('workpiece')).toBeTruthy()
   })
 
@@ -206,27 +206,14 @@ describe('gearViewport 多图层', () => {
 
   it('dispose 释放图层 geometry/material（无残留）', () => {
     const { vp } = createViewport()
-    vp.addLayer('swept_cloud', MESH_B64)
-    const gen = findLayerGroup('swept_cloud') as THREE.Group
-    const mesh = firstMesh(gen)
+    vp.addLayer('rake', MESH_B64)
+    const rake = findLayerGroup('rake') as THREE.Group
+    const mesh = firstMesh(rake)
     const geometryDispose = vi.spyOn(mesh.geometry, 'dispose')
     const materialDispose = vi.spyOn(mesh.material as THREE.Material, 'dispose')
     vp.dispose()
     expect(geometryDispose).toHaveBeenCalled()
     expect(materialDispose).toHaveBeenCalled()
-  })
-
-  it('addLayer 携带 motion 不抛错（空 geometry 守卫）', () => {
-    const { vp } = createViewport()
-    const motion = { n: 200, m: 181, theta_range_deg: 20.0, surface_indices_per_row: 1194, points_vertices_per_row: 200, wireframe_indices_per_row: 2388 }
-    expect(() => vp.addLayer('swept_cloud', MESH_B64, motion)).not.toThrow()
-    expect(findLayerGroup('swept_cloud')).toBeTruthy()
-  })
-
-  it('setSweptCloudReveal / setSweptCloudMode 无 swept_cloud 时安全 no-op', () => {
-    const { vp } = createViewport()
-    expect(() => vp.setSweptCloudReveal(0.5)).not.toThrow()
-    expect(() => vp.setSweptCloudMode('net')).not.toThrow()
   })
 
   it('setEnvelopeInstall 画坐标轴 + 施加 T→W 变换不抛错', () => {

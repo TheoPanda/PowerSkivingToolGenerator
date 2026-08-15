@@ -3,7 +3,7 @@
  * 前后端通信统一使用 HTTP，以便未来迁移至 Web 端
  */
 import { toPayload, type GearParams, type WorkpieceRequestPayload } from '../composables/useGearParams'
-import type { LayerId, SweptCloudMotion, EnvelopeInstall } from '../three/layerPalette'
+import type { LayerId, EnvelopeInstall } from '../three/layerPalette'
 
 const BASE_URL: string = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:5199'
 
@@ -79,7 +79,7 @@ export async function fetchEnvelopeDemo(): Promise<EnvelopeDemoResponse> {
 
 // ── 子 PRD-2 离散包络 ──────────────────────────────────────────────
 
-/** 刀具参数（组B 子集）— swept_cloud/edge 共用. */
+/** 刀具参数（组B 子集）— 包络端点共用. */
 export interface ToolParams {
   z_t: number
   beta_t_deg: number
@@ -97,19 +97,11 @@ export interface DiscretizationParams {
   n_z?: number
 }
 
-/** 离散包络请求体（swept_cloud / edge 共用）. */
+/** 离散包络请求体（edge / conjugate / rake 等共用）. */
 export interface EnvelopeRequest {
   workpiece: WorkpieceRequestPayload
   tool: ToolParams
   discretization?: DiscretizationParams
-}
-
-/** 扫掠点云响应（POST /api/envelope/swept_cloud）. */
-export interface SweptCloudResponse {
-  layer: { id: 'swept_cloud'; glb_base64: string }
-  coord_frame: string
-  motion: SweptCloudMotion
-  install: EnvelopeInstall
 }
 
 /** 覆盖判据报告（K-2.12）. */
@@ -128,14 +120,6 @@ export interface EdgeResponse {
   ffa_um: number
   segments_meta: { count: number; continuity: string }[]
   install: EnvelopeInstall
-}
-
-/** 扫掠点云：工件齿槽点云经运动包络 → 三角网 GLB. */
-export async function fetchEnvelopeSweptCloud(params: EnvelopeRequest): Promise<SweptCloudResponse> {
-  return request<SweptCloudResponse>('/api/envelope/swept_cloud', {
-    method: 'POST',
-    body: JSON.stringify(params),
-  })
 }
 
 /** 刃形：产形面 ∩ 前刀面（共轭法，K-2.8）→ 覆盖 + ffα → 刃形多段 GLB. */
@@ -290,6 +274,39 @@ export interface ConjugateResponse {
 /** 产形面：数值啮合方程（n·v=0）→ 共轭面三角网 GLB. */
 export async function fetchEnvelopeConjugate(params: EnvelopeRequest): Promise<ConjugateResponse> {
   return request<ConjugateResponse>('/api/envelope/conjugate', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+/** 等效产形齿轮响应（POST /api/envelope/conjugate_gear）. */
+export interface ConjugateGearResponse {
+  layer: { id: 'conjugateGear'; glb_base64: string }
+  coord_frame: string
+  coverage_report: ConjugateCoverageReport
+  install: EnvelopeInstall
+}
+
+/** 等效产形齿轮：单齿槽产形面阵列 z_t 份 + 齿顶/齿根回转面 → GLB. */
+export async function fetchEnvelopeConjugateGear(params: EnvelopeRequest): Promise<ConjugateGearResponse> {
+  return request<ConjugateGearResponse>('/api/envelope/conjugate_gear', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+/** 干涉热力图响应（POST /api/envelope/interference）. */
+export interface InterferenceResponse {
+  layer: { id: 'interference'; glb_base64: string }
+  coord_frame: string
+  coverage_report: ConjugateCoverageReport
+  install: EnvelopeInstall
+  clamp_mm: number
+}
+
+/** 干涉热力图：产形面符号距离着色（红=干涉/白=相切/蓝=间隙）→ GLB. */
+export async function fetchEnvelopeInterference(params: EnvelopeRequest): Promise<InterferenceResponse> {
+  return request<InterferenceResponse>('/api/envelope/interference', {
     method: 'POST',
     body: JSON.stringify(params),
   })
