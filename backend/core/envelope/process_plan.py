@@ -4,7 +4,9 @@
 是离散包络（K-2.9~K-2.13）的输入。不依赖 OCCT。
 
 符号约定：内部 rad / 接口 °（U12）；变量名与设计书一致（w/t，禁 1/2）。
-斜齿工件（β_w≠0）MVP 禁用（s_d 判定表 T2 未销项）。
+斜齿工件（β_w≠0）产形面（K-2.6 纯滚动共轭）已支持；同步比 ω_t/ω_w = z_w/z_t
+恒为滚动项（与螺旋角无关）。轴向进给差动项 s_d（K-1.7，T2 判定表未销项）只影响
+模块④ 正向仿真（含进给），不影响产形面/刃形（纯滚动），留待模块④。
 """
 
 import math
@@ -27,6 +29,8 @@ class ProcessPlan:
     r_pt: float        # 刀具节圆半径 [mm]
     i: float           # 传动比（含方向，[25] 式(3)）
     omega_ratio: float  # 同步比 ω_t/ω_w（恒正，K-1.7）
+    beta_w_deg: float  # 工件螺旋角 [°]（U7，供 K-0.6 螺旋面构造）
+    j_w: int           # 工件旋向系数（+1 右旋 / −1 左旋，U7）
 
 
 def compute_process_plan(
@@ -56,7 +60,7 @@ def compute_process_plan(
         ProcessPlan
 
     Raises:
-        ValueError: 斜齿工件（β_w≠0，MVP 禁用）、Σ=0、中心距非正、参数非法
+        ValueError: Σ=0、中心距非正、参数非法
     """
     if k_io not in (1, -1):
         raise ValueError(f"k_io={k_io} 必须为 +1(外齿) 或 −1(内齿)")
@@ -68,10 +72,6 @@ def compute_process_plan(
         raise ValueError("螺旋角 β_w/β_t 必须 ≥ 0 (U7)")
     if j_w not in (1, -1) or j_t not in (1, -1):
         raise ValueError("旋向 j_w/j_t 必须为 +1 或 −1")
-
-    # 斜齿工件 MVP 禁用（T2 s_d 判定表未销项）
-    if abs(beta_w_deg) > 1e-12:
-        raise ValueError("斜齿工件（β_w≠0）MVP 禁用，请使用直齿工件")
 
     beta_w = math.radians(beta_w_deg)
     beta_t = math.radians(beta_t_deg)
@@ -95,7 +95,7 @@ def compute_process_plan(
 
     # 传动比 [25] 式(3) i = −k_io·z_w/z_t（含内外啮合方向）
     i = -k_io * z_w / z_t
-    # 同步比 K-1.7 ω_t/ω_w = z_w/z_t（β_w=0 时差动项为零，恒正）
+    # 同步比 K-1.7 ω_t/ω_w = z_w/z_t（滚动项，与 β_w 无关；轴向进给差动项 s_d 仅模块④ 用）
     omega_ratio = z_w / z_t
 
     return ProcessPlan(
@@ -105,4 +105,6 @@ def compute_process_plan(
         r_pt=r_pt,
         i=i,
         omega_ratio=omega_ratio,
+        beta_w_deg=beta_w_deg,
+        j_w=j_w,
     )

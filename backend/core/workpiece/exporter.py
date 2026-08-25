@@ -116,10 +116,15 @@ def _rotate_nodes(nodes, angle: float):
 
 
 def _build_spur_mesh(model: GearModel, deflection: float):
-    """直齿轮: 端面 + 侧壁直拉伸 (外齿轮 1 条边界; 内齿轮环形 2 条边界外壁+内齿壁)."""
+    """直齿轮: 端面 + 侧壁直拉伸 (外齿轮 1 条边界; 内齿轮环形 2 条边界外壁+内齿壁).
+
+    轴向 [−b_w/2, +b_w/2]（中面 z=0，与包络求解约定一致；cap 剖分节点仅取 2D）.
+    """
     nodes, triangles, ccw = _tessellate_face(model.cap_face, deflection)
     boundaries = _extract_boundary_cycles(nodes, triangles)
     n_nodes = len(nodes)
+    z_btm = -model.b_w / 2.0
+    z_top = model.b_w / 2.0
 
     top_order = (lambda a, b, c: (a, c, b)) if ccw else (lambda a, b, c: (a, b, c))
     btm_order = (lambda a, b, c: (a, b, c)) if ccw else (lambda a, b, c: (a, c, b))
@@ -129,14 +134,14 @@ def _build_spur_mesh(model: GearModel, deflection: float):
     indices: list[int] = []
 
     for x, y in nodes:
-        positions.extend([x, y, 0.0])
+        positions.extend([x, y, z_btm])
         normals.extend([0.0, 0.0, -1.0])
     for a, b, c in triangles:
         indices.extend(top_order(a, b, c))
 
     bottom_start = n_nodes
     for x, y in nodes:
-        positions.extend([x, y, model.b_w])
+        positions.extend([x, y, z_top])
         normals.extend([0.0, 0.0, 1.0])
     for a, b, c in triangles:
         indices.extend(btm_order(bottom_start + a, bottom_start + b, bottom_start + c))
@@ -155,7 +160,7 @@ def _build_spur_mesh(model: GearModel, deflection: float):
             nx, ny = (dy / length, -dx / length) if length > 1e-12 else (1.0, 0.0)
             a = wall_start + 4 * quad
             quad += 1
-            positions.extend([x0, y0, 0.0, x1, y1, 0.0, x1, y1, model.b_w, x0, y0, model.b_w])
+            positions.extend([x0, y0, z_btm, x1, y1, z_btm, x1, y1, z_top, x0, y0, z_top])
             normals.extend([nx, ny, 0.0] * 4)
             indices.extend([a, a + 1, a + 2])
             indices.extend([a, a + 2, a + 3])

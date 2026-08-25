@@ -14,6 +14,7 @@ import math
 import numpy as np
 
 from core.common.transforms import workpiece_to_tool_chain
+from core.envelope.edge import inner_contour
 from core.envelope.meshing import profile_normals
 from core.envelope.process_plan import ProcessPlan
 from core.envelope.rake import RakeSurface
@@ -70,30 +71,41 @@ def _edge_point(phi_t: float, plan: ProcessPlan, pt, rake: RakeSurface) -> list[
     return [float(q[0]), float(q[1]), float(q[2])]
 
 
-def _find_root(
+def _find_roots(
     plan: ProcessPlan,
     pt,
     rake: RakeSurface,
     nrm,
     theta_range: float,
     n_samples: int = 64,
-) -> float | None:
-    """在 [−θ_range, +θ_range] 内找 h(φ) 变号根（二分精化，等价 Newton 二分回退）."""
+) -> list[float]:
+    """在 [−θ_range, +θ_range] 内找 h(φ) **全部**变号根（逐区间二分精化）.
+
+    与离散路线（edge.all_sign_change_roots）同语义：段交界（渐开线↔圆弧尖角）
+    附近存在多分支根，必须全收后经 inner_contour 取内侧包络——盲取首根会在
+    分支间抖动（刃形折返自交），且会使双路线互检分支不一致。
+    零点恰落采样点时相邻区间重复触发 → 按 φ 值去重（差 <1e-12 合并）。
+    """
     thetas = np.linspace(-theta_range, theta_range, n_samples)
     hs = np.array([_h(t, plan, pt, rake, nrm) for t in thetas])
+    roots: list[float] = []
     for k in range(n_samples - 1):
-        if hs[k] * hs[k + 1] <= 0.0:
-            lo, hi = thetas[k], thetas[k + 1]
-            hlo, hhi = hs[k], hs[k + 1]
-            for _ in range(60):
-                mid = 0.5 * (lo + hi)
-                hm = _h(mid, plan, pt, rake, nrm)
-                if hlo * hm <= 0.0:
-                    hi, hhi = mid, hm
-                else:
-                    lo, hlo = mid, hm
-            return 0.5 * (lo + hi)
-    return None
+        if hs[k] * hs[k + 1] > 0.0:
+            continue
+        lo, hi = thetas[k], thetas[k + 1]
+        hlo, hhi = hs[k], hs[k + 1]
+        for _ in range(60):
+            mid = 0.5 * (lo + hi)
+            hm = _h(mid, plan, pt, rake, nrm)
+            if hlo * hm <= 0.0:
+                hi, hhi = mid, hm
+            else:
+                lo, hlo = mid, hm
+        root = 0.5 * (lo + hi)
+        if roots and abs(root - roots[-1]) < 1e-12:
+            continue
+        roots.append(root)
+    return roots
 
 
 def compute_analytic_edge(
@@ -104,7 +116,11 @@ def compute_analytic_edge(
     theta_range_deg: float = 40.0,
     normals=None,
 ) -> list[list[float]]:
-    """K-2.8 解析刃形：逐点二分 h(φ)=0（产形面 ∩ 前刀面消元）.
+    """K-2.8 解析刃形：逐点二分 h(φ)=0（产形面 ∩ 前刀面消元）→ 前刀面内侧包络环.
+
+    与离散路线（edge.compute_discrete_edge）同构：全根收集（多分支）+
+    inner_contour 内侧包络（刀齿材料须在产形面各叶内侧，交叉分支取内侧者），
+    仅数值方法不同（逐区间二分 vs 扫掠+线性插值），保证双路线互检分支一致。
 
     Args:
         profile_pts: 工件齿廓点 [(x, y), ...]
@@ -113,16 +129,22 @@ def compute_analytic_edge(
         theta_range_deg: 刀具转角扫描范围 [°]
 
     Returns:
-        解析刃形点列 [[x, y, z], ...]（落在前刀面上，坐标 T）
+        解析刃形点列 [[x, y, z], ...]（内侧包络环序，落在前刀面上，坐标 T）
     """
+    if abs(plan.beta_w_deg) > 1e-12:
+        raise ValueError(
+            "斜齿工件刃形未支持（K-2.8 消元法依赖齿面对 z_w 仿射，仅直齿成立），请先查看产形面"
+        )
     theta_range = math.radians(theta_range_deg)
     norms = normals if normals is not None else profile_normals(profile_pts)
-    edge_pts: list[list[float]] = []
+    cand: list[list[float]] = []
     for pt, nrm in zip(profile_pts, norms):
-        root = _find_root(plan, pt, rake, nrm, theta_range)
-        if root is not None:
-            edge_pts.append(_edge_point(root, plan, pt, rake))
-    return edge_pts
+        for root in _find_roots(plan, pt, rake, nrm, theta_range):
+            cand.append(_edge_point(root, plan, pt, rake))
+    if not cand:
+        return []
+    keep = inner_contour(np.array(cand, dtype=np.float64), rake)
+    return [cand[j] for j in keep]
 
 
 def cross_check(

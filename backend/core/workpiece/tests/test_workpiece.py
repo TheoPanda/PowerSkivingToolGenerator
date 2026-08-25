@@ -251,7 +251,11 @@ class TestInternalHelicalSolid:
         assert n_wires == 2
 
     def test_helical_sections_set(self, internal_helical):
-        """helical_sections 含 n_slices+1 个截面, θ(z) 单调随 z 增大 (j_w=+1)."""
+        """helical_sections 含 n_slices+1 个截面, z 对称 [−b_w/2,+b_w/2], θ(z) 单调 (j_w=+1).
+
+        轴向中面约定（2026-08-24）：θ=0 未扭转廓形在中面 z=0，两端 θ=∓θ(b_w/2)
+        （与 K-0.6 螺旋面 helical_tooth_grid 同式）。
+        """
         from core.workpiece.builder import build_gear_model
         p = internal_helical
         model = build_gear_model(p, n_slices=6)
@@ -260,10 +264,16 @@ class TestInternalHelicalSolid:
         zs = [z for z, _ in secs]
         thetas = [t for _, t in secs]
         assert zs == sorted(zs)
-        assert thetas[0] == 0.0
-        assert thetas[-1] == pytest.approx(
-            p.j_w * p.b_w * math.tan(math.radians(p.beta_w_deg)) / p.pitch_radius()
+        assert zs[0] == pytest.approx(-p.b_w / 2.0)
+        assert zs[-1] == pytest.approx(p.b_w / 2.0)
+        # 中面层（n_slices=6 偶数 → k=3）恰为 z=0、θ=0
+        assert zs[3] == pytest.approx(0.0, abs=1e-12)
+        assert thetas[3] == pytest.approx(0.0, abs=1e-12)
+        theta_half = (
+            p.j_w * (p.b_w / 2.0) * math.tan(math.radians(p.beta_w_deg)) / p.pitch_radius()
         )
+        assert thetas[0] == pytest.approx(-theta_half)
+        assert thetas[-1] == pytest.approx(theta_half)
 
     def test_helical_sections_hand_flips(self):
         """j_w=−1 时 θ(z) 为负 (左旋)."""

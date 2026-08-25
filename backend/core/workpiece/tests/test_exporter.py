@@ -184,10 +184,10 @@ class TestInternalGearMesh:
             f"max 半径 {max(radii):.3f} ≠ d_rim/2 {internal_41.d_rim/2:.3f}"
 
     def test_internal_vertices_on_cap_planes(self, internal_41):
-        """mesh 顶点仅在 z=0 或 z=b_w (两端 cap)."""
+        """mesh 顶点仅在 z=∓b_w/2 (两端 cap；轴向中面对称约定)."""
         positions, _, _ = _build(internal_41)
         for i in range(len(positions) // 3):
-            assert positions[3 * i + 2] in (0.0, internal_41.b_w), \
+            assert positions[3 * i + 2] in (-internal_41.b_w / 2.0, internal_41.b_w / 2.0), \
                 f"vertex {i} z={positions[3*i+2]} 不在端面"
 
 
@@ -248,7 +248,7 @@ class TestInternalHelicalMesh:
         for i in range(len(positions) // 3):
             x, y, z = positions[3 * i], positions[3 * i + 1], positions[3 * i + 2]
             r = math.hypot(x, y)
-            if 1e-6 < z < p.b_w - 1e-6 and r_a - 0.1 < r < r_f + 0.1:
+            if -p.b_w / 2.0 + 1e-6 < z < p.b_w / 2.0 - 1e-6 and r_a - 0.1 < r < r_f + 0.1:
                 radial = (normals[3 * i] * x + normals[3 * i + 1] * y) / r
                 if radial < 0:
                     inward += 1
@@ -258,9 +258,10 @@ class TestInternalHelicalMesh:
         assert outward == 0, f"{outward} 个内孔侧壁法向朝外 (错误)"
 
     def test_cross_representation_2d_vs_mesh(self, internal_helical):
-        """G8: spec 2D 齿廓点 (sample_profile_points) 与 3D mesh 端面 (z=0) 顶点一致.
+        """G8: spec 2D 齿廓点 (sample_profile_points) 与 3D mesh 中面 (z=0) 顶点一致.
 
-        3D 端面来自 cap_face (与 2D 同源 profile), mesh deflection 0.3 的弦差内。
+        轴向中面对称约定下 z=0 是中面（θ=0 未扭转廓形，n_slices=6 偶数 → k=3 层
+        恰在 z=0），与 cap_face (2D 同源 profile) 一致，mesh deflection 0.3 的弦差内。
         """
         p = internal_helical
         positions, _, _ = _build(p)
@@ -614,7 +615,7 @@ class TestVolumeAndBounds:
             x, y, z = _vert(positions, i)
             r = math.hypot(x, y)
             assert r_f - 1e-6 <= r <= r_a + 1e-6, f"vertex {i} 半径 {r} 越界"
-            assert z in (0.0, p.b_w), f"vertex {i} z={z} 不在端面"
+            assert z in (-p.b_w / 2.0, p.b_w / 2.0), f"vertex {i} z={z} 不在端面"
 
 
 # ── GLB 输出 ─────────────────────────────────────────────────────────

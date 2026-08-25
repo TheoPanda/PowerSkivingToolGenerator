@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from core.common.mesh import compute_vertex_normals
 from core.common.transforms import apply_transform_batch, workpiece_to_tool_chain
 from core.envelope.process_plan import ProcessPlan
 from core.workpiece.profile import Arc, Polyline, Segment
@@ -213,7 +214,7 @@ def generate_envelope_cloud(
             indices += [a, c, b, b, c, d]
 
     flat = [v for p in cloud.reshape(-1, 3).tolist() for v in p]
-    normals = _compute_vertex_normals(flat, indices)
+    normals = compute_vertex_normals(flat, indices)
 
     # 逐顶点光谱色：顶点 v 的行 i = v // n，色 = jet(i/(m−1))（蓝=起点行 0，红=终点行 m−1）
     colors: list[float] = []
@@ -236,25 +237,3 @@ def generate_envelope_cloud(
         mesh_colors=colors,
         wireframe_indices=wire,
     )
-
-
-def _compute_vertex_normals(positions_flat: list[float], indices: list[int]) -> list[float]:
-    """三角网顶点法向（面积加权面法向平均），返回与 positions 等长的扁平法向.
-
-    向量化计算（np.cross 批量叉积 + np.add.at 累加），不触发方阵乘法崩溃。
-    """
-    n_vertices = len(positions_flat) // 3
-    pts = np.array(positions_flat, dtype=np.float64).reshape(-1, 3)
-    idx = np.array(indices, dtype=np.int64).reshape(-1, 3)  # (T, 3)
-    v0 = pts[idx[:, 0]]
-    v1 = pts[idx[:, 1]]
-    v2 = pts[idx[:, 2]]
-    face_normals = np.cross(v1 - v0, v2 - v0)  # (T, 3) 面法向（模 ∝ 2×面积）
-    normals = np.zeros((n_vertices, 3), dtype=np.float64)
-    np.add.at(normals, idx[:, 0], face_normals)
-    np.add.at(normals, idx[:, 1], face_normals)
-    np.add.at(normals, idx[:, 2], face_normals)
-    lens = np.linalg.norm(normals, axis=1, keepdims=True)
-    lens[lens < 1e-12] = 1.0
-    normals = normals / lens
-    return normals.reshape(-1).tolist()
