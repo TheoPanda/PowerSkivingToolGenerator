@@ -13,6 +13,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from core.common.mesh import compute_vertex_normals
 from core.envelope.edge import extract_edge
 from core.envelope.process_plan import ProcessPlan
 from core.envelope.rake import RakeSurface
@@ -65,11 +66,12 @@ def compute_resharpen_schedule(
     return steps
 
 
-def _edge_polylines(profile_pts, plan, rake, *, m, theta_range_deg, k_io, normals=None):
-    """对给定 plan 跑 K-2.8 离散刃形，返回刃形折线列表（左右两段各一条）."""
+def _edge_polylines(profile_pts, plan, rake, *, m, theta_range_deg, k_io, normals=None, b_w: float = 0.0, n_z: int = 21):
+    """对给定 plan 跑 K-2.8 刃形（直齿消元 / 斜齿数值求交），返回刃形折线列表."""
     edge = extract_edge(
         profile_pts, plan, rake,
         m=m, theta_range_deg=theta_range_deg, k_io=k_io, normals=normals,
+        b_w=b_w, n_z=n_z,
     )
     return [seg.pts for seg in edge.segments]
 
@@ -86,27 +88,6 @@ def _ribbon(poly_a, poly_b):
         positions += [*a0, *a1, *b0, *b1]
         indices += [base, base + 2, base + 1, base + 1, base + 2, base + 3]
     return positions, indices
-
-
-def _compute_normals(positions, indices):
-    """三角网顶点法向（面积加权平均，numpy 向量化）."""
-    n_vertices = len(positions) // 3
-    if n_vertices == 0:
-        return []
-    pts = np.array(positions, dtype=np.float64).reshape(-1, 3)
-    idx = np.array(indices, dtype=np.int64).reshape(-1, 3)
-    v0 = pts[idx[:, 0]]
-    v1 = pts[idx[:, 1]]
-    v2 = pts[idx[:, 2]]
-    face_normals = np.cross(v1 - v0, v2 - v0)
-    normals = np.zeros((n_vertices, 3), dtype=np.float64)
-    np.add.at(normals, idx[:, 0], face_normals)
-    np.add.at(normals, idx[:, 1], face_normals)
-    np.add.at(normals, idx[:, 2], face_normals)
-    lens = np.linalg.norm(normals, axis=1, keepdims=True)
-    lens[lens < 1e-12] = 1.0
-    normals = normals / lens
-    return normals.reshape(-1).tolist()
 
 
 @dataclass
@@ -176,11 +157,11 @@ def generate_flank(
                 offset = len(positions) // 3
                 positions += pos
                 indices += [k + offset for k in idx]
-    normals = _compute_normals(positions, indices)
+    normals = compute_vertex_normals(positions, indices)
     return FlankSurface(schedule=schedule, mesh_positions=positions, mesh_indices=indices, mesh_normals=normals)
 
 
-def _helical_sweep(poly, theta: float, dz: float) -> list[list[float]]:
+def helical_sweep(poly, theta: float, dz: float) -> list[list[float]]:
     """折线绕 Z 轴转 theta [rad] + 沿 Z 平移 dz 的刚体螺旋运动（截面形状恒定）."""
     c = math.cos(theta)
     s = math.sin(theta)
@@ -201,6 +182,8 @@ def generate_flank_helical_lead(
     m: int = 181,
     theta_range_deg: float = 40.0,
     normals=None,
+    b_w: float = 0.0,
+    n_z: int = 21,
 ) -> FlankSurface:
     """K-2.15/16 螺旋导程法（圆柱刀）后刀面：基刃形沿刀具轴螺旋扫掠（截面恒定）.
 
@@ -208,6 +191,8 @@ def generate_flank_helical_lead(
     截面恒定→重磨不变形，[2]）。基刃形（前刀面刃形，i=0）只算一次，
     后续截面 = 基刃形绕 Z 转 −2πΔL_i/Ltp + 沿 Z 平移 −ΔL_i（纯刚体螺旋运动）。
     α₀ 不参与（圆柱刀几何后角 α₀=0，后角为构造性/工作后角，[10][11]）。
+    斜齿（β_w≠0）同构适用：基刃形为数值求交路线的空间曲线（b_w>0 必传），
+    刚体螺旋扫掠与齿侧螺旋无关。
 
     Args:
         profile_pts: 工件齿廓点 [(x, y), ...]
@@ -216,12 +201,13 @@ def generate_flank_helical_lead(
         z_t / m_n / beta_t_deg: 刀具齿数 / 法向模数 / 刀具螺旋角 [°]（算导程 Ltp）
         L / n_L: 总重磨量 [mm] / 等分数
         k_io: 内/外齿轮系数
+        b_w / n_z: 工件齿宽 / 轴向层数（斜齿数值求交链必需；直齿忽略）
 
     Returns:
         FlankSurface（schedule + 三角网 mesh + lead_pitch）
     """
     # 基刃形（只算一次，i=0）
-    base = _edge_polylines(profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io, normals=normals)
+    base = _edge_polylines(profile_pts, plan, rake, m=m, theta_range_deg=theta_range_deg, k_io=k_io, normals=normals, b_w=b_w, n_z=n_z)
     if not base:
         raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
 
@@ -236,7 +222,7 @@ def generate_flank_helical_lead(
         dL = i * L / n_L
         theta = -2.0 * math.pi * dL / lead_pitch  # 绕 Z 顺时针（沿 −Z 后退）
         dz = -dL
-        sections.append([_helical_sweep(poly, theta, dz) for poly in base])
+        sections.append([helical_sweep(poly, theta, dz) for poly in base])
         schedule.append(ResharpenStep(i=i, dL=dL, da=0.0, a_i=plan.a))
 
     # 三角网连片（与 generate_flank 同构）
@@ -250,7 +236,7 @@ def generate_flank_helical_lead(
                 offset = len(positions) // 3
                 positions += pos
                 indices += [k + offset for k in idx]
-    normals = _compute_normals(positions, indices)
+    normals = compute_vertex_normals(positions, indices)
     return FlankSurface(
         schedule=schedule, mesh_positions=positions, mesh_indices=indices,
         mesh_normals=normals, lead_pitch=lead_pitch,

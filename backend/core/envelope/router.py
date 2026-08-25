@@ -4,22 +4,28 @@
 swept_cloud（扫掠点云 K-2.9）/ edge（刃形 K-2.11~2.13）端点。
 """
 
+import math
 import traceback
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core.common.gltf_export import GeometrySpec, export_geometry_glb_base64
-from core.envelope.edge import extract_edge
-from core.envelope.swept_cloud import WIREFRAME_COLOR, extract_gap_points, generate_envelope_cloud
-from core.envelope.process_plan import compute_process_plan
-from core.envelope.rake import build_plane_rake, normal_arrow, plane_patch
-from core.envelope.flank import generate_flank_helical_lead
+from core.common.mesh import compute_vertex_normals
+from core.envelope.edge import extract_edge, solve_edge_chain
+from core.envelope.swept_cloud import WIREFRAME_COLOR, generate_envelope_cloud
+from core.envelope.envelope_context import ToolSpec, assemble_envelope_context
+from core.envelope.rake import normal_arrow, plane_patch
 from core.envelope.single_tooth import build_single_tooth
+from core.envelope.tooth_solid import (
+    build_single_tooth_solid,
+    build_tooth_loop,
+    build_tool_ring,
+    limit_radius,
+)
 from core.envelope.analytic import compute_analytic_edge, cross_check
 from core.envelope.conjugate import compute_conjugate_surface
 from core.envelope.conjugate_gear import compute_conjugate_gear
-from core.envelope.interference import compute_interference
 from core.workpiece.router import GearParamsRequest
 
 router = APIRouter(prefix="/api/envelope", tags=["envelope"])
@@ -103,6 +109,14 @@ class ToolParams(BaseModel):
     alpha_0_deg: float = Field(8.0, description="顶刃后角 α₀ [°]（K-2.18 径向重磨分量）")
 
 
+def _tool_spec(t: ToolParams) -> ToolSpec:
+    """pydantic ToolParams → 领域纯数据 ToolSpec（pydantic 拆包留在 router，Q1）."""
+    return ToolSpec(
+        z_t=t.z_t, beta_t_deg=t.beta_t_deg, j_t=t.j_t,
+        gamma_0_deg=t.gamma_0_deg, alpha_0_deg=t.alpha_0_deg,
+    )
+
+
 class DiscretizationParams(BaseModel):
     """离散参数（后端默认，可覆盖）."""
 
@@ -119,6 +133,38 @@ class EnvelopeRequest(BaseModel):
     workpiece: GearParamsRequest
     tool: ToolParams
     discretization: DiscretizationParams = DiscretizationParams()
+    include_anim: bool = Field(False, description="是否返回逐帧动画数据（conjugate 端点）")
+    m_anim: int = Field(72, ge=4, description="动画帧数（include_anim=True 时有效）")
+    anim_theta_range_deg: float = Field(360.0, gt=0, description="动画角度范围 [°]（默认 ±360°）")
+
+
+@router.post("/capability")
+def envelope_capability(req: EnvelopeRequest) -> dict:
+    """能力查询：哪些派生几何可用（β_w + k_io 派生），前端替代本地 isHelical.
+
+    单一权威：supports_* 由 assemble_envelope_context 从 plan + k_io 派生，
+    与 compute 层 raise 同源（raise 保留为防御性断言）。
+    """
+    try:
+        p = req.workpiece.to_gear_params()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    try:
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool))
+        return {
+            "capability": {
+                "supports_edge": ctx.supports_edge,
+                "supports_flank": ctx.supports_flank,
+                "supports_single_tooth": ctx.supports_single_tooth,
+                "supports_tool_ring": ctx.supports_tool_ring,
+                "supports_analytic": ctx.supports_analytic,
+            },
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={"error": str(e), "code": 500})
 
 
 @router.post("/swept_cloud")
@@ -129,17 +175,12 @@ def envelope_swept_cloud(req: EnvelopeRequest) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
     try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        pts, _ = extract_gap_points(p, req.discretization.n)
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
         cloud = generate_envelope_cloud(
-            pts, plan, m=req.discretization.m,
+            ctx.pts, ctx.plan, m=req.discretization.m,
             theta_range_deg=req.discretization.theta_range_deg,
         )
-        n = len(pts)
+        n = len(ctx.pts)
         m = req.discretization.m
         n_vertices = m * n
 
@@ -183,7 +224,7 @@ def envelope_swept_cloud(req: EnvelopeRequest) -> dict:
             "layer": {"id": "swept_cloud", "glb_base64": glb},
             "coord_frame": "T",
             "motion": motion,
-            "install": {"a": plan.a, "sigma_deg": plan.sigma_deg},
+            "install": {"a": ctx.plan.a, "sigma_deg": ctx.plan.sigma_deg},
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
@@ -200,19 +241,14 @@ def envelope_edge(req: EnvelopeRequest) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
     try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        pts, norms = extract_gap_points(p, req.discretization.n)
-        rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
         edge = extract_edge(
-            pts, plan, rake, m=req.discretization.m,
-            theta_range_deg=req.discretization.theta_range_deg, k_io=p.k_io, normals=norms,
+            ctx.pts, ctx.plan, ctx.rake, m=req.discretization.m,
+            theta_range_deg=req.discretization.theta_range_deg, k_io=p.k_io, normals=ctx.norms,
+            b_w=p.b_w, n_z=req.discretization.n_z,  # 斜齿数值求交路线（K-2.8b）用
         )
 
-        # 每个刃形段 → 一个 LINE_STRIP GeometrySpec
+        # 每个刃形段 → 一个 LINE_STRIP GeometrySpec（完整闭合环失败时的降级形态）
         geos = [
             GeometrySpec(
                 kind="line",
@@ -221,6 +257,43 @@ def envelope_edge(req: EnvelopeRequest) -> dict:
             )
             for seg in edge.segments
         ]
+
+        # B 方案 v2 完整刃形闭合环：共轭上链（白）+ 齿底构造段（橙：齿根延伸/
+        # 径向偏置/谷底圆弧）一条 LINE_STRIP，尾点回绕首点闭合。成功时替换共轭
+        # 分段线（同一刃形避免双线重合）；构造段非共轭（齿底无共轭曲面），用逐
+        # 顶点色区分。失败仅降级为共轭分段（刃形主契约是共轭诊断）。
+        closed_loop = False
+        try:
+            is_helical = abs(p.beta_w_deg) > 1e-12
+            chain_pts, _, _, bridge_mask = solve_edge_chain(
+                ctx.pts, ctx.plan, ctx.rake,
+                m=req.discretization.m,
+                theta_range_deg=req.discretization.theta_range_deg,
+                normals=ctx.norms,
+                b_w=p.b_w, n_z=req.discretization.n_z,  # 斜齿数值求交链（K-2.8b）用
+            )
+            r_limit = limit_radius(p.tip_radius(), ctx.plan.a)
+            loop = build_tooth_loop(
+                chain_pts, ctx.rake, z_t=req.tool.z_t, r_pt=ctx.plan.r_pt, r_limit=r_limit,
+                r_f=p.root_radius(), a=ctx.plan.a,
+                precut=is_helical,  # 斜齿链已是上链（含顶缝桥点，构造标记传入）
+                upper_constructed=bridge_mask if is_helical else None,
+            )
+            ring_pts = list(loop.pts) + [loop.pts[0]]
+            colors: list[float] = []
+            for flag in list(loop.constructed) + [loop.constructed[0]]:
+                colors += [0.96, 0.55, 0.13] if flag else [1.0, 1.0, 1.0]
+            geos = [
+                GeometrySpec(
+                    kind="line",
+                    positions=[c for pt in ring_pts for c in pt],
+                    colors=colors,
+                    layer_id="edge",
+                )
+            ]
+            closed_loop = True
+        except ValueError as e:
+            print(f"[edge] 完整刃形闭合环未生成（降级为共轭分段线）：{e}")
         glb = export_geometry_glb_base64(geos) if geos else ""
 
         return {
@@ -228,11 +301,13 @@ def envelope_edge(req: EnvelopeRequest) -> dict:
             "coord_frame": "T",
             "coverage_report": edge.coverage_report,
             "ffa_um": edge.ffa_um,
+            "residual_stats": edge.residual_stats,  # 斜齿双残差（直齿 None）
             "segments_meta": [
                 {"count": len(seg.pts), "continuity": seg.continuity}
                 for seg in edge.segments
             ],
-            "install": {"a": plan.a, "sigma_deg": plan.sigma_deg},
+            "closed_loop": closed_loop,
+            "install": {"a": ctx.plan.a, "sigma_deg": ctx.plan.sigma_deg},
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
@@ -252,27 +327,150 @@ def envelope_conjugate(req: EnvelopeRequest) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
     try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        pts, norms = extract_gap_points(p, req.discretization.n)
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
+        # 斜齿接触位更广的下限（120°）已下沉到 compute_conjugate_surface 内部
         surf = compute_conjugate_surface(
-            pts, plan, b_w=p.b_w, k_io=p.k_io,
+            ctx.pts, ctx.plan, b_w=p.b_w, k_io=p.k_io,
             n_z=req.discretization.n_z, m=req.discretization.m,
-            theta_range_deg=req.discretization.theta_range_deg, normals=norms,
+            theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
+            include_anim=req.include_anim, m_anim=req.m_anim,
+            anim_theta_range_deg=req.anim_theta_range_deg,
         )
         geo = GeometrySpec(
             kind="mesh", positions=surf.mesh_positions,
             indices=surf.mesh_indices, normals=surf.mesh_normals, layer_id="conjugate",
         )
         glb = export_geometry_glb_base64([geo])
-        return {
+        resp: dict = {
             "layer": {"id": "conjugate", "glb_base64": glb},
             "coord_frame": "T",
             "coverage_report": surf.coverage,
-            "install": {"a": plan.a, "sigma_deg": plan.sigma_deg},
+            "install": {"a": ctx.plan.a, "sigma_deg": ctx.plan.sigma_deg},
+        }
+        if req.include_anim and surf.anim_frames:
+            resp["anim"] = {
+                "frames": [
+                    {"phi_t_deg": f.phi_t_deg, "positions": f.positions}
+                    for f in surf.anim_frames
+                ],
+                "indices": surf.anim_indices,
+                "mesh_indices": surf.anim_mesh_indices,
+                "n_vertices": len(surf.anim_indices),
+                "theta_range_deg": float(
+                    max(req.discretization.theta_range_deg, 120.0)
+                    if abs(p.beta_w_deg) > 1e-12
+                    else req.discretization.theta_range_deg
+                ),
+                # K-0.5 链合成参数（ω_t/ω_w = z_w/z_t 恒正）：前端据 Rot_z(−φ_t)·Rot_x(−Σ)·
+                # Tran_x(−a)·Rot_z(φ_t/ω) 实时合成任意 φ 的扫掠位置（帧数据不再限制滑条范围）
+                "omega_ratio": float(ctx.plan.omega_ratio),
+                # 截面切片元数据：顶点行主序 iz·n + iu（iz = indices//n_profile），
+                # 供前端「沿齿向拖动选廓线平面」（单层廓线扫掠可视化）
+                "n_profile": len(ctx.pts),
+                "layer_zs": [
+                    -p.b_w / 2.0 + p.b_w * i / max(1, req.discretization.n_z - 1)
+                    for i in range(req.discretization.n_z)
+                ],
+            }
+        return resp
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={"error": str(e), "code": 500})
+
+
+@router.post("/tooth_flank")
+def envelope_tooth_flank(req: EnvelopeRequest) -> dict:
+    """内齿轮齿面端点：参与求解的工件齿面网格（坐标 W）→ 离散点 + 法向箭头 GLB.
+
+    与 /conjugate 同款求解（同离散参数）多取参与掩码（最终 found，含全部修剪），
+    点全部显示（参与=洋红紫 #C05AB0、被修剪=暗灰），法向箭头统一暗蓝 #1A3E78
+    （沿网格抽稀 ~132 根，默认 200×21 → 步距 17×2 → 12×11；修剪信息由点色承载）。
+    W 系图层：前端免 T→W 安装变换。
+    """
+    try:
+        p = req.workpiece.to_gear_params()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    try:
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
+        surf = compute_conjugate_surface(
+            ctx.pts, ctx.plan, b_w=p.b_w, k_io=p.k_io,
+            n_z=req.discretization.n_z, m=req.discretization.m,
+            theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
+            include_tooth_grid=True,
+        )
+        n = len(ctx.pts)
+        n_z = req.discretization.n_z
+
+        # 逐点色：参与=洋红紫 #C05AB0、被修剪（齿顶/齿根圆弧段、尖角邻点、伪根）=暗灰；
+        # 法向箭头统一暗蓝 #1A3E78（与点色区分开，修剪信息不重复承载）
+        magenta = (0xC0 / 255.0, 0x5A / 255.0, 0xB0 / 255.0)
+        dim_gray = (0.45, 0.45, 0.45)
+        dark_blue = (0x1A / 255.0, 0x3E / 255.0, 0x78 / 255.0)
+        colors_pts: list[float] = []
+        for flag in surf.tooth_participating:
+            colors_pts += list(magenta) if flag else list(dim_gray)
+
+        # 法向箭头（轴 + 头部 2 笔 chevron，4 顶点 3 线段/箭头）：沿网格两轴抽稀
+        s_u = max(1, round(n / 12))
+        s_z = max(1, round(n_z / 12))
+        rs = [math.hypot(pt[0], pt[1]) for pt in ctx.pts]
+        arrow_len = 0.2 * (max(rs) - min(rs))  # ≈ 0.2 齿高（与 conjugate.py r_lo/r_hi 同法）
+        head_len = 0.35 * arrow_len
+        cos_a = math.cos(math.radians(25.0))
+        sin_a = math.sin(math.radians(25.0))
+        arrow_pos: list[float] = []
+        arrow_col: list[float] = []
+        arrow_idx: list[int] = []
+        n_arrows = 0
+        for iz in range(0, n_z, s_z):
+            for iu in range(0, n, s_u):
+                i = iz * n + iu
+                px = surf.tooth_positions[3 * i]
+                py = surf.tooth_positions[3 * i + 1]
+                pz = surf.tooth_positions[3 * i + 2]
+                nx = surf.tooth_normals[3 * i]
+                ny = surf.tooth_normals[3 * i + 1]
+                nz = surf.tooth_normals[3 * i + 2]
+                norm = math.sqrt(nx * nx + ny * ny + nz * nz)
+                if norm < 1e-12:
+                    continue  # 防御：退化法矢跳过
+                nx, ny, nz = nx / norm, ny / norm, nz / norm
+                # 垂直于 n̂ 的辅助方向 u（chevron 张角平面；取与坐标轴叉积）
+                if abs(nx) < 0.9:
+                    ux, uy, uz = 0.0, nz, -ny
+                else:
+                    ux, uy, uz = -nz, 0.0, nx
+                ul = math.sqrt(ux * ux + uy * uy + uz * uz)
+                ux, uy, uz = ux / ul, uy / ul, uz / ul
+                # 轴 P→T + 头部两笔（从 T 向后张开 25°）
+                tx = px + arrow_len * nx
+                ty = py + arrow_len * ny
+                tz = pz + arrow_len * nz
+                bx = -cos_a * nx
+                by = -cos_a * ny
+                bz = -cos_a * nz
+                h1 = (tx + head_len * (bx + sin_a * ux), ty + head_len * (by + sin_a * uy), tz + head_len * (bz + sin_a * uz))
+                h2 = (tx + head_len * (bx - sin_a * ux), ty + head_len * (by - sin_a * uy), tz + head_len * (bz - sin_a * uz))
+                arrow_pos += [px, py, pz, tx, ty, tz, *h1, *h2]
+                arrow_col += list(dark_blue) * 4
+                arrow_idx += [4 * n_arrows, 4 * n_arrows + 1, 4 * n_arrows + 1, 4 * n_arrows + 2, 4 * n_arrows + 1, 4 * n_arrows + 3]
+                n_arrows += 1
+
+        geos = [
+            GeometrySpec(kind="points", positions=surf.tooth_positions, colors=colors_pts, layer_id="tooth_flank.pts"),
+        ]
+        if n_arrows > 0:
+            geos.append(GeometrySpec(kind="lines", positions=arrow_pos, indices=arrow_idx, colors=arrow_col, layer_id="tooth_flank.normals"))
+        glb = export_geometry_glb_base64(geos)
+        return {
+            "layer": {"id": "toothFlank", "glb_base64": glb},
+            "coord_frame": "W",
+            "coverage_report": surf.coverage,
+            "grid": {"n": n, "n_z": n_z, "arrow_count": n_arrows},
+            "install": {"a": ctx.plan.a, "sigma_deg": ctx.plan.sigma_deg},
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
@@ -289,66 +487,24 @@ def envelope_conjugate_gear(req: EnvelopeRequest) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
     try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        pts, norms = extract_gap_points(p, req.discretization.n)
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
         surf = compute_conjugate_gear(
-            pts, plan, b_w=p.b_w, k_io=p.k_io, z_t=req.tool.z_t,
+            ctx.pts, ctx.plan, b_w=p.b_w, k_io=p.k_io, z_t=req.tool.z_t, z_w=p.z_w,
             n_z=req.discretization.n_z, m=req.discretization.m,
-            theta_range_deg=req.discretization.theta_range_deg, normals=norms,
+            theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
         )
         geo = GeometrySpec(
             kind="mesh", positions=surf.mesh_positions,
-            indices=surf.mesh_indices, normals=surf.mesh_normals, layer_id="conjugateGear",
+            indices=surf.mesh_indices, normals=surf.mesh_normals, colors=surf.mesh_colors,
+            layer_id="conjugateGear",
         )
         glb = export_geometry_glb_base64([geo])
         return {
             "layer": {"id": "conjugateGear", "glb_base64": glb},
             "coord_frame": "T",
             "coverage_report": surf.coverage,
-            "install": {"a": plan.a, "sigma_deg": plan.sigma_deg},
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
-    except Exception as e:
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail={"error": str(e), "code": 500})
-
-
-@router.post("/interference")
-def envelope_interference(req: EnvelopeRequest) -> dict:
-    """K-2.6 干涉热力图端点：产形面符号距离着色（红=干涉/白=相切/蓝=间隙）→ GLB（坐标 T）."""
-    try:
-        p = req.workpiece.to_gear_params()
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
-    try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        pts, norms = extract_gap_points(p, req.discretization.n)
-        res = compute_interference(
-            pts, plan, b_w=p.b_w, k_io=p.k_io, z_t=req.tool.z_t,
-            n_z=req.discretization.n_z, m=req.discretization.m,
-            theta_range_deg=req.discretization.theta_range_deg, normals=norms,
-        )
-        geo = GeometrySpec(
-            kind="mesh", positions=res.mesh_positions,
-            indices=res.mesh_indices, normals=res.mesh_normals, colors=res.mesh_colors,
-            layer_id="interference",
-        )
-        glb = export_geometry_glb_base64([geo])
-        return {
-            "layer": {"id": "interference", "glb_base64": glb},
-            "coord_frame": "T",
-            "coverage_report": res.coverage,
-            "install": {"a": plan.a, "sigma_deg": plan.sigma_deg},
-            "clamp_mm": 0.5,
+            "interference_stats": surf.interference_stats,
+            "install": {"a": ctx.plan.a, "sigma_deg": ctx.plan.sigma_deg},
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
@@ -378,20 +534,15 @@ def envelope_rake(req: RakeRequest) -> dict:
     if req.rake_type != "plane":
         raise HTTPException(status_code=400, detail={"error": f"rake_type={req.rake_type} 未实现（v1 仅 plane）", "code": 400})
     try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        surf = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
-        geos = [plane_patch(surf), normal_arrow(surf)]
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool))
+        geos = [plane_patch(ctx.rake), normal_arrow(ctx.rake)]
         glb = export_geometry_glb_base64(geos)
         return {
             "layer": {"id": "rake", "glb_base64": glb},
             "coord_frame": "T",
-            "plane": {"A": surf.A, "B": surf.B, "C": surf.C, "const": surf.const},
-            "p_ref": list(surf.p_ref),
-            "n_rake": list(surf.n_rake),
+            "plane": {"A": ctx.rake.A, "B": ctx.rake.B, "C": ctx.rake.C, "const": ctx.rake.const},
+            "p_ref": list(ctx.rake.p_ref),
+            "n_rake": list(ctx.rake.n_rake),
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
@@ -404,10 +555,25 @@ def envelope_rake(req: RakeRequest) -> dict:
 
 
 class ResharpenParams(BaseModel):
-    """重磨参数（K-2.18 输入）."""
+    """重磨参数（K-2.18 输入）.
 
-    L: float = Field(2.0, gt=0, description="总重磨量 [mm]")
-    n_L: int = Field(4, ge=1, description="等分数")
+    L 同时是刀齿轴向长度（后刀面螺旋扫掠总长 = 可重磨材料库存）：默认 20mm ≈
+    工件齿宽量级——L 过小（旧默认 2mm）实体轴向厚仅 ~4mm vs 外径 90mm，呈薄片。
+    """
+
+    L: float = Field(20.0, gt=0, description="刀齿轴向长度（总重磨量）[mm]")
+    n_L: int = Field(16, ge=1, description="等分数（后刀面扫掠截面数；间距过粗呈折面棱线）")
+
+
+class HubParams(BaseModel):
+    """B 方案 v6 齿根参数（模块③ K-3.1 预览级）."""
+
+    root_offset_ratio: float = Field(
+        0.05, gt=0, description="齿根径向偏置 / 分度圆直径（默认 1/20，用户选定）"
+    )
+    n_arc: int = Field(17, ge=3, description="谷底圆弧采样点数")
+    n_ext: int = Field(4, ge=2, description="1/2 齿根延伸弦直线细分点数（每侧）")
+    n_off: int = Field(4, ge=2, description="径向偏置直线采样点数")
 
 
 class FlankRequest(BaseModel):
@@ -417,52 +583,59 @@ class FlankRequest(BaseModel):
     tool: ToolParams
     resharpening: ResharpenParams = ResharpenParams()
     discretization: DiscretizationParams = DiscretizationParams()
+    hub: HubParams = HubParams()
     tool_type: str = Field("cylindrical", description="刀型：cylindrical 圆柱 / conical 圆锥（圆锥二期）")
     flank_method: str = Field("helical_lead", description="后刀面算法：helical_lead 螺旋导程法 / axial_offset 轴向偏移法（二期）")
 
 
 @router.post("/flank")
 def envelope_flank(req: FlankRequest) -> dict:
-    """K-2.18/2.19 后刀面端点：前刀面刃形 + 分截面刃形 → 三角网后刀面 GLB."""
+    """K-2.18/2.19 后刀面端点：闭合轮廓螺旋扫掠 ribbon（B 方案 v2，用户指定同轮廓）."""
     try:
         p = req.workpiece.to_gear_params()
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
     try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        pts, norms = extract_gap_points(p, req.discretization.n)
-        rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
         if req.tool_type == "cylindrical" and req.flank_method == "helical_lead":
-            flank = generate_flank_helical_lead(
-                pts, plan, rake,
-                z_t=req.tool.z_t, m_n=p.m_n, beta_t_deg=req.tool.beta_t_deg,
-                L=req.resharpening.L, n_L=req.resharpening.n_L, k_io=p.k_io,
-                m=req.discretization.m, theta_range_deg=req.discretization.theta_range_deg,
-                normals=norms,
+            solid = build_single_tooth_solid(
+                ctx.pts, ctx.plan, ctx.rake, r_a=p.tip_radius(),
+                beta_t_deg=req.tool.beta_t_deg, z_t=req.tool.z_t, m_n=p.m_n,
+                L=req.resharpening.L, n_L=req.resharpening.n_L,
+                root_offset_ratio=req.hub.root_offset_ratio,
+                n_arc=req.hub.n_arc, n_ext=req.hub.n_ext, n_off=req.hub.n_off,
+                m=req.discretization.m, r_f=p.root_radius(),
+                theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
+                b_w=p.b_w, n_z=req.discretization.n_z,  # 斜齿数值求交链（K-2.8b）
             )
-            source = "螺旋导程法（K-2.15/16，圆柱刀）"
+            beta_t = math.radians(req.tool.beta_t_deg)
+            # β_t=0 → Ltp→∞（纯轴向扫掠）：JSON 不可序列化 inf，回 null
+            lead_pitch = (
+                req.tool.z_t * p.m_n * math.pi / math.sin(beta_t)
+                if math.sin(beta_t) > 1e-12 else None
+            )
+            source = "螺旋导程法（K-2.15/16，闭合轮廓 ribbon，B 方案 v2）"
         else:
             raise ValueError(
                 f"tool_type={req.tool_type}/flank_method={req.flank_method} 未实现"
                 "（圆锥刀变位系数族法 K-2.14 / 轴向偏移法 K-2.17 二期）"
             )
         geo = GeometrySpec(
-            kind="mesh", positions=flank.mesh_positions,
-            indices=flank.mesh_indices, normals=flank.mesh_normals, layer_id="flank",
+            kind="mesh", positions=solid.mesh_positions,
+            indices=solid.ribbon_indices, layer_id="flank",
         )
+        geo.normals = compute_vertex_normals(solid.mesh_positions, solid.ribbon_indices)
         glb = export_geometry_glb_base64([geo])
         return {
             "layer": {"id": "flank", "glb_base64": glb},
             "coord_frame": "T",
             "source": source,
             "flank_method": req.flank_method,
-            "lead_pitch": flank.lead_pitch,
+            "lead_pitch": lead_pitch,
             "resharpen_schedule": [
-                {"i": s.i, "dL": s.dL, "da": s.da, "a_i": s.a_i} for s in flank.schedule
+                {"i": i + 1, "dL": req.resharpening.L * (i + 1) / req.resharpening.n_L,
+                 "da": 0.0, "a_i": ctx.plan.a}
+                for i in range(req.resharpening.n_L)
             ],
         }
     except ValueError as e:
@@ -474,24 +647,23 @@ def envelope_flank(req: FlankRequest) -> dict:
 
 @router.post("/single_tooth")
 def envelope_single_tooth(req: FlankRequest) -> dict:
-    """K-3.1 单齿预览端点：前刀面 + 后刀面 + 刃形三件套非实体 GLB."""
+    """K-3.1 单齿预览端点（B 方案 v2）：开放轮廓 + 偏置 + 圆弧闭合实体 GLB + 元数据."""
     try:
         p = req.workpiece.to_gear_params()
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
     try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        pts, norms = extract_gap_points(p, req.discretization.n)
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
         if req.tool_type == "cylindrical" and req.flank_method == "helical_lead":
-            geos = build_single_tooth(
-                pts, plan, gamma_0_deg=req.tool.gamma_0_deg, beta_t_deg=req.tool.beta_t_deg,
+            geos, meta = build_single_tooth(
+                ctx.pts, ctx.plan, r_a=p.tip_radius(), r_f=p.root_radius(),
+                gamma_0_deg=req.tool.gamma_0_deg, beta_t_deg=req.tool.beta_t_deg,
                 z_t=req.tool.z_t, m_n=p.m_n, L=req.resharpening.L, n_L=req.resharpening.n_L,
-                k_io=p.k_io, m=req.discretization.m,
-                theta_range_deg=req.discretization.theta_range_deg, normals=norms,
+                k_io=p.k_io, root_offset_ratio=req.hub.root_offset_ratio,
+                n_arc=req.hub.n_arc, n_ext=req.hub.n_ext, n_off=req.hub.n_off,
+                m=req.discretization.m,
+                theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
+                b_w=p.b_w, n_z=req.discretization.n_z,  # 斜齿数值求交链（K-2.8b）
             )
         else:
             raise ValueError(
@@ -502,7 +674,58 @@ def envelope_single_tooth(req: FlankRequest) -> dict:
         return {
             "layer": {"id": "singleTooth", "glb_base64": glb},
             "coord_frame": "T",
-            "source": "模块③预览",
+            "source": "模块③ B 方案 v2（开放轮廓 + 径向偏置 + 圆弧闭合实体）",
+            "meta": meta,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail={"error": str(e), "code": 500})
+
+
+@router.post("/tool_ring")
+def envelope_tool_ring(req: FlankRequest) -> dict:
+    """K-3.1 整环刀具端点（B 方案 v2）：单齿闭合实体刚体阵列 z_t 份 GLB."""
+    try:
+        p = req.workpiece.to_gear_params()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
+    try:
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
+        if req.tool_type == "cylindrical" and req.flank_method == "helical_lead":
+            solid = build_single_tooth_solid(
+                ctx.pts, ctx.plan, ctx.rake, r_a=p.tip_radius(),
+                beta_t_deg=req.tool.beta_t_deg, z_t=req.tool.z_t, m_n=p.m_n,
+                L=req.resharpening.L, n_L=req.resharpening.n_L,
+                root_offset_ratio=req.hub.root_offset_ratio,
+                n_arc=req.hub.n_arc, n_ext=req.hub.n_ext, n_off=req.hub.n_off,
+                m=req.discretization.m, r_f=p.root_radius(),
+                theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
+                b_w=p.b_w, n_z=req.discretization.n_z,  # 斜齿数值求交链（K-2.8b）
+            )
+            geo = build_tool_ring(solid, z_t=req.tool.z_t)
+        else:
+            raise ValueError(
+                f"tool_type={req.tool_type}/flank_method={req.flank_method} 未实现"
+                "（圆锥刀变位系数族法 K-2.14 / 轴向偏移法 K-2.17 二期）"
+            )
+        glb = export_geometry_glb_base64([geo])
+        return {
+            "layer": {"id": "toolRing", "glb_base64": glb},
+            "coord_frame": "T",
+            "source": "模块③ B 方案 v2（整环阵列，齿距线相位闭合）",
+            "meta": {
+                "r_limit_mm": solid.loop.r_limit,
+                "root_radius_mm": solid.loop.root_radius,
+                "root_offset_mm": solid.loop.offset_mm,
+                "arch_spread_deg": solid.loop.arch_spread_deg,
+                "pitch_z_mm": solid.loop.pitch_z_mm,
+                "loop_points": solid.n_loop,
+                "n_sections": solid.n_sections,
+                "volume_mm3": solid.volume_mm3,
+                "z_t": req.tool.z_t,
+            },
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
@@ -522,20 +745,14 @@ def envelope_analytic(req: EnvelopeRequest) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail={"error": str(e), "code": 400})
     try:
-        plan = compute_process_plan(
-            z_w=p.z_w, z_t=req.tool.z_t, m_n=p.m_n,
-            beta_w_deg=p.beta_w_deg, beta_t_deg=req.tool.beta_t_deg,
-            j_w=p.j_w, j_t=req.tool.j_t, k_io=p.k_io,
-        )
-        pts, norms = extract_gap_points(p, req.discretization.n)
-        rake = build_plane_rake(req.tool.gamma_0_deg, req.tool.beta_t_deg, plan.r_pt)
-        edge_pts = compute_analytic_edge(pts, plan, rake, theta_range_deg=req.discretization.theta_range_deg, normals=norms)
+        ctx = assemble_envelope_context(p, _tool_spec(req.tool), n=req.discretization.n)
+        edge_pts = compute_analytic_edge(ctx.pts, ctx.plan, ctx.rake, theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms)
         if not edge_pts:
             raise ValueError("刃形为空（外齿轮前刀面符号 T14 未销项）：请使用内齿轮（k_io=−1）")
         # 双路线互检：解析（二分精化）vs 离散（扫掠采样），同一工件
         discrete_edge = extract_edge(
-            pts, plan, rake, m=req.discretization.m,
-            theta_range_deg=req.discretization.theta_range_deg, k_io=p.k_io, normals=norms,
+            ctx.pts, ctx.plan, ctx.rake, m=req.discretization.m,
+            theta_range_deg=req.discretization.theta_range_deg, k_io=p.k_io, normals=ctx.norms,
         )
         discrete_pts = [pt for seg in discrete_edge.segments for pt in seg.pts]
         cross = cross_check(edge_pts, discrete_pts)
