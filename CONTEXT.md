@@ -1,6 +1,6 @@
 # CONTEXT.md — 车齿刀工具生成器 领域词汇与决策日志
 
-最后更新：2026-08-12（内齿轮工件几何 ADR-015/016 + 内斜齿 ADR-017 实现）
+最后更新：2026-08-15（模块② 包络上下文装配加深 — EnvelopeContext/ToolSpec）
 
 ## 领域词汇
 
@@ -32,6 +32,8 @@
 | 内边界提取 | Inner-Boundary Extraction | 离散包络（K-2.11）里从扫掠点云投影中挑刀刃轮廓的算法，默认 [25] 径向圆环法（NR=200），产出左右两条刃形 |
 | 双向包络复算 | Two-way Envelope Re-computation | K-2.13：用算出的刃形正向包络复现工件齿形，逐点法向距离得 ffα，作为「算对了」的自证闭环判据（<0.1μm） |
 | 离散刃形 | Discrete Edge Curve | 由投影 z=0 → 内边界提取直接得到的**临时刃形**，不经前刀面；与子 PRD-3/5 的「前刀面刃形交线 K-2.8」是两条不同派生路径，最终以前刀面交线覆盖 |
+| 包络上下文 | EnvelopeContext | 模块② 包络计算上下文 = ProcessPlan + 齿廓点/法向 + 前刀面的装配产物（`envelope_context.assemble_envelope_context` 产出）。收拢 8 个端点曾逐字重复的「工件参数→ProcessPlan→齿廓点→前刀面」装配样板，纯数据（无 FastAPI/pydantic） |
+| 刀具规格 | ToolSpec | 刀具参数纯数据载体（`envelope_context.ToolSpec`，与 GearParams 对偶、与 router 的 pydantic ToolParams 对偶）：z_t/β_t/j_t/γ₀/α₀。assemble 只用前四者，α₀ 供后刀面端点自取 |
 
 ## 六模块流水线（设计书 §1.1）
 

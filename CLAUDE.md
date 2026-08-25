@@ -41,6 +41,7 @@ Electron 主进程
 与项目冲突时以设计书为准。修改需用户授权（2026-08-14 起允许，如新增缺口项 T14）。
 
 根路径：`E:/OneDrive/Claude_Word/PowerSkivingDoc/reports/车齿刀设计书/`
+文献根路径：`E:/OneDrive/Claude_Word/PowerSkivingDoc/references`
 
 | 章节 | 用途 |
 |------|------|
