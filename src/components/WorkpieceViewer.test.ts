@@ -15,7 +15,7 @@ import { mockSpec } from './__spec-mock'
 function defaultParams(): GearParams {
   return {
     profile_type: 'involute',
-    k_io: 1,
+    k_io: -1,
     m_n: 2.5,
     z_w: 41,
     β_w: 0,
@@ -128,10 +128,27 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
       { i: 2, dL: 1.0, da: 0, a_i: 39.5537 },
     ],
   }
+  const toothMeta = {
+    r_limit_mm: 40.4463,
+    root_radius_mm: 36.2017,
+    root_offset_mm: 4.2446,
+    arch_spread_deg: 5.7,
+    pitch_z_mm: 1.59,
+    loop_points: 130,
+    n_sections: 5,
+    volume_mm3: 45.6,
+  }
   const mockTooth: api.SingleToothResponse = {
     layer: { id: 'singleTooth', glb_base64: 'Z2xURg==' },
     coord_frame: 'T',
-    source: '模块③预览',
+    source: '模块③ B 方案 v2（开放轮廓 + 径向偏置 + 圆弧闭合实体）',
+    meta: toothMeta,
+  }
+  const mockToolRing: api.ToolRingResponse = {
+    layer: { id: 'toolRing', glb_base64: 'Z2xURg==' },
+    coord_frame: 'T',
+    source: '模块③ B 方案 v2（整环阵列，齿距线相位闭合）',
+    meta: { ...toothMeta, z_t: 41 },
   }
   const mockAnalytic: api.AnalyticResponse = {
     layer: { id: 'edge', glb_base64: 'Z2xURg==' },
@@ -152,25 +169,29 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     coverage_report: { total_points: 200, found: 200, uncovered: 0, coverage_ratio: 1.0, pass: true },
     install: { a: 39.55, sigma_deg: 15.0 },
   }
-  const mockInterference: api.InterferenceResponse = {
-    layer: { id: 'interference', glb_base64: 'Z2xURg==' },
-    coord_frame: 'T',
+  const mockToothFlank: api.ToothFlankResponse = {
+    layer: { id: 'toothFlank', glb_base64: 'Z2xURg==' },
+    coord_frame: 'W',
     coverage_report: { total_points: 200, found: 200, uncovered: 0, coverage_ratio: 1.0, pass: true },
+    grid: { n: 200, n_z: 21, arrow_count: 132 },
     install: { a: 39.55, sigma_deg: 15.0 },
-    clamp_mm: 0.5,
   }
 
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.spyOn(api, 'fetchWorkpiece').mockResolvedValue(mockResponse)
+    vi.spyOn(api, 'fetchEnvelopeCapability').mockResolvedValue({
+      capability: { supports_edge: true, supports_flank: true, supports_single_tooth: true, supports_tool_ring: true, supports_analytic: true },
+    })
     vi.spyOn(api, 'fetchEnvelopeEdge').mockResolvedValue(mockEdge)
     vi.spyOn(api, 'fetchEnvelopeRake').mockResolvedValue(mockRake)
     vi.spyOn(api, 'fetchEnvelopeFlank').mockResolvedValue(mockFlank)
     vi.spyOn(api, 'fetchEnvelopeSingleTooth').mockResolvedValue(mockTooth)
+    vi.spyOn(api, 'fetchEnvelopeToolRing').mockResolvedValue(mockToolRing)
     vi.spyOn(api, 'fetchEnvelopeAnalytic').mockResolvedValue(mockAnalytic)
     vi.spyOn(api, 'fetchEnvelopeConjugate').mockResolvedValue(mockConjugate)
     vi.spyOn(api, 'fetchEnvelopeConjugateGear').mockResolvedValue(mockConjugateGear)
-    vi.spyOn(api, 'fetchEnvelopeInterference').mockResolvedValue(mockInterference)
+    vi.spyOn(api, 'fetchEnvelopeToothFlank').mockResolvedValue(mockToothFlank)
     workpieceState.result = null
     workpieceState.spec = null
     workpieceState.open = false
@@ -179,7 +200,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     workpieceState.pos = { x: 24, y: 64 }
   })
 
-  it('点「开始包络」→ 依次派发刃形、产形面、等效产形齿轮、干涉热力图、前刀面、后刀面、单齿七图层 + 诊断条显示', async () => {
+  it('点「开始包络」→ 依次派发刃形、产形面、等效产形齿轮、内齿轮齿面、前刀面、后刀面、单齿、整环八图层 + 诊断条显示', async () => {
     const wrapper = mountViewer()
     await nextTick()
     await nextTick()
@@ -195,7 +216,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     await nextTick()
 
     window.removeEventListener('gear:layer-ready', handler)
-    expect(layers).toEqual(['edge', 'conjugate', 'conjugateGear', 'interference', 'rake', 'flank', 'singleTooth'])
+    expect(layers).toEqual(['edge', 'conjugate', 'conjugateGear', 'toothFlank', 'rake', 'flank', 'singleTooth', 'toolRing'])
     expect(wrapper.find('[data-test="diagnostic-strip"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('ffα')
     expect(wrapper.text()).toContain('覆盖')
@@ -258,11 +279,53 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     await nextTick()
 
     await wrapper.find('button[data-test="run-envelope"]').trigger('click')
-    await nextTick()
+    // 链条含 toothFlank 诊断层等多个 await：flushPromises 排空微任务（nextTick 已不够）
+    await flushPromises()
     await nextTick()
 
     expect(api.fetchEnvelopeFlank).toHaveBeenCalledWith(
       expect.objectContaining({ tool_type: 'cylindrical', flank_method: 'helical_lead' }),
     )
+  })
+
+  it('斜齿工件（β_w≠0）：全族图层（刃形 K-2.8b + 第二批实体建模）；仅解析路线跳过', async () => {
+    // 斜齿 → 全族解锁（2026-08-25 第二批：后刀面/单齿/整环 B 方案 v2 同构管线）；
+    // 解析（消元法仅直齿）仍跳过
+    vi.spyOn(api, 'fetchEnvelopeCapability').mockResolvedValue({
+      capability: { supports_edge: true, supports_flank: true, supports_single_tooth: true, supports_tool_ring: true, supports_analytic: false },
+    })
+    vi.spyOn(api, 'fetchEnvelopeEdge').mockResolvedValue({
+      ...mockEdge,
+      ffa_um: null,  // 斜齿不做 ffα 闭环（诊断条显示 —）
+      residual_stats: { max_plane_um: 0.5, max_surface_um: 1.2, n_check: 28, pass: true },
+    })
+    const gearParams = reactive<GearParams>({ ...defaultParams(), β_w: 19 })
+    const wrapper = mount(WorkpieceViewer, {
+      global: {
+        provide: { gearParams },
+        stubs: { ElMessage: true },
+      },
+    })
+    await nextTick()
+    await nextTick()
+
+    await wrapper.find('button[data-test="run-envelope"]').trigger('click')
+    await flushPromises()
+    await nextTick()
+
+    // 刃形（数值求交）+ 产形面族/前刀面/内齿轮齿面诊断层 + 第二批实体三件
+    expect(api.fetchEnvelopeEdge).toHaveBeenCalled()
+    expect(api.fetchEnvelopeConjugate).toHaveBeenCalled()
+    expect(api.fetchEnvelopeConjugateGear).toHaveBeenCalled()
+    expect(api.fetchEnvelopeRake).toHaveBeenCalled()
+    expect(api.fetchEnvelopeToothFlank).toHaveBeenCalled()
+    expect(api.fetchEnvelopeFlank).toHaveBeenCalled()
+    expect(api.fetchEnvelopeSingleTooth).toHaveBeenCalled()
+    expect(api.fetchEnvelopeToolRing).toHaveBeenCalled()
+    // 解析（消元法仅直齿）跳过
+    expect(api.fetchEnvelopeAnalytic).not.toHaveBeenCalled()
+    // 诊断条：ffa null 时仍显示（—），通过条件只看覆盖
+    expect(wrapper.find('[data-test="diagnostic-strip"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('—')
   })
 })

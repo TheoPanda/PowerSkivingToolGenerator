@@ -148,6 +148,21 @@ describe('gearViewport 多图层', () => {
     expect(rakeMat.opacity).toBe(0.45) // rake 默认透明度不被串改
   })
 
+  it('toothFlank 免 T→W 安装变换（W 系），T 系图层正常施加', () => {
+    const { vp } = createViewport()
+    vp.addLayer('toothFlank', MESH_B64)
+    vp.addLayer('edge', LINE_B64)
+    vp.setEnvelopeInstall(90, 30, 1)
+    const flank = findLayerGroup('toothFlank') as THREE.Group
+    const edge = findLayerGroup('edge') as THREE.Group
+    // 内齿轮齿面在工件系：不得被中心距/轴交角平移旋转
+    expect(flank.position.x).toBe(0)
+    expect(flank.rotation.x).toBe(0)
+    // 对照组：刃形（刀具系 T）施加安装变换
+    expect(edge.position.x).toBe(90)
+    expect(edge.rotation.x).toBeCloseTo(Math.PI / 6)
+  })
+
   it('clearLayers 清空非工件层（保留 workpiece）', () => {
     const { vp } = createViewport()
     vp.loadGear(MESH_B64)
@@ -268,5 +283,189 @@ describe('gearViewport 多图层', () => {
     vp.dispose()
     expect(findByName('axis-label-X_W')).toBeNull()
     expect(findByName('rotation-pointer-W')).toBeNull()
+  })
+
+  it('坐标轴长度随工件尺寸自适应（无工件=1、按包围球半径×0.25 缩放、小齿轮按下限）', () => {
+    const { vp } = createViewport()
+    // 无工件层：基准缩放 1
+    vp.setEnvelopeInstall(39.55, 15.0)
+    const wLabel0 = findByName('axis-label-X_W') as THREE.Sprite
+    expect(wLabel0.parent!.scale.x).toBeCloseTo(1)
+
+    // 挂载工件并给真实顶点：包围盒 ±60/±60/±10 → 包围球半径 √7300 ≈ 85.44mm
+    // → 轴长 = 0.25×85.44 ≈ 21.4mm，k = 0.25×√7300/120
+    vp.loadGear(MESH_B64)
+    const wp = findLayerGroup('workpiece') as THREE.Group
+    firstMesh(wp).geometry = new THREE.BufferGeometry()
+    ;(firstMesh(wp).geometry as THREE.BufferGeometry).setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute([-60, -60, -10, 60, 60, 10], 3),
+    )
+    vp.setEnvelopeInstall(39.55, 15.0)
+    const wTriad = (findByName('axis-label-X_W') as THREE.Sprite).parent as THREE.Group
+    const tTriad = (findByName('axis-label-X_T') as THREE.Sprite).parent as THREE.Group
+    const expected = (Math.sqrt(7300) * 0.25) / 120
+    expect(wTriad.scale.x).toBeCloseTo(expected, 3)
+    expect(tTriad.scale.x).toBeCloseTo(expected, 3) // T 三轴组同因子缩放
+    expect(tTriad.scale.x).toBeCloseTo(wTriad.scale.x, 6)
+    // T 轴组挂点仍为安装位置（mm，不随缩放）
+    expect((tTriad.parent as THREE.Group).position.x).toBeCloseTo(39.55)
+
+    // 小齿轮（包围球半径 ≈ 11.5mm → 0.25×≈2.9）→ 触发下限 15mm，k = 0.125
+    firstMesh(wp).geometry = new THREE.BufferGeometry()
+    ;(firstMesh(wp).geometry as THREE.BufferGeometry).setAttribute(
+      'position',
+      new THREE.Float32BufferAttribute([-8, -8, -2, 8, 8, 2], 3),
+    )
+    vp.setEnvelopeInstall(39.55, 15.0)
+    const wTriad2 = (findByName('axis-label-X_W') as THREE.Sprite).parent as THREE.Group
+    expect(wTriad2.scale.x).toBeCloseTo(15 / 120, 3)
+  })
+
+  it('坐标轴轴身为圆柱 + 末端圆锥箭头 + 完全不透明', () => {
+    const { vp } = createViewport()
+    vp.setEnvelopeInstall(39.55, 15.0)
+    const wTriad = (findByName('axis-label-X_W') as THREE.Sprite).parent as THREE.Group
+    const shafts = wTriad.children.filter(
+      (c) => (c as THREE.Mesh).isMesh && (c as THREE.Mesh).geometry.type === 'CylinderGeometry',
+    )
+    const cones = wTriad.children.filter(
+      (c) => (c as THREE.Mesh).isMesh && (c as THREE.Mesh).geometry.type === 'ConeGeometry',
+    )
+    expect(shafts.length).toBe(3)
+    expect(cones.length).toBe(3)
+    // 轴身半径减半后 1.2mm；轴身长度让出箭头（基准 120 − 10）
+    const geo = (shafts[0] as THREE.Mesh).geometry as THREE.CylinderGeometry
+    expect(geo.parameters.radiusTop).toBeCloseTo(1.2)
+    expect(geo.parameters.height).toBeCloseTo(120 - 10)
+    // 箭头锥高 10mm（尖点落在轴端，轴身相应缩短）
+    const coneGeo = (cones[0] as THREE.Mesh).geometry as THREE.ConeGeometry
+    expect(coneGeo.parameters.height).toBeCloseTo(10)
+    // 透明度为 0：材质完全不透明
+    for (const m of [...shafts, ...cones] as THREE.Mesh[]) {
+      const mat = m.material as THREE.MeshStandardMaterial
+      expect(mat.transparent).toBe(false)
+      expect(mat.opacity).toBeCloseTo(1.0)
+    }
+  })
+})
+
+// ── φ 角度域链合成（K-0.5：任意 φ 实时合成，帧数据仅作自校验基准） ──
+
+/** 与后端 workpiece_to_tool_chain 一致的链矩阵（独立于 viewport 实现，测试对照用）. */
+function refChainMatrix(phiDeg: number, a: number, sigmaDeg: number, omega: number): THREE.Matrix4 {
+  const phiT = (phiDeg * Math.PI) / 180
+  const m = new THREE.Matrix4().makeRotationZ(-phiT)
+  m.multiply(new THREE.Matrix4().makeRotationX(-(sigmaDeg * Math.PI) / 180))
+  m.multiply(new THREE.Matrix4().makeTranslation(-a, 0, 0))
+  m.multiply(new THREE.Matrix4().makeRotationZ(phiT / omega))
+  return m
+}
+
+/** 6 顶点（2 层 × 3 点）W 系基准点 + 按链矩阵生成的 8 帧动画数据. */
+function synthAnimFixture(a: number, sigmaDeg: number, omega: number): {
+  anim: {
+    frames: Array<{ phi_t_deg: number; positions: number[] }>
+    indices: number[]
+    mesh_indices: number[]
+    n_vertices: number
+    theta_range_deg: number
+    omega_ratio: number
+    n_profile: number
+    layer_zs: number[]
+  }
+  base: THREE.Vector3[]
+} {
+  const base = [
+    new THREE.Vector3(80, -1, -10), new THREE.Vector3(82, 0, -10), new THREE.Vector3(84, 1, -10),
+    new THREE.Vector3(80, -1, 10), new THREE.Vector3(82, 0, 10), new THREE.Vector3(84, 1, 10),
+  ]
+  const m = 8
+  const theta = 40
+  const frames = Array.from({ length: m }, (_, i) => {
+    const phi = -theta + (2 * theta * i) / (m - 1)
+    const mat = refChainMatrix(phi, a, sigmaDeg, omega)
+    const positions: number[] = []
+    for (const p of base) {
+      const q = p.clone().applyMatrix4(mat)
+      positions.push(q.x, q.y, q.z)
+    }
+    return { phi_t_deg: phi, positions }
+  })
+  return {
+    anim: {
+      frames,
+      indices: [0, 1, 2, 3, 4, 5],
+      mesh_indices: [0, 1, 2, 3, 4, 5],
+      n_vertices: 6,
+      theta_range_deg: theta,
+      omega_ratio: omega,
+      n_profile: 3,
+      layer_zs: [-10, 10],
+    },
+    base,
+  }
+}
+
+describe('gearViewport φ 链合成', () => {
+  const A = 39.55
+  const SIGMA = 15.0
+  const OMEGA = 2.0
+
+  function animPositions(vp: GearViewport): Float32Array {
+    const mesh = findByName('anim-tooth-surface') as THREE.Mesh
+    expect(mesh).toBeTruthy()
+    return (mesh.geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
+  }
+
+  it('omega_ratio 提供时启用合成：任意 φ（含帧外 ±360）位置 = M(φ)·P_W', () => {
+    const { vp } = createViewport()
+    vp.setEnvelopeInstall(A, SIGMA)
+    const { anim, base } = synthAnimFixture(A, SIGMA, OMEGA)
+    vp.loadAnimMesh(anim, { rpw: 82, rpt: 41, z_w: 82 })
+
+    for (const phi of [0, 123, -359.5, 360]) {
+      vp.setAnimPhi(phi)
+      const arr = animPositions(vp)
+      const mat = refChainMatrix(phi, A, SIGMA, OMEGA)
+      for (let v = 0; v < base.length; v++) {
+        const q = base[v].clone().applyMatrix4(mat)
+        expect(arr[v * 3]).toBeCloseTo(q.x, 4)
+        expect(arr[v * 3 + 1]).toBeCloseTo(q.y, 4)
+        expect(arr[v * 3 + 2]).toBeCloseTo(q.z, 4)
+      }
+    }
+  })
+
+  it('链矩阵与后端帧不符时自校验失败 → 回退帧插值（φ 夹到帧网格）', () => {
+    const { vp } = createViewport()
+    vp.setEnvelopeInstall(A, SIGMA)
+    // 帧数据用 Σ=20° 生成（与安装 Σ=15° 不符）→ 自校验必超差 → 回退
+    const { anim } = synthAnimFixture(A, 20.0, OMEGA)
+    vp.loadAnimMesh(anim, { rpw: 82, rpt: 41, z_w: 82 })
+    // 越界 φ 夹到末帧（+40°）
+    vp.setAnimPhi(999)
+    const arr = animPositions(vp)
+    const last = anim.frames[anim.frames.length - 1].positions
+    for (let i = 0; i < last.length; i++) {
+      expect(arr[i]).toBeCloseTo(last[i], 4)
+    }
+  })
+
+  it('omega_ratio 缺省（旧后端）→ 回退帧插值，滑条帧内 φ 插值正确', () => {
+    const { vp } = createViewport()
+    vp.setEnvelopeInstall(A, SIGMA)
+    const { anim } = synthAnimFixture(A, SIGMA, OMEGA)
+    const noOmega = { ...anim } as typeof anim
+    delete (noOmega as { omega_ratio?: number }).omega_ratio
+    vp.loadAnimMesh(noOmega, { rpw: 82, rpt: 41, z_w: 82 })
+    // φ = −40 + 80/7/2（帧 0 与帧 1 中点）→ 位置应为两帧中点
+    const halfStep = 80 / 7 / 2
+    vp.setAnimPhi(-40 + halfStep)
+    const arr = animPositions(vp)
+    for (let i = 0; i < arr.length; i++) {
+      const mid = (anim.frames[0].positions[i] + anim.frames[1].positions[i]) / 2
+      expect(arr[i]).toBeCloseTo(mid, 4)
+    }
   })
 })

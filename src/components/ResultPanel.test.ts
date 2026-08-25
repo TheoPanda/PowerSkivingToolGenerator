@@ -136,9 +136,9 @@ describe('ResultPanel', () => {
   it('贴边吸附：右贴与左同边距（24px）', async () => {
     generatedAndRevealed()
     const wrapper = mount(ResultPanel)
-    movePanel({ x: 650, y: 400 })
+    movePanel({ x: 800, y: 400 })
     await releaseDrag(wrapper)
-    expect(workpieceState.pos.x).toBe(window.innerWidth - 320 - 24)
+    expect(workpieceState.pos.x).toBe(window.innerWidth - 248 - 24)
     expect(workpieceState.pos.y).toBe(400)
   })
 
@@ -179,7 +179,7 @@ describe('ResultPanel', () => {
     await nextTick()
     const { x, y } = workpieceState.pos
     expect(x).toBeGreaterThanOrEqual(0)
-    expect(x + 320).toBeLessThanOrEqual(window.innerWidth)
+    expect(x + 216).toBeLessThanOrEqual(window.innerWidth)
     expect(y).toBeGreaterThanOrEqual(0)
     expect(y + 220).toBeLessThanOrEqual(window.innerHeight)
   })

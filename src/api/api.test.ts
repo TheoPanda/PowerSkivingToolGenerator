@@ -2,7 +2,7 @@
  * fetchWorkpiece API 客户端测试
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchWorkpiece, fetchEnvelopeEdge, fetchEnvelopeRake, fetchEnvelopeConjugateGear, fetchEnvelopeInterference } from './index'
+import { fetchWorkpiece, fetchEnvelopeEdge, fetchEnvelopeRake, fetchEnvelopeConjugateGear, fetchEnvelopeToolRing, fetchEnvelopeToothFlank } from './index'
 import { toPayload, type GearParams } from '../composables/useGearParams'
 
 const mockParams: GearParams = {
@@ -177,24 +177,56 @@ describe('fetchEnvelope（子 PRD-2 离散包络）', () => {
     expect(resp.coverage_report.pass).toBe(true)
   })
 
-  it('fetchEnvelopeInterference 发送到 /api/envelope/interference 并返回 interference 图层', async () => {
+  it('fetchEnvelopeToothFlank 发送到 /api/envelope/tooth_flank 并返回 toothFlank 图层（W 系）', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({
-        layer: { id: 'interference', glb_base64: '' },
-        coord_frame: 'T',
+        layer: { id: 'toothFlank', glb_base64: '' },
+        coord_frame: 'W',
         coverage_report: { total_points: 200, found: 200, uncovered: 0, coverage_ratio: 1.0, pass: true },
+        grid: { n: 200, n_z: 21, arrow_count: 132 },
         install: { a: 39.55, sigma_deg: 15.0 },
-        clamp_mm: 0.5,
       }),
     })
 
-    const resp = await fetchEnvelopeInterference({ workpiece: toPayload(mockParams), tool })
+    const resp = await fetchEnvelopeToothFlank({ workpiece: toPayload(mockParams), tool })
 
     const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(url).toContain('/api/envelope/interference')
+    expect(url).toContain('/api/envelope/tooth_flank')
     expect(options.method).toBe('POST')
-    expect(resp.layer.id).toBe('interference')
-    expect(resp.clamp_mm).toBe(0.5)
+    expect(resp.layer.id).toBe('toothFlank')
+    expect(resp.coord_frame).toBe('W')
+    expect(resp.grid.arrow_count).toBeGreaterThan(0)
+  })
+
+  it('fetchEnvelopeToolRing 发送到 /api/envelope/tool_ring 并返回 toolRing 图层与 B 方案元数据', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        layer: { id: 'toolRing', glb_base64: '' },
+        coord_frame: 'T',
+        source: '模块③ B 方案 v2（整环阵列，齿距线相位闭合）',
+        meta: {
+          r_limit_mm: 40.4463,
+          root_radius_mm: 36.2017,
+          root_offset_mm: 4.2446,
+          arch_spread_deg: 5.7,
+          pitch_z_mm: 1.59,
+          loop_points: 130,
+          n_sections: 5,
+          volume_mm3: 45.6,
+          z_t: 41,
+        },
+      }),
+    })
+
+    const resp = await fetchEnvelopeToolRing({ workpiece: toPayload(mockParams), tool })
+
+    const [url, options] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toContain('/api/envelope/tool_ring')
+    expect(options.method).toBe('POST')
+    expect(resp.layer.id).toBe('toolRing')
+    expect(resp.meta.root_radius_mm).toBeCloseTo(36.2017, 3)
+    expect(resp.meta.z_t).toBe(41)
   })
 })

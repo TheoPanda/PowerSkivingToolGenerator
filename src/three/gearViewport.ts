@@ -31,6 +31,9 @@ export type RenderMode = 'solid' | 'xray'
 /** 工件视图模式：实体（不透明钢） / 透明线框（透明面 + 深色边线，便于观察内部刀具层）. */
 export type WorkpieceViewMode = 'solid' | 'wireframe'
 
+/** 标准视图方向（Z-up CAD 坐标系）. */
+export type StandardView = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right'
+
 export interface GearViewportOptions {
   /** 挂载容器（canvas 被 append 进这里）. */
   container: HTMLElement
@@ -51,8 +54,8 @@ export interface GearViewport {
   loadGear: (glbBase64: string) => void
   /** 增量叠加一个图层（按 LayerId 从 palette 取材质/样式）. */
   addLayer: (id: LayerId, glbBase64: string) => void
-  /** 设置安装参数（中心距 a + 轴交角 Σ），把刀具系 T 图层变换到工件系 W + 画 W/T 坐标轴. */
-  setEnvelopeInstall: (a: number, sigmaDeg: number) => void
+  /** 设置安装参数（中心距 a + 轴交角 Σ + 刀具旋向 j_t），把刀具系 T 图层变换到工件系 W + 画 W/T 坐标轴. */
+  setEnvelopeInstall: (a: number, sigmaDeg: number, j_t?: number) => void
   /** 删除一个图层（保留工件基准层）. */
   removeLayer: (id: LayerId) => void
   /** 清空所有非工件层. */
@@ -67,6 +70,8 @@ export interface GearViewport {
   setRenderMode: (mode: RenderMode) => void
   /** 工件视图切换：实体 / 透明线框（透明钢面 + 深色边线，观察内部刀具层）. */
   setWorkpieceView: (mode: WorkpieceViewMode) => void
+  /** 等效产形齿轮样式切换：靛蓝单色 / 干涉热力图（符号距离顶点色）. */
+  setConjugateGearInterference: (on: boolean) => void
   /** 登录状态（影响自旋速度）. */
   setLoggedIn: (v: boolean) => void
   /** 设置模型目标缩放 / 右移（面板展开联动；字段可选，缺省不改）. */
@@ -75,6 +80,45 @@ export interface GearViewport {
   resize: () => void
   /** 释放 Three.js 资源. */
   dispose: () => void
+  /** 加载运动仿真动画数据（齿面网格 + 分度圆；omega_ratio 存在时启用任意 φ 合成）. */
+  loadAnimMesh: (
+    animData: {
+      frames: Array<{ phi_t_deg: number; positions: number[] }>
+      indices: number[]
+      mesh_indices: number[]
+      n_vertices: number
+      theta_range_deg: number
+      omega_ratio?: number
+      n_profile?: number
+      layer_zs?: number[]
+    },
+    pitchRadii: { rpw: number; rpt: number; z_w?: number },
+    onFrameUpdate?: (phiDeg: number) => void,
+  ) => void
+  /** 更新动画到指定 φ_t [deg]（合成模式任意角；回退模式夹到帧网格后插值）. */
+  setAnimPhi: (phiDeg: number) => void
+  /** 设置播放/暂停. */
+  setAnimPlaying: (playing: boolean) => void
+  /** 设置播放速度倍率. */
+  setAnimSpeed: (speed: number) => void
+  /** 切换单齿/全齿. */
+  setAnimGearMode: (mode: 'single' | 'full') => void
+  /** 截面切片：沿齿向选廓线平面（iz = 轴向层号，null = 恢复全齿面渲染）. */
+  setAnimSection: (iz: number | null) => void
+  /** 切换光谱扫掠面模式（true=显示所有帧叠加扫掠面，false=恢复逐帧动画）. */
+  setSpectrumMode: (on: boolean) => void
+  /** 光谱揭示：显示 −span..phiDeg 的采样，当前位置高亮. */
+  setSpectrumReveal: (phiDeg: number) => void
+  /** 清理动画网格和分度圆. */
+  clearAnimMesh: () => void
+  /** 获取模型包围盒中心与距离（ViewCube 相机定位用）. */
+  getViewInfo: () => { center: THREE.Vector3; distance: number }
+  /** 切换到标准视图（带 300ms 过渡动画）. */
+  setStandardView: (view: StandardView) => void
+  /** 恢复初始视角（Home 按钮用）. */
+  resetView: () => void
+  /** 获取 ViewCube 旋转矩阵（CSS matrix3d 16 值，每帧由 animate 更新）. */
+  getViewCubeRotation: () => number[]
 }
 
 /** provide/inject 键：gearViewport 实例（MainView provide，LayerPanel inject）. */
@@ -126,6 +170,10 @@ function createLayerMaterial(visual: LayerVisual, child: THREE.Object3D): THREE.
       transparent: def.transparent,
       opacity: def.opacity,
       side: visual.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
+      // 共面图层（rake 面片/后刀面 ribbon 与实体帽盖/侧面严格共面）深度推后防 z-fighting
+      polygonOffset: visual.polygonOffset === true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     })
   }
   if (child instanceof THREE.Line || child instanceof THREE.LineSegments) {
@@ -137,10 +185,13 @@ function createLayerMaterial(visual: LayerVisual, child: THREE.Object3D): THREE.
   }
   if (child instanceof THREE.Points) {
     const geo = child.geometry as THREE.BufferGeometry
+    // 图层可自定义点尺寸与衰减模式（toothFlank：屏幕空间 4px——世界单位点与采样间距不匹配会连成条带）
+    const size = visual.pointSize ?? 0.5
+    const sizeAttenuation = visual.pointSizeAttenuation ?? true
     if (hasVertexColor(geo)) {
-      return new THREE.PointsMaterial({ color: 0xffffff, vertexColors: true, size: 0.5 })
+      return new THREE.PointsMaterial({ color: 0xffffff, vertexColors: true, size, sizeAttenuation })
     }
-    return new THREE.PointsMaterial({ color: def.color, size: 0.5 })
+    return new THREE.PointsMaterial({ color: def.color, size, sizeAttenuation })
   }
   return null
 }
@@ -169,7 +220,13 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   let animationId: number | null = null
 
   // ── 安装变换 + 坐标轴（刀具系 T ↔ 工件系 W） ──
-  const AXIS_LENGTH = 120.0 // 坐标轴长度 [mm]
+  const AXIS_LENGTH = 120.0 // 坐标轴基准长度 [mm]（实际 = 0.25×工件包围球半径，整组缩放实现）
+  const AXIS_SIZE_RATIO = 0.25 // 目标轴长 / 工件包围球半径（坐标系约为齿轮尺寸的 1/4）
+  const AXIS_MIN_LENGTH = 15.0 // 坐标轴长度下限 [mm]（小齿轮仍保持可读）
+  const AXIS_MAX_LENGTH = 60.0 // 坐标轴长度上限 [mm]（大齿轮不过分夸张）
+  const AXIS_SHAFT_RADIUS = 1.2 // 轴身圆柱半径 [mm]（基准长度下的局部值，随组缩放）
+  const AXIS_CONE_RADIUS = 3.0 // 轴端圆锥箭头半径 [mm]（局部值）
+  const AXIS_CONE_HEIGHT = 10.0 // 轴端圆锥箭头长度 [mm]（局部值；轴身相应缩短）
   const AXIS_LABEL_OFFSET = 10.0 // 标注文字距轴尖偏移 [mm]
   const AXIS_LABEL_HEIGHT = 14.0 // 标注文字世界高度 [mm]
   const ROTATION_POINTER_RADIUS = 15.0 // 旋转指针圆弧半径 [mm]
@@ -179,7 +236,62 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   let rotationPointers: Array<{ group: THREE.Group; dir: 1 | -1 }> = [] // 渲染循环驱动的旋转指针
   let lastPointerTime = 0 // 指针动画上一帧时间戳 [ms]
   let envelopeInstall: { a: number; sigma: number } | null = null // a [mm], sigma [rad]
+  let envelopeJt: number = -1 // 刀具旋向 j_t（+1 右旋逆时针 / −1 左旋顺时针，驱动 T 轴旋转指针方向）
   let axesGroup: THREE.Group | null = null // W/T 坐标轴 group
+
+  // ── 运动仿真动画 ──
+  let animGroup: THREE.Group | null = null       // 动画齿面 + 分度圆 group
+  let animGeometry: THREE.BufferGeometry | null = null
+  let animMesh: THREE.Mesh | null = null
+  let animFramePositions: Float32Array[] = []     // 每帧 positions（Float32Array）
+  let animMeshIndices: Uint32Array | null = null  // 三角网索引（重映射后）
+  let animMAnim = 0                               // 总帧数
+  let animPlaying = false
+  let animFrameFloat = 0                          // 连续帧号（回退插值模式用）
+  let animDirection: 1 | -1 = 1
+  let animSpeed = 1
+  let animLastTime = 0                            // 上一帧时间戳 [ms]
+  // ── φ 角度域合成（K-0.5 链）：任意 φ_t 实时合成扫掠位置，帧数据不再限制范围 ──
+  const ANIM_SPAN_DEG = 360                       // 合成可用时滑条/播放半程 [deg]
+  let animPhiDeg = 0                              // 当前 φ_t [deg]（连续）
+  let animSpanDeg = 40                            // 播放/滑条半程 [deg]（合成=360，回退=帧范围）
+  let animSynthOk = false                         // 合成自校验通过（失败回退帧插值）
+  let animBasePos: Float32Array = new Float32Array(0) // W 系基准点 P_W = M(φ0)^{-1}·frame0
+  let animScratch: Float32Array = new Float32Array(0) // 合成/插值单齿顶点暂存（免每帧分配）
+  let animChain: { a: number; sigma: number; omega: number } | null = null // 链参数
+  let animPhi0 = 0                                // 帧网格 φ 起点 [deg]
+  let animPhiStep = 0                             // 帧间 φ 步长 [deg]
+  let pitchCirclesGroup: THREE.Group | null = null // 分度圆 group
+  // 全齿模式：CPU 侧逐帧旋转，不使用 InstancedMesh
+  let fullGearGeometry: THREE.BufferGeometry | null = null
+  let fullGearMesh: THREE.Mesh | null = null
+  let fullGearIndices: Uint32Array | null = null   // 全齿三角网索引（z_w 份单齿偏移）
+  let animZW = 0                                  // 工件齿数（全齿实例化用）
+  // 光谱扫掠面模式：所有帧叠加显示 + jet 光谱色
+  let spectrumMode = false
+  let spectrumMesh: THREE.Group | null = null
+  let animGearMode: 'single' | 'full' = 'single' // 当前齿轮模式（动画/光谱共用）
+  // ViewCube 视角过渡动画（tilt/spin 立即归零，只动画相机位置）
+  let viewTransition: {
+    from: THREE.Vector3; to: THREE.Vector3
+    upFrom: THREE.Vector3; upTo: THREE.Vector3
+    start: number; duration: number
+  } | null = null
+  let initialCameraPos: THREE.Vector3 | null = null
+  let initialCameraUp: THREE.Vector3 | null = null
+  let savedMaxPolarAngle: number | null = null // ViewCube 转场期间暂存原始 maxPolarAngle
+  let animFrameCallback: ((phiDeg: number) => void) | null = null
+  // 扫掠点云图层透明度因子（用户滑条值；与逐帧揭示 opacity 相乘，默认 1 不衰减）
+  let sweptCloudOpacityFactor = 1
+  // ── 截面切片（沿齿向选廓线平面）：线渲染替代面网格 ──
+  let animVertexOrig: Uint32Array = new Uint32Array(0) // mesh 顶点在原始 N 点中的索引（层号 = orig//n_profile）
+  let animNProfile = 0                               // 每层廓形点数 n（>0 才可切截面）
+  let animLayerZs: number[] = []                     // 各层 W 系 z 坐标 [mm]（UI 显示用）
+  let sectionIz: number | null = null                // 当前截面层号（null = 全齿面）
+  let sectionSegPairs: number[] = []                 // 层内相邻 iu 线段顶点对（帧顶点序）
+  let sectionGroup: THREE.Group | null = null        // 截面动画线容器
+  let sectionAnimLine: THREE.LineSegments | null = null   // 单齿廓线（动画模式）
+  let sectionAnimGear: THREE.LineSegments | null = null   // 全齿廓线（动画模式）
 
   /** 清空旋转指针登记（坐标轴重建 / 清层 / dispose 时调用，并复位时间戳防跳变）. */
   function clearRotationPointers(): void {
@@ -193,6 +305,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   let userInteracted = false
   let renderRequested = true // on-demand 渲染标志
   let workpieceViewMode: WorkpieceViewMode = 'solid' // 工件视图模式（实体 / 透明线框）
+  let conjugateGearInterference = false // 等效产形齿轮样式（false=靛蓝单色，true=干涉顶点色）
   const BG_SOLID = new THREE.Color(0xebeff3) // 实体模式背景
   const BG_XRAY = new THREE.Color(0xffffff) // 线框模式背景 (图纸白底)
   // 业务联动目标（经 setter 注入）
@@ -202,6 +315,14 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   let focusFrom: THREE.Vector3 | null = null // 聚焦相机过渡起点
   let focusTo: THREE.Vector3 | null = null // 聚焦相机过渡终点
   let focusStart = 0 // 聚焦过渡起始时间戳（ms）
+
+  /** 恢复原始 maxPolarAngle（底视图转场放行后调用）. */
+  function restoreMaxPolarAngle(): void {
+    if (savedMaxPolarAngle !== null && controls) {
+      controls.maxPolarAngle = savedMaxPolarAngle
+      savedMaxPolarAngle = null
+    }
+  }
 
   function requestRender(): void {
     renderRequested = true
@@ -282,6 +403,36 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     })
   }
 
+  /** 等效产形齿轮样式：靛蓝单色（忽略顶点色）/ 干涉热力图（符号距离顶点色）. */
+  function applyConjugateGearStyle(): void {
+    const group = layerGroups['conjugateGear']
+    if (!group) return
+    const def = MATERIAL_PRESETS.conjugateGear
+    group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return
+      if (conjugateGearInterference) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          vertexColors: true,
+          roughness: def.roughness,
+          metalness: def.metalness,
+          transparent: def.transparent,
+          opacity: def.opacity,
+          side: THREE.DoubleSide,
+        })
+      } else {
+        child.material = new THREE.MeshStandardMaterial({
+          color: def.color,
+          roughness: def.roughness,
+          metalness: def.metalness,
+          transparent: def.transparent,
+          opacity: def.opacity,
+          side: THREE.DoubleSide,
+        })
+      }
+    })
+  }
+
   /** 相机适配到给定包围盒（near/far/距离/旋转中心）. */
   function fitCameraToBox(box: THREE.Box3): void {
     if (!camera || !controls) return
@@ -355,6 +506,8 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100)
     camera.position.set(4, 2.5, 6)
     camera.lookAt(0, 0.5, 0)
+    initialCameraPos = camera.position.clone()
+    initialCameraUp = camera.up.clone()
 
     // 轨道控制器
     controls = new OrbitControls(camera, renderer.domElement)
@@ -376,6 +529,8 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     controls.addEventListener('start', () => requestRender())
     controls.addEventListener('change', () => requestRender())
     controls.addEventListener('start', stopAutoRotate)
+    // 用户手动轨道交互时恢复 maxPolarAngle（底视图放行后）
+    controls.addEventListener('start', () => restoreMaxPolarAngle())
 
     setTimeout(() => {
       controls!.enabled = true
@@ -497,6 +652,30 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
         }
         sceneDirty = true
       }
+      // ViewCube 视角过渡动画（300ms easeOutCubic）
+      // tilt/spin 已在 setStandardView 中立即归零，此处只动画相机位置
+      if (viewTransition && camera && controls) {
+        const t = Math.min(1, (performance.now() - viewTransition.start) / viewTransition.duration)
+        const eased = 1 - Math.pow(1 - t, 3)
+        camera.position.lerpVectors(viewTransition.from, viewTransition.to, eased)
+        // up 向量 180° 翻转时 lerp 会过零崩溃 → 中点处直接 snap
+        if (viewTransition.upFrom.dot(viewTransition.upTo) < -0.9) {
+          camera.up.copy(t < 0.5 ? viewTransition.upFrom : viewTransition.upTo)
+        } else {
+          camera.up.lerpVectors(viewTransition.upFrom, viewTransition.upTo, eased)
+        }
+        camera.lookAt(controls.target)
+        if (t >= 1) {
+          camera.position.copy(viewTransition.to)
+          camera.up.copy(viewTransition.upTo)
+          camera.lookAt(controls.target)
+          controls.enabled = true
+          controls.update()
+          viewTransition = null
+          // maxPolarAngle 恢复推迟到下次 setStandardView / resetView / 用户手动轨道
+        }
+        sceneDirty = true
+      }
       if (growingGeometries.size > 0) {
         for (const [geo, target] of Array.from(growingGeometries.entries())) {
           const step = Math.max(1, Math.ceil(target / 90)) // ~90 帧 ≈ 1.5s
@@ -525,7 +704,37 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
         }
         sceneDirty = true
       }
-      controls?.update()
+      // 运动仿真动画更新（φ 域乒乓，−span → +span 一个单程 = 1s × speed）
+      if (animPlaying && animMAnim > 1) {
+        const now = performance.now()
+        if (animLastTime === 0) animLastTime = now
+        const dt = (now - animLastTime) / 1000
+        animLastTime = now
+        animPhiDeg += animDirection * animSpeed * (2 * animSpanDeg) * dt
+        if (animPhiDeg >= animSpanDeg) {
+          animPhiDeg = animSpanDeg
+          animDirection = -1
+        } else if (animPhiDeg <= -animSpanDeg) {
+          animPhiDeg = -animSpanDeg
+          animDirection = 1
+        }
+        animFrameFloat = animPhiToFframe(animPhiDeg)
+
+        if (spectrumMode && spectrumMesh) {
+          // 光谱模式：驱动揭示进度
+          setSpectrumReveal(animPhiDeg)
+        } else {
+          // 动画/截面模式：按 φ 合成/插值更新
+          setAnimPhi(animPhiDeg)
+        }
+        // 通知外部 φ 更新（同步滑条位置）
+        animFrameCallback?.(animPhiDeg)
+        sceneDirty = true
+      }
+      // 视角过渡期间跳过 controls.update()，避免 damping 干扰相机位置
+      if (!viewTransition) {
+        controls?.update()
+      }
       if (renderer && scene && camera && (renderRequested || sceneDirty)) {
         renderRequested = false
         renderer.render(scene, camera)
@@ -611,15 +820,16 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
 
   /** 构造绕 Z 轴旋转的示意指针（圆弧箭头：弧身 + 末端切向箭头锥体），返回 { group, dir }（dir=扫掠方向）. */
   function makeRotationPointer(prefix: 'W' | 'T'): { group: THREE.Group; dir: 1 | -1 } {
-    const dir: 1 | -1 = prefix === 'W' ? 1 : -1 // W 逆时针(+Z)、T 顺时针(−Z)
+    // W 工件逆时针(+Z)、T 刀具方向随旋向 j_t（+1 右旋逆时针 / −1 左旋顺时针）
+    const dir: 1 | -1 = prefix === 'W' ? 1 : (envelopeJt === 1 ? 1 : -1)
     const group = new THREE.Group()
     group.name = `rotation-pointer-${prefix}`
     const radius = ROTATION_POINTER_RADIUS
     const endAngle = dir * ROTATION_POINTER_ARC
 
-    // 弧身：圆环管绕 Z 轴扫掠，dir 决定顺/逆时针（正=逆时针、负=顺时针）
+    // 弧身：圆环管绕 Z 轴扫掠，dir 决定顺/逆时针（正=逆时针、负=顺时针）；管径与轴身圆柱匹配
     const arc = new THREE.Mesh(
-      new THREE.TubeGeometry(new CircularArcCurve(radius, endAngle), 48, 0.8, 8, false),
+      new THREE.TubeGeometry(new CircularArcCurve(radius, endAngle), 48, 2.0, 8, false),
       new THREE.MeshBasicMaterial({ color: ROTATION_POINTER_COLOR }),
     )
     group.add(arc)
@@ -629,7 +839,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     const tip = new THREE.Vector3(radius * Math.cos(tipAngle), radius * Math.sin(tipAngle), 0)
     const tangent = new THREE.Vector3(-Math.sin(tipAngle), Math.cos(tipAngle), 0).multiplyScalar(dir)
     const cone = new THREE.Mesh(
-      new THREE.ConeGeometry(1.6, 4, 8),
+      new THREE.ConeGeometry(3.2, 8, 12),
       new THREE.MeshBasicMaterial({ color: ROTATION_POINTER_COLOR }),
     )
     cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent)
@@ -648,13 +858,29 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
       { v: new THREE.Vector3(0, 0, 1), color: 0x4488ff, label: 'Z' },
     ]
     for (const d of defs) {
-      const geo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0, 0),
-        d.v.clone().multiplyScalar(length),
-      ])
-      const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: d.color }))
-      line.frustumCulled = false
-      g.add(line)
+      // 轴身用圆柱而非 Line（LineBasicMaterial.linewidth 在 Windows/ANGLE 上恒为 1px 无法加粗；
+      // 圆柱 + 标准材质受光照着色，加粗后更有质感）。透明度为 0：完全不透明。
+      const mat = new THREE.MeshStandardMaterial({
+        color: d.color,
+        roughness: 0.35,
+        metalness: 0.1,
+        transparent: false,
+        opacity: 1.0,
+      })
+      const shaftLen = length - AXIS_CONE_HEIGHT // 轴身让出箭头长度，圆锥接在末端
+      const shaft = new THREE.Mesh(
+        new THREE.CylinderGeometry(AXIS_SHAFT_RADIUS, AXIS_SHAFT_RADIUS, shaftLen, 12),
+        mat,
+      )
+      shaft.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.v)
+      shaft.position.copy(d.v).multiplyScalar(shaftLen / 2)
+      g.add(shaft)
+
+      // 轴端圆锥箭头（指向轴正方向，尖点恰落在 length 处）
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(AXIS_CONE_RADIUS, AXIS_CONE_HEIGHT, 12), mat)
+      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.v)
+      cone.position.copy(d.v).multiplyScalar(length - AXIS_CONE_HEIGHT / 2)
+      g.add(cone)
 
       // 轴末端文字标注（跟轴同色，略超出轴尖）
       const sprite = makeTextSprite(`${d.label}_${prefix}`, `#${d.color.toString(16).padStart(6, '0')}`)
@@ -671,7 +897,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     return g
   }
 
-  /** 画 W（原点）与 T（偏移 a、倾斜 Σ）两套坐标轴. */
+  /** 画 W（原点）与 T（偏移 a、倾斜 Σ）两套坐标轴（长度随工件尺寸自适应）. */
   function drawCoordinateAxes(): void {
     if (axesGroup) {
       worldGroup?.remove(axesGroup)
@@ -680,22 +906,55 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     }
     clearRotationPointers()
     if (!worldGroup || !envelopeInstall) return
+    // 齿轮大小自适应：目标轴长 = 工件包围球半径（夹上下限），三轴组整体缩放（线/标注/旋转指针同比例）
+    const k = axisScaleFactor()
     axesGroup = new THREE.Group()
     axesGroup.name = 'coordinate-axes'
-    axesGroup.add(makeAxisTriad(AXIS_LENGTH, 'W')) // W 轴（工件，原点）
+    const wTriad = makeAxisTriad(AXIS_LENGTH, 'W') // W 轴（工件，原点）
+    wTriad.scale.setScalar(k)
+    axesGroup.add(wTriad)
     const tGroup = new THREE.Group()
     tGroup.position.set(envelopeInstall.a, 0, 0)
     tGroup.rotation.x = envelopeInstall.sigma
-    tGroup.add(makeAxisTriad(AXIS_LENGTH * 0.85, 'T')) // T 轴（刀具，稍短）
+    const tTriad = makeAxisTriad(AXIS_LENGTH * 0.85, 'T') // T 轴（刀具，稍短）
+    tTriad.scale.setScalar(k)
+    tGroup.add(tTriad)
     axesGroup.add(tGroup)
     worldGroup.add(axesGroup)
     requestRender()
   }
 
+  /** 坐标轴缩放因子：目标轴长取工件层包围球半径 [mm]（夹上下限），未挂载工件时退回 1. */
+  function axisScaleFactor(): number {
+    const wp = layerGroups['workpiece']
+    if (!wp || !worldGroup) return 1
+    // 在 worldGroup 本地系（mm、Z-up）取包围盒：外层 tilt(45°)/spin/scale 会把场景空间
+    // 轴对齐包围盒膨胀，且 Box3.setFromObject 不刷新父级矩阵（matrixWorld 可能过期），均需排除
+    worldGroup.updateWorldMatrix(true, true)
+    const invWorld = worldGroup.matrixWorld.clone().invert()
+    const box = new THREE.Box3()
+    wp.traverse((child) => {
+      const mesh = child as THREE.Mesh
+      if (!mesh.isMesh) return
+      const geo = mesh.geometry
+      if (!geo.attributes.position || geo.attributes.position.count === 0) return
+      geo.computeBoundingBox()
+      if (!geo.boundingBox) return
+      const local = new THREE.Matrix4().multiplyMatrices(invWorld, mesh.matrixWorld)
+      box.union(geo.boundingBox.clone().applyMatrix4(local))
+    })
+    if (box.isEmpty()) return 1
+    const radius = box.getBoundingSphere(new THREE.Sphere()).radius
+    const len = THREE.MathUtils.clamp(radius * AXIS_SIZE_RATIO, AXIS_MIN_LENGTH, AXIS_MAX_LENGTH)
+    return len / AXIS_LENGTH
+  }
+
   /** 设置安装参数并（重）画坐标轴 + 对已挂载的刀具系图层施加变换. */
-  function setEnvelopeInstall(a: number, sigmaDeg: number): void {
+  function setEnvelopeInstall(a: number, sigmaDeg: number, j_t: number = -1): void {
     envelopeInstall = { a, sigma: (sigmaDeg * Math.PI) / 180 }
-    for (const id of ['rake', 'edge', 'flank', 'singleTooth', 'conjugate', 'conjugateGear', 'interference'] as LayerId[]) {
+    envelopeJt = j_t
+    // 注意：本列表仅收刀具系 T 图层；toothFlank（内齿轮齿面）为 W 系，勿加入（免 T→W 变换）
+    for (const id of ['rake', 'edge', 'flank', 'singleTooth', 'toolRing', 'conjugate', 'conjugateGear', 'interference'] as LayerId[]) {
       const g = layerGroups[id]
       if (g) applyInstallTransform(g)
     }
@@ -724,8 +983,9 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     group.name = id
     group.add(mesh)
     worldGroup!.add(group)
-    // 刀具系 T 图层（除 workpiece 外的包络图层）施加安装变换 T→W（中心距 a + 轴交角 Σ）
-    if (id !== 'workpiece') {
+    // 刀具系 T 图层（除 workpiece/toothFlank 外的包络图层）施加安装变换 T→W（中心距 a + 轴交角 Σ）；
+    // toothFlank（内齿轮齿面）本身就在 W 系（工件齿面网格），免变换——否则整层平移/翻转错位
+    if (id !== 'workpiece' && id !== 'toothFlank') {
       applyInstallTransform(group)
     }
     layerGroups[id] = group
@@ -734,6 +994,10 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     applyRenderModeInternal(renderMode.value)
     if (visual.kind === 'line') {
       startGrowAnimation(group)
+    }
+    // 等效产形齿轮：默认单色（覆盖 createLayerMaterial 的顶点色自动检测），「干涉」切换时改顶点色
+    if (id === 'conjugateGear') {
+      applyConjugateGearStyle()
     }
   }
 
@@ -778,11 +1042,14 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
 
   function removeLayer(id: LayerId): void {
     if (id === 'workpiece') return // 工件基准层不删除
+    if (id === 'sweptCloud') { clearAnimMesh(); return } // 扫掠点云走动画清理链（内部引用一并释放）
     removeLayerGroup(id)
     requestRender()
   }
 
   function clearLayers(): void {
+    // 扫掠点云（运动仿真动画）一并清理：其 group 登记在 layerGroups，但内部引用由 clearAnimMesh 释放
+    if (animGroup || pitchCirclesGroup) clearAnimMesh()
     for (const id of Object.keys(layerGroups) as LayerId[]) {
       if (id === 'workpiece') continue
       removeLayerGroup(id)
@@ -805,6 +1072,28 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   }
 
   function setLayerOpacity(id: LayerId, opacity: number): void {
+    // 扫掠点云：透明度是「因子」语义（与光谱逐帧揭示 opacity 相乘），不直接覆写
+    if (id === 'sweptCloud') {
+      sweptCloudOpacityFactor = opacity
+      if (spectrumMode && spectrumMesh) {
+        // 以当前揭示位置重刷一遍 opacity（复用现有揭示逻辑）
+        setSpectrumReveal(animPhiDeg)
+      } else if (animMesh || fullGearMesh || sectionAnimLine || sectionAnimGear) {
+        const apply = (mesh: THREE.Mesh | null): void => {
+          if (!mesh) return
+          const mat = mesh.material as THREE.MeshStandardMaterial
+          mat.opacity = opacity
+        }
+        apply(animMesh)
+        apply(fullGearMesh)
+        // 截面动画线同步因子
+        for (const line of [sectionAnimLine, sectionAnimGear]) {
+          if (line) (line.material as THREE.LineBasicMaterial).opacity = opacity
+        }
+      }
+      requestRender()
+      return
+    }
     const group = layerGroups[id]
     if (!group) return
     group.traverse((child) => {
@@ -862,6 +1151,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   }
 
   function dispose(): void {
+    savedMaxPolarAngle = null
     if (animationId !== null) {
       cancelAnimationFrame(animationId)
       animationId = null
@@ -931,6 +1221,989 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
 
   init()
 
+  // ── 运动仿真：动画网格管理 ──────────────────────────────────────────
+
+  /** 创建分度圆环（工件 r_pw 在 W 原点，刀具 r_pt 在 T 原点）. */
+  function drawPitchCircles(rpw: number, rpt: number): void {
+    if (!worldGroup || !envelopeInstall) return
+    if (pitchCirclesGroup) {
+      worldGroup.remove(pitchCirclesGroup)
+      disposeGroup(pitchCirclesGroup)
+      pitchCirclesGroup = null
+    }
+    pitchCirclesGroup = new THREE.Group()
+    pitchCirclesGroup.name = 'pitch-circles'
+    const hw = rpw * 0.005 // 视觉半宽 ≈ 0.5% r_pw
+    const circleMat = new THREE.MeshBasicMaterial({
+      color: 0xffaa00,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+    })
+    // 工件节圆（W 系原点）
+    const wpGeo = new THREE.RingGeometry(rpw - hw, rpw + hw, 128)
+    const wpMesh = new THREE.Mesh(wpGeo, circleMat)
+    wpMesh.name = 'pitch-circle-workpiece'
+    pitchCirclesGroup.add(wpMesh)
+    // 刀具节圆（T 系原点，经安装变换放置）
+    const tGeo = new THREE.RingGeometry(rpt - hw, rpt + hw, 128)
+    const tMesh = new THREE.Mesh(tGeo, circleMat.clone())
+    tMesh.name = 'pitch-circle-tool'
+    const tSub = new THREE.Group()
+    tSub.position.set(envelopeInstall.a, 0, 0)
+    tSub.rotation.x = envelopeInstall.sigma
+    tSub.add(tMesh)
+    pitchCirclesGroup.add(tSub)
+    worldGroup.add(pitchCirclesGroup)
+  }
+
+  /** K-0.5 链矩阵 M(φ) = Rot_z(−φ_t)·Rot_x(−Σ)·Tran_x(−a)·Rot_z(φ_t/ω)（与后端 workpiece_to_tool_chain 默认参数一致，W 系点 → T 系）. */
+  function animChainMatrix(phiDeg: number): THREE.Matrix4 {
+    const c = animChain!
+    const phiT = (phiDeg * Math.PI) / 180
+    const phiW = phiT / c.omega
+    const m = new THREE.Matrix4()
+    m.makeRotationZ(-phiT)
+    m.multiply(new THREE.Matrix4().makeRotationX(-c.sigma))
+    m.multiply(new THREE.Matrix4().makeTranslation(-c.a, 0, 0))
+    m.multiply(new THREE.Matrix4().makeRotationZ(phiW))
+    return m
+  }
+
+  /** 矩阵逐顶点应用 src → out[outBase..]（xyz 交错；column-major elements 手工展开）. */
+  function applyMatrixToPositions(m: THREE.Matrix4, src: Float32Array, out: Float32Array, outBase: number = 0): void {
+    const e = m.elements
+    for (let i = 0; i < src.length; i += 3) {
+      const x = src[i], y = src[i + 1], z = src[i + 2]
+      out[outBase + i] = e[0] * x + e[4] * y + e[8] * z + e[12]
+      out[outBase + i + 1] = e[1] * x + e[5] * y + e[9] * z + e[13]
+      out[outBase + i + 2] = e[2] * x + e[6] * y + e[10] * z + e[14]
+    }
+  }
+
+  /** 帧网格 φ → 连续帧号（回退插值模式映射）. */
+  function animPhiToFframe(phiDeg: number): number {
+    return animPhiStep !== 0 ? (phiDeg - animPhi0) / animPhiStep : 0
+  }
+
+  /** φ 夹取：合成模式限 ±span；回退模式夹到帧网格范围. */
+  function clampPhi(phiDeg: number): number {
+    if (animSynthOk) return Math.max(-animSpanDeg, Math.min(animSpanDeg, phiDeg))
+    const lo = animPhi0
+    const hi = animPhiStep * (animMAnim - 1) + animPhi0
+    return Math.max(Math.min(lo, hi), Math.min(Math.max(lo, hi), phiDeg))
+  }
+
+  /** 取 φ_t [deg] 处单齿顶点位置写入 out（合成 = 链矩阵实时变换；回退 = 帧间插值）. */
+  function animPositionsAt(phiDeg: number, out: Float32Array): void {
+    if (animSynthOk && animChain) {
+      applyMatrixToPositions(animChainMatrix(phiDeg), animBasePos, out)
+      return
+    }
+    const f = animPhiToFframe(phiDeg)
+    const idx = Math.max(0, Math.min(Math.floor(f), animMAnim - 1))
+    const nxt = Math.min(idx + 1, animMAnim - 1)
+    const frac = Math.max(0, f - idx)
+    const cur = animFramePositions[idx]
+    const next = animFramePositions[nxt]
+    if (frac < 1e-6) {
+      out.set(cur)
+    } else {
+      for (let i = 0; i < out.length; i++) out[i] = cur[i] + frac * (next[i] - cur[i])
+    }
+  }
+
+  /** 加载动画数据：创建齿面网格 + 分度圆. */
+  function loadAnimMesh(
+    animData: { frames: Array<{ phi_t_deg: number; positions: number[] }>; indices: number[]; mesh_indices: number[]; n_vertices: number; theta_range_deg: number; omega_ratio?: number; n_profile?: number; layer_zs?: number[] },
+    pitchRadii: { rpw: number; rpt: number; z_w?: number },
+    onFrameUpdate?: (phiDeg: number) => void,
+  ): void {
+    clearAnimMesh()
+    animFrameCallback = onFrameUpdate ?? null
+    if (!worldGroup || !envelopeInstall) { console.warn('[loadAnimMesh] 无 worldGroup 或 envelopeInstall'); return }
+    animMAnim = animData.frames.length
+    if (animMAnim === 0) { console.warn('[loadAnimMesh] 0 帧'); return }
+    animZW = pitchRadii.z_w ?? 0
+
+    // 动画位置保持 T 系（后端原始坐标），不额外变换。
+    // animGroup 会施加安装变换，使 T 系几何正确放置到场景中。
+    animFramePositions = animData.frames.map(f => new Float32Array(f.positions))
+    animMeshIndices = new Uint32Array(animData.mesh_indices)
+    // 截面切片元数据（旧后端缺省 → n_profile=0，前端不可切截面）
+    animVertexOrig = new Uint32Array(animData.indices)
+    animNProfile = animData.n_profile ?? 0
+    animLayerZs = animData.layer_zs ? [...animData.layer_zs] : []
+
+    // φ 域合成初始化：omega_ratio 提供时由 frames[0] 反解 W 系基准点 P_W = M(φ0)^{-1}·frame0，
+    // 再用 frames[1] 自校验（合成 vs 后端帧，链矩阵若与后端不符此处必超差）→ 失败回退帧插值
+    animPhi0 = animData.frames[0].phi_t_deg
+    animPhiStep = animMAnim > 1
+      ? (animData.frames[animMAnim - 1].phi_t_deg - animPhi0) / (animMAnim - 1)
+      : 0
+    animSynthOk = false
+    animChain = null
+    if (animData.omega_ratio && animData.omega_ratio > 0 && envelopeInstall && animMAnim >= 2) {
+      animChain = { a: envelopeInstall.a, sigma: envelopeInstall.sigma, omega: animData.omega_ratio }
+      const f0 = animFramePositions[0]
+      const inv = animChainMatrix(animPhi0).invert()
+      animBasePos = new Float32Array(f0.length)
+      applyMatrixToPositions(inv, f0, animBasePos)
+      const check = new Float32Array(f0.length)
+      applyMatrixToPositions(animChainMatrix(animData.frames[1].phi_t_deg), animBasePos, check)
+      const ref = animFramePositions[1]
+      let maxd = 0
+      for (let i = 0; i < check.length; i++) {
+        const d = Math.abs(check[i] - ref[i])
+        if (d > maxd) maxd = d
+      }
+      animSynthOk = maxd < 1e-3 // mm（后端帧值 1e-6 圆整，正常应 ≈1e-5 内）
+      console.log('[loadAnimMesh] φ 合成自校验 maxΔ =', maxd.toFixed(6), 'mm →', animSynthOk ? '启用 ±360°' : '回退帧插值')
+    }
+    // 半程：合成 ±360°；回退 = 帧实际铺设范围（≠ theta_range_deg 元数据——那是接触求解域）
+    animSpanDeg = animSynthOk
+      ? ANIM_SPAN_DEG
+      : Math.max(1, Math.abs(animPhiStep * (animMAnim - 1)) / 2)
+    animScratch = new Float32Array(animFramePositions[0].length)
+
+    // 创建 BufferGeometry
+    animGeometry = new THREE.BufferGeometry()
+    animGeometry.setAttribute('position', new THREE.BufferAttribute(animFramePositions[0].slice(), 3))
+    animGeometry.setIndex(new THREE.BufferAttribute(animMeshIndices, 1))
+    // 光谱顶点色（蓝→红，按帧索引）
+    const nVerts = animFramePositions[0].length / 3
+    const colors = new Float32Array(nVerts * 3)
+    setFrameColors(colors, animPhi0) // 初始色（随后 setAnimPhi 刷到起点 φ）
+    animGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    animGeometry.computeVertexNormals()
+
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      metalness: 0.3,
+      roughness: 0.5,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+      depthTest: false,  // 动画网格始终可见，不被产形面深度缓冲遮挡
+    })
+    animMesh = new THREE.Mesh(animGeometry, mat)
+    animMesh.name = 'anim-tooth-surface'
+    animMesh.frustumCulled = false // 防止视锥剔除误杀
+
+    animGroup = new THREE.Group()
+    animGroup.name = 'anim-group'
+    animGroup.position.set(envelopeInstall.a, 0, 0)
+    animGroup.rotation.x = envelopeInstall.sigma
+    animGroup.add(animMesh)
+    worldGroup.add(animGroup)
+    // 注册为「扫掠点云」图层（图层面板眼睛/聚焦/透明度对该层生效；不 dispose，clearAnimMesh 统一清理）
+    delete layerGroups['sweptCloud']
+    layerGroups['sweptCloud'] = animGroup
+
+    // 分度圆
+    drawPitchCircles(pitchRadii.rpw, pitchRadii.rpt)
+
+    // 重置播放状态（φ 起点 = −span，与滑条左端一致）
+    animFrameFloat = 0
+    animPhiDeg = -animSpanDeg
+    animDirection = 1
+    animPlaying = false
+    animLastTime = 0
+    // 刷到起点 φ（合成模式覆盖初始 frame0 占位）
+    setAnimPhi(animPhiDeg)
+
+    // 诊断日志
+    const posAttr = animGeometry.getAttribute('position') as THREE.BufferAttribute
+    const bbox = animGeometry.boundingBox ?? (animGeometry.computeBoundingBox(), animGeometry.boundingBox!)
+    console.log('[loadAnimMesh]', animMAnim, '帧,', posAttr.count, '顶点,', animMeshIndices.length / 3, '三角形')
+    console.log('[loadAnimMesh] bbox:', JSON.stringify(bbox.min), '→', JSON.stringify(bbox.max))
+    console.log('[loadAnimMesh] install a=', envelopeInstall.a, 'sigma=', envelopeInstall.sigma)
+    console.log('[loadAnimMesh] worldGroup children:', worldGroup.children.length)
+
+    requestRender()
+  }
+
+  /** 更新动画到指定 φ_t [deg]（合成模式任意角；回退模式夹到帧网格后插值）. */
+  function setAnimPhi(phiDeg: number): void {
+    if (!animGeometry || !animFramePositions.length) {
+      console.warn('[setAnimPhi] 无 animGeometry 或无帧数据')
+      return
+    }
+    const phi = clampPhi(phiDeg)
+    animPhiDeg = phi
+    animFrameFloat = animPhiToFframe(phi) // 回退模式同步内部帧计数
+    // 截面模式：更新截面线（光谱色 + 合成 positions），面网格保持不动
+    if (sectionIz !== null && sectionGroup) {
+      updateSectionPositions(phi)
+      requestRender()
+      return
+    }
+    const posAttr = animGeometry.getAttribute('position') as THREE.BufferAttribute
+    animPositionsAt(phi, posAttr.array as Float32Array)
+    posAttr.needsUpdate = true
+    // 光谱色更新（φ 归一化跨整个滑条范围）
+    const colAttr = animGeometry.getAttribute('color') as THREE.BufferAttribute
+    setFrameColors(colAttr.array as Float32Array, phi)
+    colAttr.needsUpdate = true
+    // 全齿同步更新
+    if (fullGearGeometry && fullGearMesh?.visible) {
+      const fgAttr = fullGearGeometry.getAttribute('position') as THREE.BufferAttribute
+      fillFullGearPositions(fgAttr.array as Float32Array, phi)
+      fgAttr.needsUpdate = true
+      const fgCol = fullGearGeometry.getAttribute('color') as THREE.BufferAttribute
+      if (fgCol) {
+        fillFullGearColors(fgCol.array as Float32Array, phi)
+        fgCol.needsUpdate = true
+      }
+    }
+    requestRender()
+  }
+
+  /**
+   * φ_t 光谱色：滑条范围 [−span, +span] → HSL (蓝240°→红0°，s=100%，l=35%，加深版).
+   */
+  function colorAtPhi(phiDeg: number): [number, number, number] {
+    const t = Math.max(0, Math.min(1, (phiDeg + animSpanDeg) / (2 * animSpanDeg)))
+    const hue = (1 - t) * 240 // −span=蓝 → +span=红
+    const h = hue / 360
+    // HSL → RGB（s=1, l=0.35 加深）
+    const c = 0.7 // chroma = 2*l*s = 2*0.35*1
+    const x = c * (1 - Math.abs((h * 6) % 2 - 1))
+    let r = 0, g = 0, b = 0
+    const m = 0.35 - c / 2 // lightness offset
+    const sector = Math.floor(h * 6) % 6
+    if (sector === 0) { r = c + m; g = x + m; b = m }
+    else if (sector === 1) { r = x + m; g = c + m; b = m }
+    else if (sector === 2) { r = m; g = c + m; b = x + m }
+    else if (sector === 3) { r = m; g = x + m; b = c + m }
+    else if (sector === 4) { r = x + m; g = m; b = c + m }
+    else { r = c + m; g = m; b = x + m }
+    return [r, g, b]
+  }
+
+  /**
+   * 光谱色：φ_t [deg] → 每顶点 RGB 写入 Float32Array colors（nVerts*3）.
+   */
+  function setFrameColors(colors: Float32Array, phiDeg: number): void {
+    const [r, g, b] = colorAtPhi(phiDeg)
+    for (let i = 0; i < colors.length; i += 3) {
+      colors[i] = r; colors[i + 1] = g; colors[i + 2] = b
+    }
+  }
+
+  /** 设置播放/暂停. */
+  function setAnimPlaying(playing: boolean): void {
+    animPlaying = playing
+    if (playing) animLastTime = 0
+  }
+
+  /** 设置播放速度. */
+  function setAnimSpeed(speed: number): void {
+    animSpeed = speed
+  }
+
+  /** 切换单齿/全齿. */
+  function setAnimGearMode(mode: 'single' | 'full'): void {
+    if (!animGroup || !animMesh || !animGeometry || !envelopeInstall) return
+
+    const changed = animGearMode !== mode
+    animGearMode = mode
+
+    // 清理旧全齿 mesh
+    if (fullGearMesh && animGroup) {
+      animGroup.remove(fullGearMesh)
+      fullGearMesh.geometry.dispose()
+      ;(fullGearMesh.material as THREE.Material).dispose()
+      fullGearMesh = null
+      fullGearGeometry = null
+      fullGearIndices = null
+    }
+
+    if (mode === 'full' && animZW > 1 && animFramePositions.length > 0) {
+      const nVerts = animFramePositions[0].length / 3
+      const nTriIdx = animMeshIndices ? animMeshIndices.length : 0
+
+      fullGearIndices = new Uint32Array(nTriIdx * animZW)
+      for (let t = 0; t < animZW; t++) {
+        const offset = t * nVerts
+        for (let j = 0; j < nTriIdx; j++) {
+          fullGearIndices[t * nTriIdx + j] = animMeshIndices![j] + offset
+        }
+      }
+
+      fullGearGeometry = new THREE.BufferGeometry()
+      const fullPositions = new Float32Array(nVerts * 3 * animZW)
+      fillFullGearPositions(fullPositions, animPhiDeg)
+      fullGearGeometry.setAttribute('position', new THREE.BufferAttribute(fullPositions, 3))
+      fullGearGeometry.setIndex(new THREE.BufferAttribute(fullGearIndices, 1))
+      const fullColors = new Float32Array(nVerts * 3 * animZW)
+      fillFullGearColors(fullColors, animPhiDeg)
+      fullGearGeometry.setAttribute('color', new THREE.BufferAttribute(fullColors, 3))
+      fullGearGeometry.computeVertexNormals()
+
+      const mat = new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        metalness: 0.3,
+        roughness: 0.5,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.85,
+        depthTest: false,
+      })
+      fullGearMesh = new THREE.Mesh(fullGearGeometry, mat)
+      fullGearMesh.name = 'anim-full-gear'
+      fullGearMesh.frustumCulled = false
+      animGroup.add(fullGearMesh)
+    }
+
+    // 可见性仲裁（面/截面线 × 单齿/全齿 × 光谱开关，单一事实源）
+    applyAnimRenderVisibility()
+
+    // 光谱模式下齿轮模式变化 → 重建光谱组（揭示位置按 φ 恢复）
+    if (spectrumMode && changed) {
+      const prevReveal = spectrumMesh
+        ? (() => {
+            const visible = spectrumMesh.children.filter(
+              c => c instanceof THREE.Mesh && c.visible,
+            ) as THREE.Mesh[]
+            return visible.length
+              ? Math.max(...visible.map(m => (m.userData.phiDeg as number) ?? -animSpanDeg))
+              : -animSpanDeg
+          })()
+        : -animSpanDeg
+      clearSpectrumMesh()
+      spectrumMesh = buildSpectrumGroup(mode === 'full')
+      if (spectrumMesh) animGroup.add(spectrumMesh)
+      setSpectrumReveal(prevReveal)
+    }
+
+    requestRender()
+  }
+
+  /**
+   * 填充全齿环 positions：φ 处单齿位置（合成/插值到 animScratch）绕 Z 轴旋转 z_w 份.
+   * 在 T 系中做旋转（近似：内齿轮 Σ 小，视觉等价）.
+   */
+  function fillFullGearPositions(out: Float32Array, phiDeg: number): void {
+    animPositionsAt(phiDeg, animScratch)
+    fillGearCopies(out, phiDeg)
+  }
+
+  /** 旋转 z_w 份写入 out（全齿 positions 公共复制环）.
+
+    合成模式：实例必须绕**工件轴**阵列——先在 W 系对基准点 animBasePos 绕 z 转
+    t·齿距，再经 M(φ) 到 T 系（旧实现直接绕 z 转 T 系坐标 = 绕刀具轴阵列，整环
+    错位、仅基齿槽落齿轮上，用户报「只有一对齿面落在齿轮上」）。回退模式无解析
+    链，保持 T 系绕 z 近似。 */
+  function fillGearCopies(out: Float32Array, phiDeg: number = animPhiDeg): void {
+    const nVerts = animScratch.length / 3
+    const toothAngle = (2 * Math.PI) / animZW
+    const m = animSynthOk && animChain ? animChainMatrix(phiDeg) : null
+    for (let t = 0; t < animZW; t++) {
+      const angle = t * toothAngle
+      const cosA = Math.cos(angle)
+      const sinA = Math.sin(angle)
+      const base = t * nVerts * 3
+      if (m) {
+        for (let v = 0; v < nVerts; v++) {
+          const vi = v * 3
+          const x = animBasePos[vi], y = animBasePos[vi + 1], z = animBasePos[vi + 2]
+          animScratch[vi] = cosA * x - sinA * y
+          animScratch[vi + 1] = sinA * x + cosA * y
+          animScratch[vi + 2] = z
+        }
+        applyMatrixToPositions(m, animScratch, out, base)
+      } else {
+        for (let v = 0; v < nVerts; v++) {
+          const vi = v * 3
+          const x = animScratch[vi], y = animScratch[vi + 1], z = animScratch[vi + 2]
+          out[base + vi] = cosA * x - sinA * y
+          out[base + vi + 1] = sinA * x + cosA * y
+          out[base + vi + 2] = z
+        }
+      }
+    }
+  }
+
+  /** 填充全齿环 colors：每齿同色（当前 φ 光谱色，HSL l=0.35 与 setFrameColors 一致）. */
+  function fillFullGearColors(out: Float32Array, phiDeg: number): void {
+    // 与 setFrameColors 同参（s=1, l=0.35 加深版），直接复用其单色写入
+    setFrameColors(out, phiDeg)
+  }
+
+  // ── 截面切片：沿齿向选廓线平面（线渲染替代面网格）─────────────────
+
+  /** 计算层 iz 的线段顶点对（层内相邻 iu 顶点，跳过未命中缺口）. */
+  function computeSectionSegments(iz: number): void {
+    sectionSegPairs = []
+    const nProf = animNProfile
+    const verts: number[] = []
+    for (let v = 0; v < animVertexOrig.length; v++) {
+      if (Math.floor(animVertexOrig[v] / nProf) === iz) verts.push(v)
+    }
+    // mesh_verts 升序 → 层内 iu 升序；原始索引差 1 = 相邻 iu
+    for (let i = 0; i + 1 < verts.length; i++) {
+      if (animVertexOrig[verts[i + 1]] - animVertexOrig[verts[i]] === 1) {
+        sectionSegPairs.push(verts[i], verts[i + 1])
+      }
+    }
+  }
+
+  /**
+   * φ 处截面线几何：该层廓线折线段（fullGear=true 时绕 T 轴旋转复制 z_w 份合并）.
+   * 行为与面模式全齿复制的近似一致（绕 T 系 z 轴阵列）.
+   */
+  function buildSectionLineGeometry(phiDeg: number, fullGear: boolean): THREE.BufferGeometry {
+    animPositionsAt(phiDeg, animScratch)
+    const seg = sectionSegPairs
+    const nSeg = seg.length / 2
+    const copies = fullGear && animZW > 1 ? animZW : 1
+    const toothAngle = copies > 1 ? (2 * Math.PI) / copies : 0
+    const positions = new Float32Array(nSeg * copies * 2 * 3)
+    let w = 0
+    // 实例绕工件轴阵列：W 系阵列后 M(φ)（同 fillGearCopies 修法）
+    const mI = animSynthOk && animChain ? animChainMatrix(phiDeg) : null
+    const srcI = mI ? animBasePos : animScratch
+    const eI = mI ? mI.elements : null
+    for (let k = 0; k < copies; k++) {
+      const c = Math.cos(k * toothAngle)
+      const s = Math.sin(k * toothAngle)
+      for (let e = 0; e < nSeg; e++) {
+        for (let j = 0; j < 2; j++) {
+          const v = seg[e * 2 + j]
+          const x = srcI[v * 3], y = srcI[v * 3 + 1], z = srcI[v * 3 + 2]
+          const rx = c * x - s * y
+          const ry = s * x + c * y
+          if (eI) {
+            positions[w++] = eI[0] * rx + eI[4] * ry + eI[8] * z + eI[12]
+            positions[w++] = eI[1] * rx + eI[5] * ry + eI[9] * z + eI[13]
+            positions[w++] = eI[2] * rx + eI[6] * ry + eI[10] * z + eI[14]
+          } else {
+            positions[w++] = rx
+            positions[w++] = ry
+            positions[w++] = z
+          }
+        }
+      }
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    return geo
+  }
+
+  /** 构建截面动画线（动画模式：单齿廓线 + 全齿廓线，按 φ 更新 positions）. */
+  function buildSectionRenderables(): void {
+    if (!animGroup || sectionSegPairs.length === 0) return
+    clearSectionRenderables()
+    sectionGroup = new THREE.Group()
+    sectionGroup.name = 'section-lines'
+    const matLine = new THREE.LineBasicMaterial({
+      color: new THREE.Color(...colorAtPhi(animPhiDeg)),
+      transparent: true,
+      opacity: sweptCloudOpacityFactor,
+      depthTest: false, // 廓线始终可见（与动画面网格一致）
+    })
+    sectionAnimLine = new THREE.LineSegments(buildSectionLineGeometry(animPhiDeg, false), matLine)
+    sectionAnimLine.name = 'section-anim-line'
+    sectionAnimLine.frustumCulled = false
+    sectionGroup.add(sectionAnimLine)
+    if (animZW > 1) {
+      sectionAnimGear = new THREE.LineSegments(buildSectionLineGeometry(animPhiDeg, true), matLine.clone())
+      sectionAnimGear.name = 'section-anim-gear'
+      sectionAnimGear.frustumCulled = false
+      sectionGroup.add(sectionAnimGear)
+    }
+    animGroup.add(sectionGroup)
+  }
+
+  /** 按 φ 更新截面线 positions（合成/插值）+ φ 光谱色. */
+  function updateSectionPositions(phiDeg: number): void {
+    animPositionsAt(phiDeg, animScratch)
+    const seg = sectionSegPairs
+    const nSeg = seg.length / 2
+    const [cr, cg, cb] = colorAtPhi(phiDeg)
+    for (const line of [sectionAnimLine, sectionAnimGear]) {
+      if (!line) continue
+      ;(line.material as THREE.LineBasicMaterial).color.setRGB(cr, cg, cb)
+      const attr = line.geometry.getAttribute('position') as THREE.BufferAttribute
+      const arr = attr.array as Float32Array
+      const copies = arr.length / (nSeg * 2 * 3)
+      const toothAngle = copies > 1 ? (2 * Math.PI) / copies : 0
+      // 实例绕工件轴阵列：W 系阵列后 M(φ)（同 fillGearCopies 修法）
+      const mU = animSynthOk && animChain ? animChainMatrix(phiDeg) : null
+      const srcU = mU ? animBasePos : animScratch
+      const eU = mU ? mU.elements : null
+      let w = 0
+      for (let k = 0; k < copies; k++) {
+        const c = Math.cos(k * toothAngle)
+        const s = Math.sin(k * toothAngle)
+        for (let e = 0; e < nSeg; e++) {
+          for (let j = 0; j < 2; j++) {
+            const v = seg[e * 2 + j]
+            const x = srcU[v * 3], y = srcU[v * 3 + 1], z = srcU[v * 3 + 2]
+            const rx = c * x - s * y
+            const ry = s * x + c * y
+            if (eU) {
+              arr[w++] = eU[0] * rx + eU[4] * ry + eU[8] * z + eU[12]
+              arr[w++] = eU[1] * rx + eU[5] * ry + eU[9] * z + eU[13]
+              arr[w++] = eU[2] * rx + eU[6] * ry + eU[10] * z + eU[14]
+            } else {
+              arr[w++] = rx
+              arr[w++] = ry
+              arr[w++] = z
+            }
+          }
+        }
+      }
+      attr.needsUpdate = true
+    }
+  }
+
+  /** 清理截面动画线. */
+  function clearSectionRenderables(): void {
+    if (!sectionGroup) return
+    sectionGroup.traverse((child) => {
+      if (child instanceof THREE.LineSegments) {
+        child.geometry.dispose()
+        ;(child.material as THREE.Material).dispose()
+      }
+    })
+    sectionGroup.parent?.remove(sectionGroup)
+    sectionGroup = null
+    sectionAnimLine = null
+    sectionAnimGear = null
+  }
+
+  /** 动画渲染对象可见性仲裁（面/截面线 × 单齿/全齿 × 光谱开关）——单一事实源. */
+  function applyAnimRenderVisibility(): void {
+    const sec = sectionIz !== null
+    if (animMesh) animMesh.visible = !sec && !spectrumMode && animGearMode === 'single'
+    if (fullGearMesh) fullGearMesh.visible = !sec && !spectrumMode && animGearMode === 'full'
+    if (sectionGroup) {
+      sectionGroup.visible = sec && !spectrumMode
+      if (sectionAnimLine) sectionAnimLine.visible = animGearMode === 'single'
+      if (sectionAnimGear) sectionAnimGear.visible = animGearMode === 'full'
+    }
+  }
+
+  /** 截面切片：沿齿向选廓线平面（iz = 轴向层号，null = 恢复全齿面渲染）. */
+  function setAnimSection(iz: number | null): void {
+    if (!animGroup) return
+    if (iz !== null && (animNProfile <= 0 || animVertexOrig.length === 0)) return
+    sectionIz = iz
+    if (iz !== null) {
+      computeSectionSegments(iz)
+      buildSectionRenderables()
+    } else {
+      clearSectionRenderables()
+      sectionSegPairs = []
+    }
+    applyAnimRenderVisibility()
+    // 光谱模式 → 重建（面 ↔ 线两形态，揭示位置保留）
+    if (spectrumMode) {
+      clearSpectrumMesh()
+      spectrumMesh = buildSpectrumGroup(animGearMode === 'full')
+      if (spectrumMesh) animGroup.add(spectrumMesh)
+      setSpectrumReveal(animPhiDeg)
+    } else if (animFramePositions.length) {
+      // 动画模式 → 立即刷到当前 φ
+      updateSectionPositions(animPhiDeg)
+    }
+    requestRender()
+  }
+
+  /** 清理动画网格. */
+  function clearAnimMesh(): void {
+    // 注销「扫掠点云」图层登记（几何/材质由下方统一 dispose，不走 removeLayerGroup）
+    delete layerGroups['sweptCloud']
+    sweptCloudOpacityFactor = 1
+    clearSpectrumMesh()
+    // 截面切片状态一并复位
+    clearSectionRenderables()
+    sectionIz = null
+    sectionSegPairs = []
+    animVertexOrig = new Uint32Array(0)
+    animNProfile = 0
+    animLayerZs = []
+    if (fullGearMesh && animGroup) {
+      animGroup.remove(fullGearMesh)
+      fullGearMesh.geometry.dispose()
+      ;(fullGearMesh.material as THREE.Material).dispose()
+      fullGearMesh = null
+      fullGearGeometry = null
+      fullGearIndices = null
+    }
+    if (animGroup && worldGroup) {
+      worldGroup.remove(animGroup)
+      disposeGroup(animGroup)
+      animGroup = null
+    }
+    if (pitchCirclesGroup && worldGroup) {
+      worldGroup.remove(pitchCirclesGroup)
+      disposeGroup(pitchCirclesGroup)
+      pitchCirclesGroup = null
+    }
+    animGeometry = null
+    animMesh = null
+    animFramePositions = []
+    animMeshIndices = null
+    animMAnim = 0
+    animPlaying = false
+    animFrameFloat = 0
+    // φ 域合成状态复位
+    animPhiDeg = 0
+    animSpanDeg = 40
+    animSynthOk = false
+    animBasePos = new Float32Array(0)
+    animScratch = new Float32Array(0)
+    animChain = null
+    animPhi0 = 0
+    animPhiStep = 0
+    animZW = 0
+    spectrumMode = false
+    animGearMode = 'single'
+    animFrameCallback = null
+    requestRender()
+  }
+
+  // ── 光谱扫掠面模式 ─────────────────────────────────────────────────
+
+  /** 清理光谱扫掠面 mesh 组. */
+  function clearSpectrumMesh(): void {
+    if (spectrumMesh && animGroup) {
+      animGroup.remove(spectrumMesh)
+      spectrumMesh.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose()
+          ;(child.material as THREE.Material).dispose()
+        }
+      })
+      spectrumMesh = null
+    }
+    requestRender()
+  }
+
+  /** jet colormap: t∈[0,1] → (r,g,b)，蓝→青→绿→黄→红（加深版）. */
+  function jetColor(t: number): [number, number, number] {
+    let r: number, g: number, b: number
+    if (t < 0.25) {
+      r = 0; g = t * 4; b = 1
+    } else if (t < 0.5) {
+      r = 0; g = 1; b = 1 - (t - 0.25) * 4
+    } else if (t < 0.75) {
+      r = (t - 0.5) * 4; g = 1; b = 0
+    } else {
+      r = 1; g = 1 - (t - 0.75) * 4; b = 0
+    }
+    // 加深：整体乘 0.7
+    return [r * 0.7, g * 0.7, b * 0.7]
+  }
+
+  /** 全齿/截面光谱最大采样数（降采样上限，控制构建耗时与显存）. */
+  const SPECTRUM_MAX_FRAMES = 16
+
+  /**
+   * 构建光谱扫掠面（φ 域均匀采样 [−span, +span]）.
+   * 单齿：每采样 φ 一个 mesh（与帧数同密度）。
+   * 全齿：每采样 φ 一个全齿 mesh（≤16 个）——flatShading 免法向、材质单色免顶点色、
+   *       索引跨采样共享，构建与渲染均比旧「单 geometry 全帧合并」轻一个量级。
+   * mesh.userData.phiDeg 记录采样 φ（揭示时映射用）。
+   */
+  function buildSpectrumGroup(fullGear = false): THREE.Group | null {
+    if (!animFramePositions.length || !animMeshIndices || animMAnim < 2) return null
+
+    const F = animMAnim
+    const span = animSpanDeg
+    const sectionMode = sectionIz !== null && sectionSegPairs.length > 0
+    const full = fullGear && animZW > 1
+    const group = new THREE.Group()
+    group.name = 'spectrum-swept-surface'
+
+    // φ 均匀采样序列（含 ±span 端点）；全齿/截面全齿降采样 ≤ SPECTRUM_MAX_FRAMES
+    const step = full ? Math.max(1, Math.ceil(F / SPECTRUM_MAX_FRAMES)) : 1
+    const phis: number[] = []
+    for (let i = 0; i < F; i += step) phis.push(-span + (2 * span * i) / Math.max(1, F - 1))
+    if (phis.length === 0 || phis[phis.length - 1] < span - 1e-9) phis.push(span)
+
+    // ── 截面光谱：每采样 φ 一条廓线折线（全齿时 z_w 份合并进单对象） ──
+    if (sectionMode) {
+      for (const phi of phis) {
+        const t = (phi + span) / (2 * span)
+        const [cr, cg, cb] = jetColor(t)
+        const mat = new THREE.LineBasicMaterial({
+          color: new THREE.Color(cr, cg, cb),
+          transparent: true,
+          opacity: 0,
+        })
+        const line = new THREE.LineSegments(buildSectionLineGeometry(phi, full), mat)
+        line.name = `spectrum-section-${phi.toFixed(1)}`
+        line.userData.phiDeg = phi
+        line.frustumCulled = false
+        line.visible = false
+        group.add(line)
+      }
+      return group
+    }
+
+    if (full) {
+      // ── 全齿模式：每采样 φ 一个全齿 mesh（≤ SPECTRUM_MAX_FRAMES） ──
+      const nVerts = animFramePositions[0].length / 3
+      const nTriIdx = animMeshIndices.length
+
+      // 全齿索引模板（z_w 份单齿偏移）——所有采样共享同一 BufferAttribute
+      const gearIndices = new Uint32Array(nTriIdx * animZW)
+      for (let t = 0; t < animZW; t++) {
+        const offset = t * nVerts
+        for (let j = 0; j < nTriIdx; j++) {
+          gearIndices[t * nTriIdx + j] = animMeshIndices[j] + offset
+        }
+      }
+      const sharedIndex = new THREE.BufferAttribute(gearIndices, 1)
+
+      for (const phi of phis) {
+        // 合成/插值 φ 处单齿 → 旋转 z_w 份全齿 positions
+        const positions = new Float32Array(nVerts * 3 * animZW)
+        animPositionsAt(phi, animScratch)
+        fillGearCopies(positions, phi)
+
+        const geo = new THREE.BufferGeometry()
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+        geo.setIndex(sharedIndex)
+        // flatShading：着色器内按面法向着色，免 computeVertexNormals（构建主卡点）
+
+        const t = (phi + span) / (2 * span)
+        const [cr, cg, cb] = jetColor(t)
+        const mat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(cr, cg, cb),
+          metalness: 0.3,
+          roughness: 0.5,
+          flatShading: true,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        })
+        const mesh = new THREE.Mesh(geo, mat)
+        mesh.name = `spectrum-gear-phi-${phi.toFixed(1)}`
+        mesh.userData.phiDeg = phi
+        mesh.frustumCulled = false
+        mesh.visible = false
+        group.add(mesh)
+      }
+
+    } else {
+      // ── 单齿模式：每采样 φ 一个 mesh（轻量） ──
+      for (const phi of phis) {
+        const t = (phi + span) / (2 * span)
+        const [cr, cg, cb] = jetColor(t)
+
+        const geo = new THREE.BufferGeometry()
+        const positions = new Float32Array(animScratch.length)
+        animPositionsAt(phi, positions)
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+        geo.setIndex(new THREE.BufferAttribute(animMeshIndices, 1))
+        geo.computeVertexNormals()
+
+        const mat = new THREE.MeshStandardMaterial({
+          color: new THREE.Color(cr, cg, cb),
+          metalness: 0.3,
+          roughness: 0.5,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        })
+        const mesh = new THREE.Mesh(geo, mat)
+        mesh.name = `spectrum-phi-${phi.toFixed(1)}`
+        mesh.userData.phiDeg = phi
+        mesh.frustumCulled = false
+        mesh.visible = false
+        group.add(mesh)
+      }
+    }
+
+    return group
+  }
+
+  /**
+   * 光谱揭示：显示 −span..phiDeg 的采样.
+   * 单齿/全齿统一 per-mesh 揭示：按 userData.phiDeg 与当前 φ 比较——
+   * 未来采样隐藏（visible=false，不进渲染队列），当前 0.9，过去 0.3；
+   * 降采样时 current 映射到 ≤current 的最近采样。
+   * opacity 一律乘扫掠点云图层透明度因子（图层面板滑条）。
+   */
+  function setSpectrumReveal(phiDeg: number): void {
+    if (!spectrumMesh) return
+    const current = clampPhi(phiDeg)
+    // 同步内部 φ 计数器（播放/重置后从正确位置继续）
+    animPhiDeg = current
+    animFrameFloat = animPhiToFframe(current)
+    const factor = sweptCloudOpacityFactor
+
+    // 当前 φ 对应的高亮采样：phiDeg ≤ current 的最大者
+    let activeIdx = -1
+    const meshes = spectrumMesh.children as THREE.Mesh[]
+    for (let i = 0; i < meshes.length; i++) {
+      const pd = meshes[i].userData.phiDeg as number
+      if (pd <= current + 1e-9) activeIdx = i
+    }
+
+    for (let i = 0; i < meshes.length; i++) {
+      const mesh = meshes[i]
+      const mat = mesh.material as THREE.MeshStandardMaterial
+      if (i > activeIdx) {
+        // 未来采样：隐藏（免 overdraw）
+        mesh.visible = false
+      } else {
+        mesh.visible = true
+        mat.opacity = (i === activeIdx ? 0.9 : 0.3) * factor
+      }
+    }
+    requestRender()
+  }
+
+  /** 切换光谱扫掠面模式. */
+  function setSpectrumMode(on: boolean): void {
+    spectrumMode = on
+    if (!animGroup || !animFramePositions.length) return
+
+    if (on) {
+      // 暂停动画播放
+      animPlaying = false
+      // 隐藏逐帧动画渲染对象（面网格/截面线，经仲裁器统一处理）
+      // 构建光谱扫掠面（按当前齿轮模式；截面模式下为线形态）
+      if (!spectrumMesh) {
+        spectrumMesh = buildSpectrumGroup(animGearMode === 'full')
+        if (spectrumMesh) animGroup.add(spectrumMesh)
+      }
+      applyAnimRenderVisibility()
+      // 初始揭示：从起点 φ 开始
+      setSpectrumReveal(-animSpanDeg)
+    } else {
+      // 清理光谱 mesh
+      clearSpectrumMesh()
+      // 恢复逐帧动画渲染对象（面/截面线按当前模式）
+      applyAnimRenderVisibility()
+    }
+    requestRender()
+  }
+
+  // ── ViewCube 视角切换 ──────────────────────────────────────────────
+
+  /** 获取模型包围盒中心与相机距离（ViewCube 定位用）. */
+  function getViewInfo(): { center: THREE.Vector3; distance: number } {
+    if (!camera || !controls) return { center: new THREE.Vector3(), distance: 10 }
+    const center = controls.target.clone()
+    const distance = camera.position.distanceTo(controls.target)
+    return { center, distance }
+  }
+
+  /** 标准视图方向表（模型 Z-up 坐标系）.
+   *  up = cross(dir, right) 在屏幕上的方向，确保面平行屏幕。
+   *  front/back 的 right 都是 +X，但 dir 相反，故 up 也相反。
+   */
+  const STANDARD_VIEWS: Record<StandardView, { dir: THREE.Vector3; up: THREE.Vector3 }> = {
+    top:    { dir: new THREE.Vector3(0, 0, 1),  up: new THREE.Vector3(0, 1, 0) },
+    bottom: { dir: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, -1, 0) },
+    front:  { dir: new THREE.Vector3(0, -1, 0), up: new THREE.Vector3(0, 0, 1) },
+    back:   { dir: new THREE.Vector3(0, 1, 0),  up: new THREE.Vector3(0, 0, -1) },
+    right:  { dir: new THREE.Vector3(1, 0, 0),  up: new THREE.Vector3(0, 0, 1) },
+    left:   { dir: new THREE.Vector3(-1, 0, 0), up: new THREE.Vector3(0, 0, 1) },
+  }
+
+  /**
+   * 切换到标准视图（300ms easeOutCubic 过渡）.
+   * 只做 Z-up → Y-up 轴转换（-90°X），不补偿 presentation 倾斜/自旋，
+   * 确保正交平面视图：前脸平行屏幕、边线水平/垂直。
+   */
+  function setStandardView(view: StandardView): void {
+    if (!camera || !controls) return
+    restoreMaxPolarAngle() // 从底视图切换时恢复原始限制
+    const { center, distance } = getViewInfo()
+    const { dir, up } = STANDARD_VIEWS[view]
+
+    // 模型空间 → 场景空间（仅 Z-up→Y-up 轴转换：worldGroup.rotation.x = -PI/2）
+    // model X→scene X, model Y→scene Z, model Z→scene -Y
+    const sceneDir = new THREE.Vector3(dir.x, dir.z, -dir.y)
+    const sceneUp = new THREE.Vector3(up.x, up.z, -up.y)
+
+    const targetPos = center.clone().add(sceneDir.multiplyScalar(distance))
+
+    // 停止自旋 + 立即归零 tilt/spin（确保相机目标位置对应摆正的模型）
+    if (!userInteracted) {
+      userInteracted = true
+    }
+    if (spinGroup) spinGroup.quaternion.identity()
+    if (tiltGroup) tiltGroup.quaternion.identity()
+    // 强制刷新世界矩阵，确保归零立即生效（否则相机目标位置对应的是旧姿态）
+    if (scene) scene.updateMatrixWorld(true)
+    controls.enabled = false
+
+    // 底视图 θ=π 超出 maxPolarAngle(126°) → 转场期间临时放行到 π，防止 controls.update() 钳制弹回
+    if (savedMaxPolarAngle === null) {
+      savedMaxPolarAngle = controls.maxPolarAngle
+    }
+    controls.maxPolarAngle = Math.PI
+
+    viewTransition = {
+      from: camera.position.clone(),
+      to: targetPos,
+      upFrom: camera.up.clone(),
+      upTo: sceneUp,
+      start: performance.now(),
+      duration: 300,
+    }
+    requestRender()
+  }
+
+  /** 恢复初始视角（Home 按钮用，300ms 过渡）. */
+  function resetView(): void {
+    if (!camera || !controls || !initialCameraPos || !initialCameraUp) return
+    restoreMaxPolarAngle() // 从底视图恢复时还原原始限制
+    const { center } = getViewInfo()
+    const dist = camera.position.distanceTo(center)
+    const dir = initialCameraPos.clone().sub(new THREE.Vector3(0, 0.5, 0)).normalize()
+    const targetPos = center.clone().add(dir.multiplyScalar(dist))
+
+    if (!userInteracted) {
+      userInteracted = true
+    }
+    if (spinGroup) spinGroup.quaternion.identity()
+    if (tiltGroup) tiltGroup.quaternion.identity()
+    if (scene) scene.updateMatrixWorld(true)
+    controls.enabled = false
+
+    viewTransition = {
+      from: camera.position.clone(),
+      to: targetPos,
+      upFrom: camera.up.clone(),
+      upTo: initialCameraUp.clone(),
+      start: performance.now(),
+      duration: 300,
+    }
+    requestRender()
+  }
+
+  /** 获取 ViewCube CSS 旋转矩阵（16 值，每帧由 animate 调用更新）. */
+  function getViewCubeRotation(): number[] {
+    if (!camera || !worldGroup) return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+
+    // 模型→场景的完整旋转链（worldGroup × tiltGroup × spinGroup）
+    const modelQuat = new THREE.Quaternion()
+    worldGroup.getWorldQuaternion(modelQuat)
+
+    // CSS 立方体朝向 = inverse(cameraRot) × modelRot
+    // 即：从相机视角看，模型的朝向
+    const cubeQuat = new THREE.Quaternion()
+      .copy(camera.quaternion)
+      .invert()
+      .multiply(modelQuat)
+
+    const m = new THREE.Matrix4().makeRotationFromQuaternion(cubeQuat)
+    return m.elements as unknown as number[]
+  }
+
   return {
     loadGear,
     addLayer,
@@ -945,6 +2218,10 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
       workpieceViewMode = mode
       applyWorkpieceView()
     },
+    setConjugateGearInterference: (on: boolean) => {
+      conjugateGearInterference = on
+      applyConjugateGearStyle()
+    },
     setLoggedIn: (v: boolean) => {
       loggedIn = v
     },
@@ -954,5 +2231,18 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     },
     resize,
     dispose,
+    loadAnimMesh,
+    setAnimPhi,
+    setAnimPlaying,
+    setAnimSpeed,
+    setAnimGearMode,
+    setAnimSection,
+    setSpectrumMode,
+    setSpectrumReveal,
+    clearAnimMesh,
+    getViewInfo,
+    setStandardView,
+    resetView,
+    getViewCubeRotation,
   }
 }

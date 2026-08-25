@@ -5,8 +5,8 @@ import { describe, it, expect } from 'vitest'
 import { MATERIAL_PRESETS, LAYER_VISUALS, LAYER_IDS } from './layerPalette'
 
 describe('layerPalette 纯数据', () => {
-  it('8 个语义图层 id 齐全且顺序固定', () => {
-    expect(LAYER_IDS).toEqual(['workpiece', 'conjugate', 'conjugateGear', 'interference', 'rake', 'edge', 'flank', 'singleTooth'])
+  it('10 个语义图层 id 齐全且顺序固定', () => {
+    expect(LAYER_IDS).toEqual(['workpiece', 'toothFlank', 'conjugate', 'conjugateGear', 'rake', 'edge', 'flank', 'singleTooth', 'toolRing', 'sweptCloud'])
   })
 
   it('每个图层 id 都有视觉定义且 id 自洽', () => {
@@ -36,17 +36,11 @@ describe('layerPalette 纯数据', () => {
     expect(LAYER_VISUALS.conjugate.doubleSide).toBe(true)
   })
 
-  it('等效产形齿轮默认半透明 + 双面 + 靛蓝', () => {
+  it('等效产形齿轮默认半透明 + 双面 + 靛蓝（GLB 带符号距离顶点色，前端「干涉」切换样式）', () => {
     expect(LAYER_VISUALS.conjugateGear.defaultOpacity).toBe(0.45)
     expect(MATERIAL_PRESETS.conjugateGear.transparent).toBe(true)
     expect(LAYER_VISUALS.conjugateGear.doubleSide).toBe(true)
     expect(MATERIAL_PRESETS.conjugateGear.color).toBe(0x2a6fbf)
-  })
-
-  it('干涉热力图默认近不透明 + 双面 + 顶点色占位白', () => {
-    expect(LAYER_VISUALS.interference.defaultOpacity).toBe(0.9)
-    expect(LAYER_VISUALS.interference.doubleSide).toBe(true)
-    expect(MATERIAL_PRESETS.interference.color).toBe(0xffffff) // 顶点色优先，color 仅占位
   })
 
   it('工件默认不透明（保持模块① 零回归）', () => {
@@ -59,5 +53,28 @@ describe('layerPalette 纯数据', () => {
     expect(LAYER_VISUALS.flank.defaultOpacity).toBe(0.5)
     expect(MATERIAL_PRESETS.rake.transparent).toBe(true)
     expect(MATERIAL_PRESETS.flank.transparent).toBe(true)
+  })
+
+  it('扫掠点云图层（运动仿真）默认半透明 + 双面 + jet 起点蓝色块', () => {
+    expect(LAYER_VISUALS.sweptCloud.label).toBe('扫掠点云')
+    expect(LAYER_VISUALS.sweptCloud.defaultOpacity).toBe(0.85)
+    expect(LAYER_VISUALS.sweptCloud.doubleSide).toBe(true)
+    expect(MATERIAL_PRESETS.spectrum.transparent).toBe(true)
+    expect(MATERIAL_PRESETS.spectrum.color).toBe(0x3050c8) // 加深版 jet(0) 蓝
+  })
+
+  it('内齿轮齿面：points 种类 + 洋红紫 + 屏幕空间固定像素点（防世界单位点连成条带）', () => {
+    expect(LAYER_VISUALS.toothFlank.label).toBe('内齿轮齿面')
+    expect(LAYER_VISUALS.toothFlank.kind).toBe('points')
+    expect(LAYER_VISUALS.toothFlank.pointSize).toBe(4) // 4px 屏幕空间
+    expect(LAYER_VISUALS.toothFlank.pointSizeAttenuation).toBe(false)
+    expect(MATERIAL_PRESETS.toothFlank.color).toBe(0xc05ab0) // 洋红紫 #C05AB0
+    expect(MATERIAL_PRESETS.toothFlank.transparent).toBe(false)
+  })
+
+  it('内齿轮齿面色与其余图层色全部互异（GLB 顶点色为主，preset 色兜底）', () => {
+    const others = LAYER_IDS.filter((id) => id !== 'toothFlank').map((id) => MATERIAL_PRESETS[LAYER_VISUALS[id].materialPreset].color)
+    const c = MATERIAL_PRESETS.toothFlank.color
+    expect(others).not.toContain(c)
   })
 })

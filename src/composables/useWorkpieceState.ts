@@ -10,20 +10,47 @@ import type { SpecPayload, WorkpieceResult } from '../api'
 
 /** localStorage 键：结果面板位置. */
 const POS_KEY = 'pst.result-panel.pos'
-/** 默认位置：窗口左上（内容区：标题栏 40px 下 + 24px 边距，与 MainPanel 左缘对齐）. */
-const DEFAULT_POS = { x: 24, y: 64 }
+/** 结果面板宽度（与图层面板一致，248px，theme.css --float-panel-width 同源）. */
+const PANEL_W = 248
+/** 右对齐「实体/线框」切换按钮（right 12px）. */
+const EDGE_RIGHT = 12
+/** 下对齐「展开/收回」按钮（toggle-btn 底边 = bottom 24px）. */
+const EDGE_BOTTOM = 24
+/** 首次定位的估算面板高度（mount 后精确校正下边界对齐）. */
+const EST_HEIGHT = 240
+
+/** 默认位置：右对齐「实体/线框」按钮、下对齐「展开/收回」按钮. */
+function defaultPos(): { x: number; y: number } {
+  return {
+    x: window.innerWidth - PANEL_W - EDGE_RIGHT,
+    y: window.innerHeight - EST_HEIGHT - EDGE_BOTTOM,
+  }
+}
+
+/** 是否首次默认定位（未持久化）——供 ResultPanel mount 时精确对齐下边界. */
+let isDefaultPosition = true
 
 function loadPos(): { x: number; y: number } {
   try {
     const raw = localStorage.getItem(POS_KEY)
     if (raw) {
       const p = JSON.parse(raw) as { x: number; y: number }
-      if (typeof p?.x === 'number' && typeof p?.y === 'number') return p
+      if (typeof p?.x === 'number' && typeof p?.y === 'number') {
+        isDefaultPosition = false
+        return p
+      }
     }
   } catch {
     /* 忽略损坏数据 */
   }
-  return { ...DEFAULT_POS }
+  return defaultPos()
+}
+
+/** 读取并清除「首次默认定位」标志（ResultPanel 首次精确对齐下边界用，仅消费一次）. */
+export function consumeDefaultPosition(): boolean {
+  const was = isDefaultPosition
+  isDefaultPosition = false
+  return was
 }
 
 export interface WorkpieceState {

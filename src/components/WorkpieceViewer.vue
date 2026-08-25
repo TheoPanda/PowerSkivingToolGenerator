@@ -15,17 +15,23 @@ import {
   fetchEnvelopeRake,
   fetchEnvelopeFlank,
   fetchEnvelopeSingleTooth,
+  fetchEnvelopeToolRing,
   fetchEnvelopeAnalytic,
   fetchEnvelopeConjugate,
   fetchEnvelopeConjugateGear,
-  fetchEnvelopeInterference,
+  fetchEnvelopeToothFlank,
+  fetchEnvelopeCapability,
+  fetchConjugateAnim,
   type CoverageReport,
   type CrossCheckResult,
+  type EnvelopeRequest,
 } from '../api'
 import type { LayerReadyDetail } from '../three/layerPalette'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 import { gearParamsKey, toPayload } from '../composables/useGearParams'
 import { setWorkpieceResult } from '../composables/useWorkpieceState'
+import { openSimulation, setPhi } from '../composables/useSimulation'
+import { setInterferenceStats } from '../composables/useInterferenceLegend'
 
 // ── 从 MainPanel 注入 gearParams（类型化键） ──
 const gearParams = inject(gearParamsKey)
@@ -49,8 +55,8 @@ const toolParams = reactive({
   rake_type: 'plane',  // 前刀面形式（v1 仅 plane；equation/cone 灰置）
   tool_type: 'cylindrical',     // 刀型：圆柱（圆锥二期）
   flank_method: 'helical_lead', // 后刀面算法：螺旋导程法（轴向偏移法二期）
-  L: 2,           // 总重磨量 [mm]（子 PRD-4 后刀面）
-  n_L: 4,         // 重磨等分数（子 PRD-4 后刀面）
+  L: 20,          // 刀齿轴向长度（总重磨量）[mm]：≈工件齿宽量级，过小实体呈薄片
+  n_L: 16,        // 重磨等分数（后刀面扫掠截面数；过粗呈折面棱线，间距 20/16=1.25mm）
 })
 const envelopeRunning = ref<boolean>(false)
 const envelopeError = ref<string | null>(null)
@@ -59,20 +65,25 @@ const coverageReport = ref<CoverageReport | null>(null)
 const useAnalytic = ref<boolean>(false)         // 解析路线对拍（可选，覆盖离散刃形）
 const crossCheck = ref<CrossCheckResult | null>(null)
 
+/** 最近一次包络请求参数（供运动仿真动画复用）. */
+let lastEnvelopeReq: EnvelopeRequest | null = null
+
 /** 覆盖率百分比（诊断条展示）. */
 const coveragePercent = computed<number | null>(() => {
   if (!coverageReport.value) return null
   return Math.round(coverageReport.value.coverage_ratio * 100)
 })
 
-/** 诊断条总体通过（覆盖 100% 且 ffα 闭包残差 < 1μm）.
+/** 诊断条总体通过（覆盖 100% 且 ffα 闭包残差 < 1μm；斜齿无 ffα 只看覆盖）.
 
  * ffα 现为「正反闭包自证」残差（链可逆性数值误差，m=181 插值 ~0.1μm 量级），
  * 非设计书 K-2.13 正向包络误差（后者留 K-4.1）。阈值 <1μm 与后端
- * test_segments_structure 的「数值自洽误差量级」一致。
+ * test_segments_structure 的「数值自洽误差量级」一致。斜齿（数值求交 K-2.8b）
+ * ffa_um=null：通过条件退化为 coverage.pass（双残差在后端 residual_stats 把守）。
  */
 const envelopePassed = computed<boolean>(() => {
-  if (ffaUm.value === null || coverageReport.value === null) return false
+  if (coverageReport.value === null) return false
+  if (ffaUm.value === null) return coverageReport.value.pass
   return ffaUm.value < 1.0 && coverageReport.value.pass
 })
 
@@ -81,9 +92,41 @@ const emit = defineEmits<{
   'model-ready': [glbBase64: string]
 }>()
 
-// ── 挂载时自动生成 ──
+// ── 运动仿真：请求动画数据并加载到视口 ──
+async function requestSimulation(): Promise<void> {
+  if (!lastEnvelopeReq) {
+    ElMessage.warning('请先完成包络计算')
+    return
+  }
+  try {
+    const resp = await fetchConjugateAnim(lastEnvelopeReq)
+    console.log('[仿真] 响应 anim:', resp.anim ? `${resp.anim.frames.length} 帧, ${resp.anim.n_vertices} 顶点` : '无')
+    if (resp.anim) {
+      // 节圆半径：r_pw = m_t * z_w / 2, r_pt = m_t * z_t / 2
+      // m_t = m_n / cos(β_w)
+      const m_n = lastEnvelopeReq.workpiece.m_n
+      const z_w = lastEnvelopeReq.workpiece.z_w
+      const beta_w = (lastEnvelopeReq.workpiece.beta_w_deg ?? 0) * Math.PI / 180
+      const m_t = m_n ? m_n / Math.cos(beta_w) : 2
+      const rpw = z_w ? m_t * z_w / 2 : 20
+      const rpt = m_t * lastEnvelopeReq.tool.z_t / 2
+      openSimulation(resp.anim)
+      viewportRef.value?.loadAnimMesh(resp.anim, { rpw, rpt, z_w: z_w ?? undefined }, (phi) => setPhi(phi))
+      console.log('[仿真] loadAnimMesh 完成, rpw=', rpw, 'rpt=', rpt)
+    } else {
+      ElMessage.warning('后端未返回动画数据（anim 字段缺失）')
+    }
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : '动画数据加载失败'
+    console.error('[仿真] 请求失败:', e)
+    ElMessage.error(msg)
+  }
+}
+
+// ── 挂载时自动生成 + 监听仿真请求 ──
 onMounted(() => {
   generate()
+  window.addEventListener('gear:request-simulation', requestSimulation)
 })
 
 // ── 工件生成（模块①） ──
@@ -107,7 +150,7 @@ async function generate(): Promise<void> {
 }
 
 // ── 派发包络图层到视口（经 gear:layer-ready 事件） ──
-function dispatchLayer(id: 'edge' | 'rake' | 'flank' | 'singleTooth' | 'conjugate' | 'conjugateGear' | 'interference', glbBase64: string): void {
+function dispatchLayer(id: 'edge' | 'rake' | 'flank' | 'singleTooth' | 'toolRing' | 'conjugate' | 'conjugateGear' | 'toothFlank', glbBase64: string): void {
   const detail: LayerReadyDetail = { id, glbBase64 }
   window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail }))
 }
@@ -128,7 +171,7 @@ async function runEnvelope(): Promise<void> {
   coverageReport.value = null
 
   try {
-    const req = {
+    const req: EnvelopeRequest = {
       workpiece: toPayload(gearParams!),
       tool: {
         z_t: toolParams.z_t,
@@ -139,28 +182,52 @@ async function runEnvelope(): Promise<void> {
       },
       // discretization 缺省 → 后端默认 n=200/m=181/NR=200/θ=±40°
     }
+    lastEnvelopeReq = req
+    // 能力查询（后端单一权威，β_w + k_io 派生）：替代本地 isHelical 判断。
+    // 刃形：内齿轮可用（斜齿走数值求交 K-2.8b，2026-08-24 解锁）；外齿轮（k_io=+1，T14）不可用。
+    // 后刀面/单齿/整环/解析路线：仍限直齿内齿轮（第二批解锁）。
+    const capResp = await fetchEnvelopeCapability(req)
+    const supportsEdge = capResp.capability.supports_edge
+    const supportsFlank = capResp.capability.supports_flank
+    const supportsAnalytic = capResp.capability.supports_analytic
 
     // 刃形（先叠加）+ 诊断 + 安装变换（刀具系 T → 工件系 W）+ 画 W/T 坐标轴
-    const edgeResp = await fetchEnvelopeEdge(req)
-    dispatchLayer('edge', edgeResp.layer.glb_base64)
-    ffaUm.value = edgeResp.ffa_um
-    coverageReport.value = edgeResp.coverage_report
-    viewportRef.value?.setEnvelopeInstall(edgeResp.install.a, edgeResp.install.sigma_deg)
+    if (supportsEdge) {
+      const edgeResp = await fetchEnvelopeEdge(req)
+      dispatchLayer('edge', edgeResp.layer.glb_base64)
+      ffaUm.value = edgeResp.ffa_um
+      coverageReport.value = edgeResp.coverage_report
+      viewportRef.value?.setEnvelopeInstall(edgeResp.install.a, edgeResp.install.sigma_deg, toolParams.j_t)
+    }
 
     // 产形面（共轭面，K-2.6 数值啮合）：刃形 = 产形面 ∩ 前刀面，随后叠加
     const conjugateResp = await fetchEnvelopeConjugate(req)
     dispatchLayer('conjugate', conjugateResp.layer.glb_base64)
+    // 无刃形时 → 安装变换改由产形面返回的 install 提供（同 plan 的 a/Σ）
+    if (!supportsEdge) {
+      viewportRef.value?.setEnvelopeInstall(conjugateResp.install.a, conjugateResp.install.sigma_deg, toolParams.j_t)
+    }
 
-    // 等效产形齿轮：单齿槽产形面阵列 z_t 份 + 齿顶/齿根回转面（完整齿轮全貌）
+    // 等效产形齿轮：单齿槽产形面阵列 z_t 份 + 齿顶/齿根回转面（完整齿轮全貌，
+    // GLB 带符号距离顶点色，「干涉」样式由图层切换而非独立图层）
     const conjugateGearResp = await fetchEnvelopeConjugateGear(req)
     dispatchLayer('conjugateGear', conjugateGearResp.layer.glb_base64)
+    // 干涉图例数据（后端权威：渐变 stops + 刻度 + 统计；「干涉」样式激活时显示）
+    setInterferenceStats(conjugateGearResp.interference_stats)
 
-    // 干涉热力图：产形面符号距离着色（红=干涉/白=相切/蓝=间隙）
-    const interferenceResp = await fetchEnvelopeInterference(req)
-    dispatchLayer('interference', interferenceResp.layer.glb_base64)
+    // 内齿轮齿面（诊断图层，W 系）：参与求解的工件齿面网格 = 离散点 + 法向箭头。
+    // 独立 try/catch——诊断图层失败只警告，不中断主链
+    try {
+      const toothFlankResp = await fetchEnvelopeToothFlank(req)
+      dispatchLayer('toothFlank', toothFlankResp.layer.glb_base64)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '未知错误'
+      ElMessage.warning(`内齿轮齿面图层生成失败：${msg}`)
+    }
 
-    // 解析路线（子 PRD-5，可选）：K-2.8 解析刃形（二分精化，与离散同法）覆盖刃形图层 + 双路线互检
-    if (useAnalytic.value) {
+    // 解析路线（子 PRD-5，可选）：K-2.8 解析刃形（二分精化，与离散同法）覆盖刃形图层 + 双路线互检。
+    // supports_analytic 门控：消元法仅直齿——斜齿刃形已由上方 edge 端点（数值求交 K-2.8b）提供
+    if (useAnalytic.value && supportsAnalytic) {
       const analyticResp = await fetchEnvelopeAnalytic(req)
       dispatchLayer('edge', analyticResp.layer.glb_base64)
       crossCheck.value = analyticResp.cross_check
@@ -174,20 +241,31 @@ async function runEnvelope(): Promise<void> {
     })
     dispatchLayer('rake', rakeResp.layer.glb_base64)
 
-    // 后刀面 + 单齿预览（子 PRD-4）：L/n_L 重磨 → 后刀面 + 单齿三件套
-    const flankReq = {
-      workpiece: req.workpiece,
-      tool: req.tool,
-      resharpening: { L: toolParams.L, n_L: toolParams.n_L },
-      tool_type: toolParams.tool_type as 'cylindrical' | 'conical',
-      flank_method: toolParams.flank_method as 'helical_lead' | 'axial_offset',
+    // 后刀面 + 单齿闭合实体 + 整环刀具（子 PRD-4 / 模块③ B 方案）：L/n_L 重磨 →
+    // 后刀面网 + 半齿底闭合实体（r_hub 圆柱 + 椭圆弧）+ z_t 份整环阵列 + 填缝带
+    if (supportsFlank) {
+      const flankReq = {
+        workpiece: req.workpiece,
+        tool: req.tool,
+        resharpening: { L: toolParams.L, n_L: toolParams.n_L },
+        tool_type: toolParams.tool_type as 'cylindrical' | 'conical',
+        flank_method: toolParams.flank_method as 'helical_lead' | 'axial_offset',
+      }
+      const flankResp = await fetchEnvelopeFlank(flankReq)
+      dispatchLayer('flank', flankResp.layer.glb_base64)
+      const toothResp = await fetchEnvelopeSingleTooth(flankReq)
+      dispatchLayer('singleTooth', toothResp.layer.glb_base64)
+      const toolRingResp = await fetchEnvelopeToolRing(flankReq)
+      dispatchLayer('toolRing', toolRingResp.layer.glb_base64)
     }
-    const flankResp = await fetchEnvelopeFlank(flankReq)
-    dispatchLayer('flank', flankResp.layer.glb_base64)
-    const toothResp = await fetchEnvelopeSingleTooth(flankReq)
-    dispatchLayer('singleTooth', toothResp.layer.glb_base64)
 
-    ElMessage.success('包络计算完成')
+    ElMessage.success(
+      supportsFlank
+        ? '包络计算完成'
+        : supportsEdge
+          ? '包络计算完成（斜齿刃形已生成；后刀面/单齿/整环待第二批）'
+          : '包络计算完成（刃形/后刀面待销项，仅产形面/等效产形齿轮/前刀面）',
+    )
   } catch (e: unknown) {
     const msg: string = e instanceof Error ? e.message : '包络计算失败'
     envelopeError.value = msg
@@ -263,7 +341,7 @@ async function runEnvelope(): Promise<void> {
           </select>
         </label>
         <label class="param-field">
-          <span class="param-label">总重磨量 L (mm)</span>
+          <span class="param-label">刀齿长度 L（重磨总量, mm）</span>
           <input v-model.number="toolParams.L" type="number" class="glass-input" data-test="tool-L" />
         </label>
         <label class="param-field">
@@ -291,11 +369,11 @@ async function runEnvelope(): Promise<void> {
 
       <div v-if="envelopeError" class="error-msg">{{ envelopeError }}</div>
 
-      <!-- 诊断条：ffα + 覆盖判据 -->
-      <div v-if="ffaUm !== null" class="diagnostic-strip" :class="{ failed: !envelopePassed }" data-test="diagnostic-strip">
-        <span class="diag-item" :class="ffaUm < 1.0 ? 'ok' : 'bad'">
+      <!-- 诊断条：ffα + 覆盖判据（斜齿无 ffα → 显示 —，通过条件只看覆盖） -->
+      <div v-if="coverageReport !== null" class="diagnostic-strip" :class="{ failed: !envelopePassed }" data-test="diagnostic-strip">
+        <span class="diag-item" :class="ffaUm === null || ffaUm < 1.0 ? 'ok' : 'bad'">
           <span class="diag-dot"></span>
-          ffα = {{ ffaUm.toFixed(3) }} μm
+          ffα = {{ ffaUm !== null ? ffaUm.toFixed(3) : '—' }} μm
         </span>
         <span class="diag-item" :class="coverageReport?.pass ? 'ok' : 'bad'">
           <span class="diag-dot"></span>

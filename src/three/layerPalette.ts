@@ -6,14 +6,14 @@
  * 注释互指、不做运行时联动（ADR-018）。纯数据，不依赖 Three.js。
  */
 
-/** 8 个语义图层 id（工件 + 刃形/前刀面/后刀面/单齿 + 产形面 + 等效产形齿轮 + 干涉热力图）. */
-export type LayerId = 'workpiece' | 'rake' | 'edge' | 'flank' | 'singleTooth' | 'conjugate' | 'conjugateGear' | 'interference'
+/** 10 个语义图层 id（工件 + 内齿轮齿面 + 扫掠点云 + 刃形/前刀面/后刀面/单齿/整环 + 产形面 + 等效产形齿轮）. */
+export type LayerId = 'workpiece' | 'toothFlank' | 'rake' | 'edge' | 'flank' | 'singleTooth' | 'toolRing' | 'conjugate' | 'conjugateGear' | 'sweptCloud'
 
 /** 几何种类：mesh=三角网格、line=有序折线、points=点云. */
 export type LayerKind = 'mesh' | 'line' | 'points'
 
 /** 材质预设名（steel/carbide 复用现有工件/刀具材质；其余为包络层配色）. */
-export type MaterialPreset = 'steel' | 'carbide' | 'rake' | 'flank' | 'edge' | 'conjugate' | 'conjugateGear' | 'interference'
+export type MaterialPreset = 'steel' | 'carbide' | 'rake' | 'flank' | 'edge' | 'conjugate' | 'conjugateGear' | 'toolRing' | 'spectrum' | 'toothFlank'
 
 /** 材质预设的 PBR 参数（color 为 hex 0xRRGGBB）. */
 export interface MaterialPresetDef {
@@ -38,10 +38,14 @@ export const MATERIAL_PRESETS: Record<MaterialPreset, MaterialPresetDef> = {
   edge: { color: 0xe05050, roughness: 0.5, metalness: 0.0, transparent: false, opacity: 1.0 },
   // 产形面（共轭面）— 青色 #00A8CC（[12] 图3 蓝色产形面）
   conjugate: { color: 0x00a8cc, roughness: 0.4, metalness: 0.3, transparent: true, opacity: 0.5 },
-  // 等效产形齿轮 — 靛蓝 #2A6FBF（完整齿轮，与单齿槽产形面青色区分）
+  // 等效产形齿轮 — 靛蓝 #2A6FBF（完整齿轮，与单齿槽产形面青色区分；GLB 带符号距离顶点色，前端「干涉」切换样式）
   conjugateGear: { color: 0x2a6fbf, roughness: 0.38, metalness: 0.35, transparent: true, opacity: 0.45 },
-  // 干涉热力图 — 顶点色（红白蓝发散），color 占位 0xffffff（gearViewport 顶点色优先）
-  interference: { color: 0xffffff, roughness: 0.4, metalness: 0.3, transparent: true, opacity: 0.9 },
+  // 刀具整环（模块③ B 方案）— 钨钢深灰蓝 #4A5568（成品刀全貌，与单齿硬质合金同族更深一档）
+  toolRing: { color: 0x4a5568, roughness: 0.3, metalness: 0.96, transparent: false, opacity: 1.0 },
+  // 扫掠点云（运动仿真）— jet 光谱起点蓝 #3050C8（加深版 jet(0)）；实际逐帧 jet 色，仅色块/聚焦显示用
+  spectrum: { color: 0x3050c8, roughness: 0.5, metalness: 0.3, transparent: true, opacity: 0.85 },
+  // 内齿轮齿面 — 洋红紫 #C05AB0（GLB 逐顶点色为主：参与=洋红紫/被修剪=暗灰；preset 色仅兜底与色块显示）
+  toothFlank: { color: 0xc05ab0, roughness: 0.4, metalness: 0.3, transparent: false, opacity: 1.0 },
 }
 
 /** 每个图层的视觉默认值. */
@@ -52,6 +56,13 @@ export interface LayerVisual {
   materialPreset: MaterialPreset
   defaultOpacity: number
   doubleSide: boolean
+  /** 深度推后防共面 z-fighting（rake 面片/后刀面 ribbon 与实体帽盖/侧面严格共面） */
+  polygonOffset?: boolean
+  /** 点云图层的点尺寸（默认 0.5 世界单位；sizeAttenuation=false 时为像素） */
+  pointSize?: number
+  /** 点尺寸是否随距离衰减（默认 true）。toothFlank=false：屏幕空间固定像素点——
+   * 世界单位点（0.8mm）远大于采样间距（n=200 廓形 ~0.06mm），重叠方块会连成条带 */
+  pointSizeAttenuation?: boolean
 }
 
 /**
@@ -61,17 +72,22 @@ export interface LayerVisual {
  */
 export const LAYER_VISUALS: Record<LayerId, LayerVisual> = {
   workpiece: { id: 'workpiece', label: '工件齿轮', kind: 'mesh', materialPreset: 'steel', defaultOpacity: 1.0, doubleSide: false },
-  rake: { id: 'rake', label: '前刀面', kind: 'mesh', materialPreset: 'rake', defaultOpacity: 0.45, doubleSide: true },
+  // 内齿轮齿面：参与产形面求解的工件齿面网格（W 系，免 T→W 安装变换），离散点 + 法向箭头。
+  // 点用屏幕空间 4px 固定尺寸（世界单位点与采样间距不匹配会重叠成条带）
+  toothFlank: { id: 'toothFlank', label: '内齿轮齿面', kind: 'points', materialPreset: 'toothFlank', defaultOpacity: 1.0, doubleSide: false, pointSize: 4, pointSizeAttenuation: false },
+  rake: { id: 'rake', label: '前刀面', kind: 'mesh', materialPreset: 'rake', defaultOpacity: 0.45, doubleSide: true, polygonOffset: true },
   edge: { id: 'edge', label: '刃形', kind: 'line', materialPreset: 'edge', defaultOpacity: 1.0, doubleSide: false },
-  flank: { id: 'flank', label: '后刀面', kind: 'mesh', materialPreset: 'flank', defaultOpacity: 0.5, doubleSide: true },
+  flank: { id: 'flank', label: '后刀面', kind: 'mesh', materialPreset: 'flank', defaultOpacity: 0.5, doubleSide: true, polygonOffset: true },
   singleTooth: { id: 'singleTooth', label: '单齿模型', kind: 'mesh', materialPreset: 'carbide', defaultOpacity: 1.0, doubleSide: false },
+  toolRing: { id: 'toolRing', label: '刀具整环', kind: 'mesh', materialPreset: 'toolRing', defaultOpacity: 1.0, doubleSide: false },
   conjugate: { id: 'conjugate', label: '产形面', kind: 'mesh', materialPreset: 'conjugate', defaultOpacity: 0.5, doubleSide: true },
   conjugateGear: { id: 'conjugateGear', label: '等效产形齿轮', kind: 'mesh', materialPreset: 'conjugateGear', defaultOpacity: 0.45, doubleSide: true },
-  interference: { id: 'interference', label: '干涉热力图', kind: 'mesh', materialPreset: 'interference', defaultOpacity: 0.9, doubleSide: true },
+  // 扫掠点云：运动仿真（固定刀具系看工件运动）的离散包络扫掠轨迹，非产形面（2026-08-20 术语厘清）
+  sweptCloud: { id: 'sweptCloud', label: '扫掠点云', kind: 'mesh', materialPreset: 'spectrum', defaultOpacity: 0.85, doubleSide: true },
 }
 
-/** 全部图层 id（图层面板显示顺序；产形面/等效产形齿轮/干涉热力图紧随工件、置于前刀面之前）. */
-export const LAYER_IDS: LayerId[] = ['workpiece', 'conjugate', 'conjugateGear', 'interference', 'rake', 'edge', 'flank', 'singleTooth']
+/** 全部图层 id（图层面板显示顺序；内齿轮齿面/产形面/等效产形齿轮紧随工件；整环紧随单齿；扫掠点云置于最后）. */
+export const LAYER_IDS: LayerId[] = ['workpiece', 'toothFlank', 'conjugate', 'conjugateGear', 'rake', 'edge', 'flank', 'singleTooth', 'toolRing', 'sweptCloud']
 
 /** 安装参数（中心距 a + 轴交角 Σ），供前端把刀具系 T 的几何变换到工件系 W + 画坐标轴. */
 export interface EnvelopeInstall {

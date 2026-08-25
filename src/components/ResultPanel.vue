@@ -3,15 +3,15 @@
  * ResultPanel.vue — 独立可拖拽「计算结果」面板
  *
  * - 承载 WorkpieceViewer 生成后的结果摘要 + 「查看齿轮规格」入口（原步骤2 内内容移出）
- * - 默认位窗口左上（左缘与 MainPanel 对齐，宽 320px）；仅标题栏可拖动，位置 localStorage 记忆
+ * - 默认位：右对齐「实体/线框」按钮、下对齐「展开/收回」按钮（宽 216px 与图层面板一致）；仅标题栏可拖动，位置 localStorage 记忆
  * - 状态来自全局单例 useWorkpieceState；关闭后于原位显示「计算结果」胶囊，点击重开
  * - 收起（▼）成标题栏一条，仍可拖动
  */
-import { computed, ref } from 'vue'
-import { workpieceState, movePanel } from '../composables/useWorkpieceState'
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { workpieceState, movePanel, consumeDefaultPosition } from '../composables/useWorkpieceState'
 import type { SpecPayload } from '../api'
 
-const PANEL_W = 320
+const PANEL_W = 248
 const HEADER_H = 36
 const EDGE = 8
 
@@ -24,6 +24,20 @@ const SNAP_THRESHOLD = 50 // 距离边沿多少 px 内触发吸附
 
 /** 面板根元素（用于底部吸附取实际高度）. */
 const panelEl = ref<HTMLElement | null>(null)
+
+/** 首次默认定位：下边界精确对齐「展开/收回」按钮底部（测量实际高度替代估算）. */
+let alignedToBottom = false
+watch(() => workpieceState.open, async (open) => {
+  if (!open || alignedToBottom) return
+  if (!consumeDefaultPosition()) return
+  await nextTick()
+  const el = panelEl.value
+  if (!el) return
+  const h = el.offsetHeight
+  if (h <= 0) return  // jsdom 无布局 / 未渲染
+  alignedToBottom = true
+  movePanel({ x: workpieceState.pos.x, y: window.innerHeight - SNAP_BOTTOM - h })
+})
 
 interface ResultRow {
   label: string
@@ -84,6 +98,23 @@ function clampX(x: number): number {
 function clampY(y: number): number {
   return Math.min(Math.max(EDGE, y), Math.max(EDGE, window.innerHeight - HEADER_H - EDGE))
 }
+
+// 窗口 resize → 保持右/下对齐（面板右缘、底缘距窗口边不变），随窗口尺寸联动
+let prevW = window.innerWidth
+let prevH = window.innerHeight
+function onResize(): void {
+  const dw = window.innerWidth - prevW
+  const dh = window.innerHeight - prevH
+  movePanel({ x: clampX(workpieceState.pos.x + dw), y: clampY(workpieceState.pos.y + dh) })
+  prevW = window.innerWidth
+  prevH = window.innerHeight
+}
+onMounted(() => {
+  window.addEventListener('resize', onResize)
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', onResize)
+})
 
 /** 释放时贴边吸附：左/右/上/下任一在阈值内即贴齐对应边（保留边距）. */
 function snapToEdge(): void {
@@ -166,7 +197,7 @@ function openSpecWindow(): void {
 <style scoped>
 .result-panel {
   position: fixed;
-  width: 320px;
+  width: var(--float-panel-width, 248px);
   z-index: 16;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);

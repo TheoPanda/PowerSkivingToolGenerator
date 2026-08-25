@@ -12,6 +12,9 @@ import { ref, onMounted, onUnmounted, provide } from 'vue'
 import MainPanel from './MainPanel.vue'
 import ResultPanel from './ResultPanel.vue'
 import LayerPanel from './LayerPanel.vue'
+import SimulationPanel from './SimulationPanel.vue'
+import ViewCube from './ViewCube.vue'
+import InterferenceLegend from './InterferenceLegend.vue'
 import { revealResultPanel } from '../composables/useWorkpieceState'
 import { createGearViewport, GEAR_VIEWPORT_KEY, type GearViewport, type RenderMode } from '../three/gearViewport'
 import type { LayerReadyDetail } from '../three/layerPalette'
@@ -121,19 +124,11 @@ onUnmounted(() => {
     <!-- 全屏 3D 画布 -->
     <div ref="viewportRef" class="canvas-fullscreen"></div>
 
-    <!-- 渲染模式切换 (右上角，登录后显示) -->
-    <div v-if="loggedIn" class="render-toggle">
-      <button
-        class="render-toggle-btn"
-        :class="{ active: renderMode === 'solid' }"
-        @click="applyRenderMode('solid')"
-      >实体</button>
-      <button
-        class="render-toggle-btn"
-        :class="{ active: renderMode === 'xray' }"
-        @click="applyRenderMode('xray')"
-      >线框</button>
-    </div>
+    <!-- 视图控制面板（右上角：实体/线框 + 标准视图 + Home，登录后显示） -->
+    <ViewCube v-if="loggedIn" :render-mode="renderMode" @set-render-mode="applyRenderMode" />
+
+    <!-- 干涉热力图图例（底部居中，「干涉」样式激活时显示；不遮挡 3D 交互） -->
+    <InterferenceLegend v-if="loggedIn" />
 
     <!-- 欢迎界面 -->
     <div v-if="!loggedIn" class="welcome-overlay" :class="{ leaving: welcomeLeaving }">
@@ -184,6 +179,9 @@ onUnmounted(() => {
     <!-- 图层列表面板（画布右侧，登录后显示） -->
     <LayerPanel v-if="loggedIn" />
 
+    <!-- 运动仿真控制面板（仿真动画加载后显示） -->
+    <SimulationPanel />
+
     <!-- 模型加载进度 -->
     <div v-if="!modelLoaded" class="loading-overlay">
       <div class="loading-card">
@@ -206,43 +204,6 @@ onUnmounted(() => {
 .canvas-fullscreen {
   position: absolute;
   inset: 0;
-}
-
-/* ======== 渲染模式切换 (右上角) ======== */
-.render-toggle {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 12;
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.42) 100%);
-  backdrop-filter: blur(12px) saturate(160%);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  border-radius: 10px;
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow-sm);
-}
-
-.render-toggle-btn {
-  padding: 5px 12px;
-  font-size: 12px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--brand-text-secondary);
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-
-.render-toggle-btn:hover {
-  background: rgba(0, 96, 160, 0.08);
-}
-
-.render-toggle-btn.active {
-  background: var(--brand-blue);
-  color: #fff;
 }
 
 /* ======== 欢迎界面 ======== */
