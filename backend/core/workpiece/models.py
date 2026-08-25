@@ -347,19 +347,6 @@ class WorkpieceResult:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "WorkpieceResult":
-        """从 JSON 字典反序列化."""
-        return cls(
-            d_a=d["d_a"],
-            d_f=d["d_f"],
-            r_b=d["r_b"],
-            r_pw=d["r_pw"],
-            m_t=d["m_t"],
-            alpha_t_deg=d["alpha_t_deg"],
-            z_w=d["z_w"],
-        )
-
-    @classmethod
     def from_gear_params(cls, p: GearParams) -> "WorkpieceResult":
         """从 GearParams 直接计算 (不含齿厚反算).
 

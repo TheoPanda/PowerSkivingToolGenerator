@@ -1,7 +1,6 @@
 """模块② 包络计算路由.
 
-子 PRD-1 交付占位演示端点（demo）；子 PRD-2 交付真实离散包络
-swept_cloud（扫掠点云 K-2.9）/ edge（刃形 K-2.11~2.13）端点。
+真实离散包络 swept_cloud（扫掠点云 K-2.9）/ edge（刃形 K-2.11~2.13）等端点。
 """
 
 import math
@@ -31,71 +30,6 @@ from core.workpiece.router import GearParamsRequest
 router = APIRouter(prefix="/api/envelope", tags=["envelope"])
 
 
-def _demo_geometries() -> list[GeometrySpec]:
-    """占位假图层（与真实包络几何同构，仅形状为占位；GLB 坐标为刀具动系 T，Z 轴为轴向）."""
-    # 扫掠点云占位：一片半透明品牌蓝（x-z 平面展开）
-    swept_cloud = GeometrySpec(
-        kind="mesh",
-        positions=[
-            -15.0, 0.0, -15.0,
-            15.0, 0.0, -15.0,
-            15.0, 0.0, 15.0,
-            -15.0, 0.0, 15.0,
-        ],
-        indices=[0, 1, 2, 0, 2, 3],
-        normals=[0.0, 1.0, 0.0] * 4,
-        layer_id="swept_cloud",
-    )
-    # 前刀面占位：一片半透明琥珀橙（扫掠点云上方）
-    rake = GeometrySpec(
-        kind="mesh",
-        positions=[
-            -10.0, 1.0, -10.0,
-            10.0, 1.0, -10.0,
-            10.0, 1.0, 10.0,
-            -10.0, 1.0, 10.0,
-        ],
-        indices=[0, 1, 2, 0, 2, 3],
-        normals=[0.0, 1.0, 0.0] * 4,
-        layer_id="rake",
-    )
-    # 刃形占位：一条折线（珊瑚红高亮）
-    edge = GeometrySpec(
-        kind="line",
-        positions=[
-            -15.0, 0.5, -15.0,
-            -5.0, 0.5, -8.0,
-            5.0, 0.5, 3.0,
-            15.0, 0.5, 12.0,
-        ],
-        layer_id="edge",
-    )
-    # 后刀面占位：一片半透明翡翠绿（扫掠点云下方）
-    flank = GeometrySpec(
-        kind="mesh",
-        positions=[
-            -12.0, -1.0, -12.0,
-            12.0, -1.0, -12.0,
-            12.0, -1.0, 12.0,
-            -12.0, -1.0, 12.0,
-        ],
-        indices=[0, 1, 2, 0, 2, 3],
-        normals=[0.0, 1.0, 0.0] * 4,
-        layer_id="flank",
-    )
-    return [swept_cloud, rake, edge, flank]
-
-
-@router.post("/demo")
-def envelope_demo() -> dict:
-    """返回占位假图层的 GLB（扫掠点云/刃形/后刀面），供前端多图层能力演示."""
-    layers = [
-        {"id": geo.layer_id, "glb_base64": export_geometry_glb_base64([geo])}
-        for geo in _demo_geometries()
-    ]
-    return {"layers": layers}
-
-
 # ── 子 PRD-2 离散包络端点 ─────────────────────────────────────────────
 
 
@@ -122,7 +56,6 @@ class DiscretizationParams(BaseModel):
 
     n: int = Field(200, ge=2)
     m: int = Field(181, ge=2)
-    NR: int = Field(200, ge=2)
     theta_range_deg: float = Field(40.0, gt=0)
     n_z: int = Field(21, ge=2, description="产形面轴向层数（conjugate 端点用）")
 

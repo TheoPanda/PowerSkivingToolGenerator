@@ -16,15 +16,13 @@ from typing import Optional
 
 import numpy as np
 from OCP.BRep import BRep_Tool
-from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
-    BRepBuilderAPI_MakePolygon,
     BRepBuilderAPI_MakeWire,
     BRepBuilderAPI_Transform,
 )
-from OCP.BRepCheck import BRepCheck_Analyzer
 from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
 from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
 from OCP.GC import GC_MakeArcOfCircle, GC_MakeCircle
@@ -32,7 +30,7 @@ from OCP.GProp import GProp_GProps
 from OCP.BRepGProp import BRepGProp  # type: ignore[import-untyped]
 from OCP.TopoDS import TopoDS_Shape, TopoDS_Face, TopoDS_Wire  # type: ignore[import-untyped]
 from OCP.TopExp import TopExp_Explorer
-from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_SOLID  # type: ignore[import-untyped]
+from OCP.TopAbs import TopAbs_FACE, TopAbs_REVERSED  # type: ignore[import-untyped]
 from OCP.TopLoc import TopLoc_Location
 from OCP.gp import (
     gp_Ax1,
@@ -42,7 +40,6 @@ from OCP.gp import (
     gp_Pnt,
     gp_Trsf,
     gp_Vec,
-    gp,
 )
 
 from core.workpiece.models import GearParams
@@ -375,67 +372,3 @@ def _build_helical_model(p: GearParams, n_slices: int) -> GearModel:
 def build_gear(p: GearParams, n_slices: int = 6) -> TopoDS_Shape:
     """向后兼容: 直接返回 solid."""
     return build_gear_model(p, n_slices).solid
-
-
-def compute_bounding_box_diameter(shape: TopoDS_Shape) -> float:
-    """从形状估算齿顶圆直径."""
-    from OCP.BRepGProp import BRepGProp
-    from OCP.GProp import GProp_GProps
-
-    props = GProp_GProps()
-    try:
-        BRepGProp.VolumeProperties_s(shape, props)
-        bbox = props.BoundingBox()
-        if not bbox.IsVoid():
-            cmin, cmax = bbox.CornerMin(), bbox.CornerMax()
-            dx = cmax.X() - cmin.X()
-            dy = cmax.Y() - cmin.Y()
-            if dx > 0 and dy > 0:
-                return math.sqrt(dx * dx + dy * dy)
-    except Exception:
-        pass
-
-    from OCP.TopExp import TopExp_Explorer
-    from OCP.TopAbs import TopAbs_VERTEX
-    from OCP.BRep import BRep_Tool
-
-    max_r = 0.0
-    explorer = TopExp_Explorer(shape, TopAbs_VERTEX, TopAbs_VERTEX)
-    while explorer.More():
-        try:
-            p = BRep_Tool.Pnt_s(explorer.Current())  # type: ignore[call-arg]
-            r = math.sqrt(p.X() ** 2 + p.Y() ** 2)
-            if r > max_r:
-                max_r = r
-        except Exception:
-            pass
-        explorer.Next()
-    return 2.0 * max_r
-
-
-def compute_min_radial_distance(shape: TopoDS_Shape) -> float:
-    """计算形状到 Z 轴的最小径向距离 (近似齿根圆)."""
-    from OCP.TopExp import TopExp_Explorer
-    from OCP.TopAbs import TopAbs_VERTEX
-    from OCP.BRep import BRep_Tool
-
-    min_r = float("inf")
-    explorer = TopExp_Explorer(shape, TopAbs_VERTEX, TopAbs_VERTEX)
-    while explorer.More():
-        v = explorer.Current()
-        p = BRep_Tool.Pnt(v)
-        r = math.sqrt(p.X() ** 2 + p.Y() ** 2)
-        if r > 0.001 and r < min_r:
-            min_r = r
-        explorer.Next()
-    return min_r
-
-
-def count_teeth_from_shape(shape: TopoDS_Shape) -> int:
-    """从形状估算齿数 (基于面片数)."""
-    n_faces = 0
-    explorer = TopExp_Explorer(shape, TopAbs_FACE, TopAbs_FACE)
-    while explorer.More():
-        n_faces += 1
-        explorer.Next()
-    return n_faces // 7

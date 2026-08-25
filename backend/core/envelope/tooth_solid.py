@@ -24,11 +24,17 @@ from dataclasses import dataclass, field
 from core.common.gltf_export import GeometrySpec
 from core.common.mesh import compute_vertex_normals
 from core.envelope.edge import solve_edge_chain
-from core.envelope.flank import helical_sweep
 from core.envelope.process_plan import ProcessPlan
 from core.envelope.rake import RakeSurface
 
 ROOT_OFFSET_RATIO_DEFAULT = 1.0 / 20.0  # 齿根径向偏置 = 1/20 分度圆直径（用户选定）
+
+
+def helical_sweep(poly, theta: float, dz: float) -> list[list[float]]:
+    """折线绕 Z 轴转 theta [rad] + 沿 Z 平移 dz 的刚体螺旋运动（截面形状恒定）."""
+    c = math.cos(theta)
+    s = math.sin(theta)
+    return [[c * x - s * y, s * x + c * y, z + dz] for (x, y, z) in poly]
 
 
 @dataclass

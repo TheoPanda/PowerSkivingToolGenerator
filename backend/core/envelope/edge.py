@@ -393,7 +393,6 @@ def compute_helical_edge(
     r_prof = np.hypot(xs, ys)
     r_lo, r_hi = float(r_prof.min()), float(r_prof.max())
     interior_mask = [True] * n
-    interior = np.ones(n, dtype=bool)
     r_top = r_hi - plan.a  # 顶刃极限半径（工件齿根圆柱共轭极限，顶刃共轭贴此圆）
     n2 = np.array([(nm[0], nm[1]) for nm in norms], dtype=np.float64)
 

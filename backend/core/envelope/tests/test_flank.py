@@ -5,7 +5,7 @@ import math
 import pytest
 
 from core.envelope.edge import extract_edge
-from core.envelope.flank import compute_resharpen_schedule, generate_flank, generate_flank_helical_lead
+from core.envelope.flank import compute_resharpen_schedule, generate_flank
 from core.envelope.process_plan import compute_process_plan
 from core.envelope.rake import build_plane_rake
 from core.envelope.swept_cloud import extract_gap_points
@@ -105,30 +105,3 @@ class TestGenerateFlank:
             rake_i = replace(rake, const=rake.const + rake.C * step.dL)
             edge = extract_edge(prof, plan_i, rake_i, m=31, theta_range_deg=40.0, k_io=-1)
             assert edge.coverage_report["pass"] is True, f"重磨截面 i={step.i} 覆盖不全"
-
-    def test_helical_lead_constant_cross_section(self):
-        """螺旋导程法（圆柱刀 K-2.15/16）：截面恒定——顶缘半径跨截面不变（无重磨集成法的径向膨胀）."""
-        from core.workpiece.models import GearParams
-        p = GearParams(m_n=2.0, z_w=82, b_w=20.0, k_io=-1)
-        plan = self._plan()
-        rake = build_plane_rake(gamma_deg=5.0, beta_t_deg=15.0, r_pt=plan.r_pt)
-        prof = extract_gap_points(p, n_points=50)[0]
-        flank = generate_flank_helical_lead(
-            prof, plan, rake, z_t=41, m_n=2.0, beta_t_deg=15.0,
-            L=2.0, n_L=4, k_io=-1, m=31, theta_range_deg=40.0,
-        )
-        # 导程 Ltp = z_t·m_n·π/sin β_t（算例1 = 995.33mm）
-        assert flank.lead_pitch == pytest.approx(
-            41 * 2.0 * math.pi / math.sin(math.radians(15.0)), rel=1e-9
-        )
-        # 截面恒定：后刀面顶缘半径 == 基刃形顶缘半径（螺旋扫掠纯旋转+平移，不改半径）
-        edge = extract_edge(prof, plan, rake, m=31, theta_range_deg=40.0, k_io=-1)
-        base_rmax = max(math.hypot(q[0], q[1]) for seg in edge.segments for q in seg.pts)
-        flank_rs = [
-            math.hypot(flank.mesh_positions[i], flank.mesh_positions[i + 1])
-            for i in range(0, len(flank.mesh_positions), 3)
-        ]
-        assert max(flank_rs) == pytest.approx(base_rmax, abs=1e-6)
-        # 沿 Z 轴展开（总重磨量 L=2mm 同量级）
-        zs = [flank.mesh_positions[i] for i in range(2, len(flank.mesh_positions), 3)]
-        assert max(zs) - min(zs) > 1.0

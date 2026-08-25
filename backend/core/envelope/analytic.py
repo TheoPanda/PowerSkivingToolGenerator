@@ -93,12 +93,12 @@ def _find_roots(
         if hs[k] * hs[k + 1] > 0.0:
             continue
         lo, hi = thetas[k], thetas[k + 1]
-        hlo, hhi = hs[k], hs[k + 1]
+        hlo = hs[k]
         for _ in range(60):
             mid = 0.5 * (lo + hi)
             hm = _h(mid, plan, pt, rake, nrm)
             if hlo * hm <= 0.0:
-                hi, hhi = mid, hm
+                hi = mid
             else:
                 lo, hlo = mid, hm
         root = 0.5 * (lo + hi)

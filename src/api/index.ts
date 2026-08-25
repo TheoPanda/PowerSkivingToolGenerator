@@ -62,21 +62,6 @@ export async function fetchWorkpiece(params: GearParams): Promise<WorkpieceRespo
   })
 }
 
-/** 包络占位演示图层（子 PRD-1 多图层能力验证）. */
-export interface EnvelopeDemoLayer {
-  id: LayerId
-  glb_base64: string
-}
-
-export interface EnvelopeDemoResponse {
-  layers: EnvelopeDemoLayer[]
-}
-
-/** 获取包络占位演示图层（扫掠点云/刃形/后刀面）的 GLB. */
-export async function fetchEnvelopeDemo(): Promise<EnvelopeDemoResponse> {
-  return request<EnvelopeDemoResponse>('/api/envelope/demo', { method: 'POST' })
-}
-
 // ── 子 PRD-2 离散包络 ──────────────────────────────────────────────
 
 /** 刀具参数（组B 子集）— 包络端点共用. */
@@ -88,11 +73,10 @@ export interface ToolParams {
   alpha_0_deg: number
 }
 
-/** 离散参数（可缺省，后端默认 n=200/m=181/NR=200/θ=±40°/n_z=21）. */
+/** 离散参数（可缺省，后端默认 n=200/m=181/θ=±40°/n_z=21）. */
 export interface DiscretizationParams {
   n?: number
   m?: number
-  NR?: number
   theta_range_deg?: number
   n_z?: number
 }

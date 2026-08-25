@@ -9,7 +9,6 @@ from core.envelope.interference import (
     _point_in_polygon,
     interference_color,
     neutral_gray_color,
-    signed_distance,
     signed_distance_full_ring,
 )
 
@@ -20,20 +19,6 @@ class TestPointInPolygon:
         pts = np.array([[1.0, 1.0], [3.0, 3.0], [-1.0, 1.0]])
         inside = _point_in_polygon(poly, pts)
         assert inside[0] and not inside[1] and not inside[2]
-
-
-class TestSignedDistance:
-    """符号语义（2026-08-20 修正）：齿槽多边形内=空隙=正，外=材料=负."""
-
-    def test_slot_inside_positive(self):
-        poly = np.array([[0.0, -1.0], [0.0, 1.0], [2.0, 1.0], [2.0, -1.0]])
-        d = signed_distance(np.array([[1.0, 0.0]]), poly)
-        assert d[0] > 0  # 槽内 → 间隙
-
-    def test_material_outside_negative(self):
-        poly = np.array([[0.0, -1.0], [0.0, 1.0], [2.0, 1.0], [2.0, -1.0]])
-        d = signed_distance(np.array([[5.0, 0.0]]), poly)
-        assert d[0] < 0  # 材料侧 → 干涉
 
 
 class TestFullRing:

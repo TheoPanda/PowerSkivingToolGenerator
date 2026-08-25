@@ -63,17 +63,6 @@ def segments_to_dict(segs: list[Segment]) -> list[dict]:
     return out
 
 
-def _shoe_lace_area(pts: list[tuple[float, float]]) -> float:
-    """鞋带公式计算多边形有向面积 (正 = CCW). 纯数学，不依赖 OCCT."""
-    area = 0.0
-    n = len(pts)
-    for i in range(n):
-        x0, y0 = pts[i]
-        x1, y1 = pts[(i + 1) % n]
-        area += x0 * y1 - x1 * y0
-    return abs(area) / 2.0
-
-
 # ── spec.params — 参数规格表 ──────────────────────────────────────────
 
 _ITEM_KEYS = ("key", "label", "symbol", "value", "unit")

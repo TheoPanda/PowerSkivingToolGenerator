@@ -180,7 +180,7 @@ async function runEnvelope(): Promise<void> {
         gamma_0_deg: toolParams.gamma_0,
         alpha_0_deg: toolParams.alpha_0,
       },
-      // discretization 缺省 → 后端默认 n=200/m=181/NR=200/θ=±40°
+      // discretization 缺省 → 后端默认 n=200/m=181/θ=±40°
     }
     lastEnvelopeReq = req
     // 能力查询（后端单一权威，β_w + k_io 派生）：替代本地 isHelical 判断。

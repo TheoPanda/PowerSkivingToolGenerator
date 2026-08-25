@@ -105,22 +105,6 @@ class TestInvoluteProfile:
         assert x == pytest.approx(r_b1)
         assert y == pytest.approx(0.0)
 
-    def test_generate_full_profile(self):
-        """生成渐开线点集: 从基圆到齿顶圆"""
-        from core.workpiece.profile import generate_involute_points
-
-        r_b = 48.0  # 基圆半径
-        r_a = 54.0  # 齿顶圆半径
-        n_points = 50
-        points = generate_involute_points(r_b, r_a, n_points)
-
-        assert len(points) == n_points
-        # 第一点在基圆上
-        assert abs(math.sqrt(points[0][0]**2 + points[0][1]**2) - r_b) < 1e-8
-        # 最后一点接近齿顶圆
-        r_last = math.sqrt(points[-1][0]**2 + points[-1][1]**2)
-        assert abs(r_last - r_a) < 1e-6
-
 
 class TestGearParams:
     """GearParams 数据类"""
@@ -478,18 +462,3 @@ class TestWorkpieceResult:
         assert result.d_f == 96.25
         assert result.r_b == 48.164
         assert result.r_pw == 51.25
-
-    def test_result_round_trip(self):
-        """序列化/反序列化往返"""
-        from core.workpiece.models import WorkpieceResult
-        import json
-
-        result = WorkpieceResult(
-            d_a=107.5, d_f=96.25, r_b=48.164,
-            r_pw=51.25, m_t=2.5, alpha_t_deg=20.0, z_w=41,
-        )
-        d = result.to_dict()
-        restored = WorkpieceResult.from_dict(d)
-        assert restored.d_a == result.d_a
-        assert restored.r_b == result.r_b
-        assert restored.alpha_t_deg == result.alpha_t_deg

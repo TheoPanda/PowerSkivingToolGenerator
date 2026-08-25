@@ -62,13 +62,6 @@ def _nearest_distance(pts: np.ndarray, poly: np.ndarray) -> np.ndarray:
     return np.sqrt(d)
 
 
-def signed_distance(pts_w: np.ndarray, poly: np.ndarray) -> np.ndarray:
-    """W 系端面点 → 齿槽多边形符号距离（内=正间隙，外=负干涉）."""
-    d_abs = _nearest_distance(pts_w, poly)
-    inside = _point_in_polygon(poly, pts_w)
-    return np.where(inside, d_abs, -d_abs)
-
-
 def signed_distance_full_ring(pts_w: np.ndarray, poly: np.ndarray, z_w: int) -> np.ndarray:
     """全周向符号距离：点 vs 完整内齿轮（z_w 齿 + z_w 槽），内齿轮几何语义.
 

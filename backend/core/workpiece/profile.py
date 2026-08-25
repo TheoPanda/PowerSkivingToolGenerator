@@ -56,19 +56,6 @@ def involute_point(r_b: float, xi: float) -> tuple[float, float]:
     return (x, y)
 
 
-def involute_radius(r_b: float, xi: float) -> float:
-    """渐开线上点的径向距离: r(ξ) = r_b·√(1+ξ²).
-
-    Args:
-        r_b: 基圆半径 [mm]
-        xi: 展角参数 [rad]
-
-    Returns:
-        径向距离 [mm]
-    """
-    return r_b * math.sqrt(1.0 + xi * xi)
-
-
 def xi_at_radius(r_b: float, r: float) -> float:
     """已知径向距离 r 反求展角 ξ.
 
@@ -89,46 +76,6 @@ def xi_at_radius(r_b: float, r: float) -> float:
     if abs(r - r_b) < 1e-12:
         return 0.0
     return math.sqrt((r / r_b) ** 2 - 1.0)
-
-
-def generate_involute_points(
-    r_b: float,
-    r_a: float,
-    n_points: int,
-    r_f: float | None = None,
-) -> list[tuple[float, float]]:
-    """K-1.1 + K-1.12 生成渐开线齿面点集 (端面).
-
-    从基圆 (或齿根圆，取大者) 到齿顶圆，等间距采样。
-
-    Args:
-        r_b: 基圆半径 [mm]
-        r_a: 齿顶圆半径 [mm]
-        n_points: 采样点数
-        r_f: 齿根圆半径 [mm], 可选。若 r_b > r_f 则从 r_b 开始；
-              否则从 max(r_f, r_b) 开始 (K-1.12 圆角段不由本函数处理)
-
-    Returns:
-        [(x, y), ...] 渐开线点集 (从齿根到齿顶)
-    """
-    if n_points < 2:
-        raise ValueError(f"n_points={n_points} 必须 ≥ 2")
-
-    r_start = max(r_b, r_f) if r_f is not None else r_b
-
-    if r_a <= r_start:
-        raise ValueError(f"齿顶圆 r_a={r_a} ≤ 起始半径 r_start={r_start}")
-
-    xi_start = xi_at_radius(r_b, r_start)
-    xi_end = xi_at_radius(r_b, r_a)
-
-    points: list[tuple[float, float]] = []
-    for i in range(n_points):
-        t = i / (n_points - 1)
-        xi = xi_start + t * (xi_end - xi_start)
-        points.append(involute_point(r_b, xi))
-
-    return points
 
 
 @dataclass(frozen=True)
