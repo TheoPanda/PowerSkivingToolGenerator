@@ -7,13 +7,14 @@
  */
 import { reactive } from 'vue'
 import type { SpecPayload, WorkpieceResult } from '../api'
+import { PANEL_MARGIN } from '../components/panelLayout'
 
 /** localStorage 键：结果面板位置. */
 const POS_KEY = 'pst.result-panel.pos'
 /** 结果面板宽度（与图层面板一致，248px，theme.css --float-panel-width 同源）. */
 const PANEL_W = 248
-/** 右对齐「实体/线框」切换按钮（right 12px）. */
-const EDGE_RIGHT = 12
+/** 右对齐视图切换面板（right 24px = panelLayout.PANEL_MARGIN，统一边距）. */
+const EDGE_RIGHT = PANEL_MARGIN
 /** 下对齐「展开/收回」按钮（toggle-btn 底边 = bottom 24px）. */
 const EDGE_BOTTOM = 24
 /** 首次定位的估算面板高度（mount 后精确校正下边界对齐）. */

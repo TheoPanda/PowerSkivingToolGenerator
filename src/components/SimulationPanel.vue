@@ -5,7 +5,7 @@
  * 拖拽浮窗，提供：播放/暂停（乒乓）、重置、速度选择、φ_t 滑条、单齿/全齿切换。
  * 动画数据由 WorkpieceViewer 请求后通过 openSimulation() 传入。
  */
-import { inject, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
+import { inject, reactive, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Ref } from 'vue'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 import {
@@ -13,6 +13,8 @@ import {
   togglePlay, resetPhi, setPhi, setSpeed, toggleGearMode, toggleSpectrumMode,
   toggleSectionMode, setSectionIz, closeSimulation,
 } from '../composables/useSimulation'
+import { PANEL_MARGIN, RIGHT_COLUMN_TOP } from './panelLayout'
+import { installGlassRefraction } from './liquidGlass'
 
 const viewportRef = inject<Ref<GearViewport | null>>(GEAR_VIEWPORT_KEY, ref(null))
 
@@ -21,9 +23,12 @@ const PANEL_W = 248
 const HEADER_H = 34
 const EDGE = 8
 const POS_KEY = 'pst.sim-panel.pos'
-/** 默认位置：右对齐视图面板，图层面板（y 178 + 8 行×30 + 头部/padding ≈ 178+286）下方. */
+/** 面板根元素（液态玻璃折射安装点）. */
+const panelEl = ref<HTMLElement | null>(null)
+/** 默认位置：右对齐视图面板（右缘统一边距），图层面板正下方
+ * （图层面板底 ≈ RIGHT_COLUMN_TOP 218 + 高 ~378 → 596，留 8px 间隙）. */
 function defaultPos(): { x: number; y: number } {
-  return { x: window.innerWidth - PANEL_W - 12, y: 478 }
+  return { x: window.innerWidth - PANEL_W - PANEL_MARGIN, y: 604 }
 }
 function loadPos(): { x: number; y: number } {
   try {
@@ -35,8 +40,13 @@ function loadPos(): { x: number; y: number } {
   } catch { /* ignore */ }
   return defaultPos()
 }
-// reactive 包装（同 LayerPanel）：否则 :style 绑定不响应拖拽坐标更新，面板视觉上不可拖
-const panelPos = reactive<{ x: number; y: number }>(loadPos())
+// reactive 包装（同 LayerPanel）：否则 :style 绑定不响应拖拽坐标更新，面板视觉上不可拖。
+// 持久化旧值加载即 clamp（y 下限 RIGHT_COLUMN_TOP：右列面板不得盖住视图切换面板）
+const _initPos = loadPos()
+const panelPos = reactive<{ x: number; y: number }>({
+  x: clamp(_initPos.x, EDGE, window.innerWidth - PANEL_W - PANEL_MARGIN),
+  y: clamp(_initPos.y, RIGHT_COLUMN_TOP, window.innerHeight - HEADER_H - EDGE),
+})
 
 let dragging = false
 let lastX = 0
@@ -52,8 +62,8 @@ function onHeaderDown(e: MouseEvent): void {
 }
 function onMove(e: MouseEvent): void {
   if (!dragging) return
-  panelPos.x = clamp(panelPos.x + e.clientX - lastX, EDGE, window.innerWidth - PANEL_W - EDGE)
-  panelPos.y = clamp(panelPos.y + e.clientY - lastY, EDGE, window.innerHeight - HEADER_H - EDGE)
+  panelPos.x = clamp(panelPos.x + e.clientX - lastX, EDGE, window.innerWidth - PANEL_W - PANEL_MARGIN)
+  panelPos.y = clamp(panelPos.y + e.clientY - lastY, RIGHT_COLUMN_TOP, window.innerHeight - HEADER_H - EDGE)
   lastX = e.clientX
   lastY = e.clientY
 }
@@ -71,7 +81,7 @@ function clamp(v: number, lo: number, hi: number): number {
 // 窗口 resize
 let prevW = window.innerWidth
 function onResize(): void {
-  panelPos.x = clamp(panelPos.x + (window.innerWidth - prevW), EDGE, window.innerWidth - PANEL_W - EDGE)
+  panelPos.x = clamp(panelPos.x + (window.innerWidth - prevW), EDGE, window.innerWidth - PANEL_W - PANEL_MARGIN)
   prevW = window.innerWidth
 }
 
@@ -148,12 +158,20 @@ function onReset(): void {
 
 onMounted(() => window.addEventListener('resize', onResize))
 onUnmounted(() => window.removeEventListener('resize', onResize))
+
+// 液态玻璃折射：v-if 打开时元素才出现 → watch open 后 nextTick 安装（重开尺寸同则跳过）
+watch(() => simState.open, async (open) => {
+  if (!open) return
+  await nextTick()
+  if (panelEl.value) installGlassRefraction(panelEl.value, 'sim-panel')
+})
 </script>
 
 <template>
   <div
     v-if="simState.open"
-    class="sim-panel"
+    ref="panelEl"
+    class="sim-panel glass-panel liquid-glass"
     :style="{ left: panelPos.x + 'px', top: panelPos.y + 'px' }"
     data-test="simulation-panel"
   >
@@ -277,14 +295,8 @@ onUnmounted(() => window.removeEventListener('resize', onResize))
   position: fixed;
   width: var(--float-panel-width, 248px);
   z-index: 16;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--glass-radius);
-  box-shadow: var(--glass-shadow);
   overflow: hidden;
-  color: var(--brand-text, #1a2332);
+  /* 玻璃风格由 glass-panel/liquid-glass 基类承担（theme.css，v6 定稿） */
 }
 .sp-header {
   display: flex;
@@ -292,8 +304,8 @@ onUnmounted(() => window.removeEventListener('resize', onResize))
   justify-content: space-between;
   height: 34px;
   padding: 0 8px 0 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
-  background: rgba(255, 255, 255, 0.26);
+  border-bottom: 1px solid var(--glass-divider);
+  background: var(--glass-header);
   cursor: grab;
   user-select: none;
 }

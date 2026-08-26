@@ -6,8 +6,19 @@
  * 渐变条 stops / 刻度 mm / 参考灰全部来自后端 interference_stats.legend
  * （单一权威源，前端不复制色阶公式）；pointer-events:none 不遮挡 3D 交互。
  */
-import { computed } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { interferenceState } from '../composables/useInterferenceLegend'
+import { installGlassRefraction } from './liquidGlass'
+
+/** 图例根元素（液态玻璃折射安装点）. */
+const legendEl = ref<HTMLElement | null>(null)
+
+/** v-if 条件渲染 → 显示时 nextTick 安装（重显尺寸同则跳过）. */
+watch(() => interferenceState.visible, async (v) => {
+  if (!v) return
+  await nextTick()
+  if (legendEl.value) installGlassRefraction(legendEl.value, 'if-legend', { bezel: 20, strength: 12 })
+})
 
 /** 渐变条 CSS（stops t∈[0,1] → linear-gradient 位置）. */
 const gradientCss = computed<string>(() => {
@@ -52,7 +63,8 @@ const minDSummary = computed<{ text: string; danger: boolean } | null>(() => {
 <template>
   <div
     v-if="interferenceState.visible && interferenceState.stats"
-    class="if-legend"
+    ref="legendEl"
+    class="if-legend glass-panel-sm liquid-glass"
     data-test="interference-legend"
   >
     <div class="if-title">
@@ -104,12 +116,7 @@ const minDSummary = computed<{ text: string; danger: boolean } | null>(() => {
   flex-direction: column;
   gap: 5px;
   padding: 8px 12px 7px;
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.38) 100%);
-  backdrop-filter: blur(12px) saturate(160%);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow-sm);
+  /* 玻璃风格由 glass-panel-sm/liquid-glass 基类承担（theme.css，v6 定稿） */
   user-select: none;
   pointer-events: none; /* 图例纯展示，不遮挡 3D 视口交互 */
 }

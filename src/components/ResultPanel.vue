@@ -10,17 +10,17 @@
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { workpieceState, movePanel, consumeDefaultPosition } from '../composables/useWorkpieceState'
 import type { SpecPayload } from '../api'
+import { PANEL_MARGIN, SNAP_TOP, SNAP_THRESHOLD } from './panelLayout'
+import { installGlassRefraction } from './liquidGlass'
 
 const PANEL_W = 248
 const HEADER_H = 36
 const EDGE = 8
 
-// ── 贴边吸附常量 ──
-const SNAP_LEFT = 24 // 左贴：与 MainPanel 左缘对齐（MainPanel left:24px）
-const SNAP_RIGHT = 24 // 右贴：与左同边距
-const SNAP_TOP = 64 // 上贴：自绘标题栏(40px)下 + 24px 合理边距
-const SNAP_BOTTOM = 24 // 下贴：底边距
-const SNAP_THRESHOLD = 50 // 距离边沿多少 px 内触发吸附
+// ── 贴边吸附（panelLayout 共享常量：左/右/下 = PANEL_MARGIN，上 = 标题栏下留同边距）──
+const SNAP_LEFT = PANEL_MARGIN // 左贴：与 MainPanel 左缘对齐（left:24px，注释互指）
+const SNAP_RIGHT = PANEL_MARGIN // 右贴：与右上角视图切换面板右缘对齐（right:24px，注释互指）
+const SNAP_BOTTOM = PANEL_MARGIN // 下贴：底边距
 
 /** 面板根元素（用于底部吸附取实际高度）. */
 const panelEl = ref<HTMLElement | null>(null)
@@ -93,7 +93,8 @@ function onWindowUp(): void {
   snapToEdge()
 }
 function clampX(x: number): number {
-  return Math.min(Math.max(EDGE, x), Math.max(EDGE, window.innerWidth - PANEL_W - EDGE))
+  // 右边界留 PANEL_MARGIN：与视图/图层面板右缘对齐（见 LayerPanel.clampX 注释）
+  return Math.min(Math.max(EDGE, x), Math.max(EDGE, window.innerWidth - PANEL_W - PANEL_MARGIN))
 }
 function clampY(y: number): number {
   return Math.min(Math.max(EDGE, y), Math.max(EDGE, window.innerHeight - HEADER_H - EDGE))
@@ -111,6 +112,7 @@ function onResize(): void {
 }
 onMounted(() => {
   window.addEventListener('resize', onResize)
+  if (panelEl.value) installGlassRefraction(panelEl.value, 'result-panel')
 })
 onUnmounted(() => {
   window.removeEventListener('resize', onResize)
@@ -165,7 +167,7 @@ function openSpecWindow(): void {
   <div
     v-else-if="workpieceState.open"
     ref="panelEl"
-    class="result-panel"
+    class="result-panel glass-panel liquid-glass"
     :class="{ 'is-collapsed': workpieceState.collapsed }"
     :style="{ left: workpieceState.pos.x + 'px', top: workpieceState.pos.y + 'px' }"
   >
@@ -199,14 +201,8 @@ function openSpecWindow(): void {
   position: fixed;
   width: var(--float-panel-width, 248px);
   z-index: 16;
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--glass-radius);
-  box-shadow: var(--glass-shadow);
   overflow: hidden;
-  color: var(--brand-text, #1a2332);
+  /* 玻璃风格由 glass-panel/liquid-glass 基类承担（theme.css，v6 定稿） */
 }
 .rp-header {
   display: flex;
@@ -216,8 +212,8 @@ function openSpecWindow(): void {
   padding: 0 8px 0 12px;
   cursor: grab;
   user-select: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.35);
-  background: rgba(255, 255, 255, 0.26);
+  border-bottom: 1px solid var(--glass-divider);
+  background: var(--glass-header);
 }
 .rp-header:active {
   cursor: grabbing;

@@ -132,7 +132,7 @@ onUnmounted(() => {
 
     <!-- 欢迎界面 -->
     <div v-if="!loggedIn" class="welcome-overlay" :class="{ leaving: welcomeLeaving }">
-      <div class="welcome-card" :class="{ leaving: welcomeLeaving }">
+      <div class="welcome-card glass-panel-strong" :class="{ leaving: welcomeLeaving }">
         <img src="/logo.png" alt="Logo" class="welcome-logo" />
         <div class="welcome-form">
           <input
@@ -184,7 +184,7 @@ onUnmounted(() => {
 
     <!-- 模型加载进度 -->
     <div v-if="!modelLoaded" class="loading-overlay">
-      <div class="loading-card">
+      <div class="loading-card glass-panel-strong liquid-glass">
         <span class="loading-spinner"></span>
         <span class="loading-text">加载滚刀模型… {{ modelLoadProgress }}%</span>
       </div>
@@ -225,18 +225,9 @@ onUnmounted(() => {
 .welcome-card {
   width: 320px;
   padding: 28px 28px;
-  border-radius: 20px;
+  border-radius: 20px; /* 比基类 16px 略大（登录场景） */
   text-align: center;
-  background: var(--glass-bg-strong);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  box-shadow:
-    0 20px 50px rgba(0, 64, 128, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.18),
-    inset 1px 0 0 rgba(255, 255, 255, 0.30),
-    inset -1px 0 0 rgba(255, 255, 255, 0.30);
+  /* 玻璃风格由 glass-panel-strong 基类承担（theme.css，v6 定稿） */
   transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1),
               opacity 0.45s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -349,19 +340,12 @@ onUnmounted(() => {
   z-index: 5;
 }
 
+/* 玻璃风格由 glass-panel-strong 基类承担（theme.css，v6 定稿） */
 .loading-card {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 16px 28px;
-  background:
-    radial-gradient(circle at 22% 0%, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 55%),
-    linear-gradient(180deg, rgba(240, 248, 255, 0.55) 0%, rgba(228, 238, 248, 0.35) 100%);
-  backdrop-filter: blur(14px) saturate(160%);
-  -webkit-backdrop-filter: blur(14px) saturate(160%);
-  border-radius: 14px;
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow-sm);
 }
 
 .loading-spinner {

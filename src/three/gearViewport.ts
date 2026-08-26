@@ -306,8 +306,6 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
   let renderRequested = true // on-demand 渲染标志
   let workpieceViewMode: WorkpieceViewMode = 'solid' // 工件视图模式（实体 / 透明线框）
   let conjugateGearInterference = false // 等效产形齿轮样式（false=靛蓝单色，true=干涉顶点色）
-  const BG_SOLID = new THREE.Color(0xebeff3) // 实体模式背景
-  const BG_XRAY = new THREE.Color(0xffffff) // 线框模式背景 (图纸白底)
   // 业务联动目标（经 setter 注入）
   let targetModelScale = 3.0
   let targetOffsetX = 0
@@ -333,7 +331,8 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     if (!scene || !edgeMaterial || !flatMaterial) return
     const edge = edgeMaterial
     const flat = flatMaterial
-    scene.background = mode === 'xray' ? BG_XRAY : BG_SOLID
+    scene.background = null
+    container.classList.toggle('vp-xray', mode === 'xray') // 背景渐变切换（theme.css）
     scene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return
       if (!child.userData.solidMaterial) {
@@ -463,6 +462,10 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     renderer.shadowMap.type = THREE.PCFShadowMap
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.2
+    // 透明清屏：背景走容器 CSS 环境渐变（.vp-ambient，theme.css）——纯色背景下
+    // 液态玻璃面板的折射/透出/模糊全部不可见（blur(纯色)=纯色），渐变是玻璃感的载体
+    renderer.setClearColor?.(0x000000, 0)
+    container.classList.add('vp-ambient')
     container.appendChild(renderer.domElement)
 
     scene = new THREE.Scene()
@@ -500,7 +503,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
       // 无 WebGL 上下文（测试 fake renderer）→ 跳过环境贴图
       environmentTexture = null
     }
-    scene.background = new THREE.Color(0xebeff3)
+    scene.background = null // 背景由容器 CSS 渐变承担（.vp-ambient），见 init 注释
 
     // 相机
     camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100)

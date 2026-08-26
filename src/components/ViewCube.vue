@@ -6,10 +6,18 @@
  * + Home 恢复默认视角。视图按钮带等轴立方体图标：可见三面（顶/前/右）高亮对应面，
  * 隐藏三面（底/后/左）叠加方位箭头示意。
  */
-import { inject, ref, type Ref } from 'vue'
+import { inject, ref, onMounted, type Ref } from 'vue'
 import { GEAR_VIEWPORT_KEY, type GearViewport, type StandardView, type RenderMode } from '../three/gearViewport'
+import { installGlassRefraction } from './liquidGlass'
 
 const viewportRef = inject<Ref<GearViewport | null>>(GEAR_VIEWPORT_KEY, ref(null))
+
+/** 面板根元素（液态玻璃折射安装点）. */
+const panelEl = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+  if (panelEl.value) installGlassRefraction(panelEl.value, 'view-switcher', { bezel: 18, strength: 10 })
+})
 
 /** 实体/线框模式（MainView 持有并传入；切换经 emit 回 MainView 下发 viewport）. */
 const props = defineProps<{ renderMode: RenderMode }>()
@@ -56,7 +64,7 @@ function onHome(): void {
 </script>
 
 <template>
-  <div class="view-switcher" data-test="view-cube">
+  <div ref="panelEl" class="view-switcher glass-panel-sm liquid-glass" data-test="view-cube">
     <!-- 实体/线框渲染模式（原 MainView 右上角切换，并入本面板） -->
     <div class="vs-modes">
       <button
@@ -147,28 +155,25 @@ function onHome(): void {
 .view-switcher {
   position: absolute;
   top: 12px;
-  right: 12px;
+  /* right 与浮动面板贴边/ MainPanel 左缘统一 24px（panelLayout.ts PANEL_MARGIN 注释互指）。
+     玻璃风格由 glass-panel-sm/liquid-glass 基类承担（theme.css，v6 定稿） */
+  right: 24px;
   z-index: 12;
   display: flex;
   flex-direction: column;
   gap: 5px;
   padding: 5px;
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.32) 100%);
-  backdrop-filter: blur(12px) saturate(160%);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--glass-shadow-sm);
   user-select: none;
 }
 
-/* 实体/线框分段 */
+/* 实体/线框分段（玻璃内嵌子块） */
 .vs-modes {
   display: flex;
   gap: 2px;
   padding: 2px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.35);
+  background: var(--glass-block);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.30);
 }
 .vs-mode-btn {
   flex: 1;
@@ -198,9 +203,10 @@ function onHome(): void {
   justify-content: center;
   gap: 5px;
   height: 24px;
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--glass-block-border);
   border-radius: 6px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.62) 0%, rgba(255, 255, 255, 0.42) 100%);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.40) 0%, rgba(255, 255, 255, 0.20) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
   color: var(--brand-text, #1a2332);
   font-size: 11px;
   cursor: pointer;

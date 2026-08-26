@@ -10,6 +10,7 @@ import { ref, reactive, provide, onMounted } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
 import WorkpieceViewer from './WorkpieceViewer.vue'
 import { createGearParams, gearParamsKey, type GearParams } from '../composables/useGearParams'
+import { installGlassRefraction } from './liquidGlass'
 
 // ---- gearParams store（单一 schema 模块提供默认值） ----
 const gearParams = reactive<GearParams>(createGearParams())
@@ -18,7 +19,11 @@ provide(gearParamsKey, gearParams)
 // ---- 面板状态 ----
 const expanded = ref<boolean>(false)
 
+/** 面板玻璃本体（.panel-body；折射安装点。外层 shell 是透明容器，装那里会出直角环）. */
+const panelEl = ref<HTMLElement | null>(null)
+
 onMounted(() => {
+  if (panelEl.value) installGlassRefraction(panelEl.value, 'main-panel')
   window.dispatchEvent(new CustomEvent('panel:toggle', { detail: false }))
 })
 
@@ -79,7 +84,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
 <template>
   <div class="main-panel-shell" :class="{ open: expanded }">
     <!-- 面板内容 -->
-    <div class="panel-body">
+    <div ref="panelEl" class="panel-body glass-panel liquid-glass">
       <!-- 文件操作栏 -->
       <div class="panel-block file-bar">
         <button class="file-btn" title="新建项目">
@@ -191,13 +196,7 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
     transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
   margin-bottom: 10px;
 
-  /* 液态玻璃：径向高光 + 通透渐变底 + 白色描边 + 上缘捕光 */
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--glass-radius);
-  box-shadow: var(--glass-shadow);
+  /* 玻璃风格由 glass-panel/liquid-glass 基类承担（theme.css，v6 定稿） */
   padding: 12px;
 }
 

@@ -46,34 +46,50 @@
   /* ---- 液态玻璃（Liquid Glass）----
      核心＝玻璃自身的「光泽」：镜面高光弧带(陡峭亮带) + 次级曲面反光 + 发光描边。
      注：3D 场景背景是纯色 #ebeff3，透明度透不出背后细节，
-         光泽必须由玻璃自己发出，而非依赖透出背景。 */
+         光泽必须由玻璃自己发出，而非依赖透出背景。
+     2026-08-26 v5：面板主体改近纯透明（用户要求取消白色背景）——tint 仅剩
+     0.06/0.02 微调，玻璃内容由 backdrop（环境渐变+折射+模糊）承担；
+     高光弧带保留（玻璃自身光泽，非「背景」）。--glass-bg-strong（登录卡）不动。 */
   --glass-bg:
     /* 主镜面高光：顶部弧形亮带（液态玻璃标志性特征） */
-    radial-gradient(150% 85% at 16% -14%, rgba(255, 255, 255, 0.90) 0%, rgba(255, 255, 255, 0.25) 40%, rgba(255, 255, 255, 0) 66%),
+    radial-gradient(150% 85% at 16% -14%, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.12) 40%, rgba(255, 255, 255, 0) 66%),
     /* 次级反光：右下小光斑（模拟曲面反光/厚度） */
-    radial-gradient(45% 35% at 85% 88%, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0) 68%),
-    /* 通透渐变底（上部略亮、下部略透，保可读性） */
-    linear-gradient(180deg, rgba(248, 251, 254, 0.42) 0%, rgba(238, 243, 249, 0.26) 100%);
+    radial-gradient(45% 35% at 85% 88%, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 68%),
+    /* 近纯透明底（微弱可读性托底） */
+    linear-gradient(180deg, rgba(248, 251, 254, 0.06) 0%, rgba(238, 243, 249, 0.02) 100%);
   /* 更强版本：登录卡等需要更好可读性的表面 */
   --glass-bg-strong:
-    radial-gradient(150% 85% at 16% -14%, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.28) 40%, rgba(255, 255, 255, 0) 66%),
-    radial-gradient(45% 35% at 85% 88%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 68%),
-    linear-gradient(180deg, rgba(249, 252, 255, 0.58) 0%, rgba(240, 245, 250, 0.40) 100%);
+    radial-gradient(150% 85% at 16% -14%, rgba(255, 255, 255, 0.88) 0%, rgba(255, 255, 255, 0.25) 40%, rgba(255, 255, 255, 0) 66%),
+    radial-gradient(45% 35% at 85% 88%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 68%),
+    linear-gradient(180deg, rgba(249, 252, 255, 0.42) 0%, rgba(240, 245, 250, 0.28) 100%);
   --glass-border:      rgba(255, 255, 255, 0.60);   /* 发光描边 */
-  --glass-block:       rgba(255, 255, 255, 0.20);   /* 玻璃内嵌子块底 */
-  --glass-block-border: rgba(255, 255, 255, 0.32);
-  --glass-blur:        blur(18px) saturate(160%);   /* 标准模糊（面板） */
-  --glass-blur-sm:     blur(14px) saturate(160%);   /* 弱模糊（小胶囊） */
+  --glass-block:       rgba(255, 255, 255, 0.08);   /* 玻璃内嵌子块底（v5 透明化） */
+  --glass-block-border: rgba(255, 255, 255, 0.24);
+  /* brightness 提通透感：液态玻璃比毛玻璃更「亮而清」，非雾面。
+     2026-08-26 v4：折射由 liquidGlass.ts 直接写元素 inline backdrop-filter
+     （`url(#lg-x) saturate(...) brightness(...)` 单层合并）。
+     不能用「--glass-blur: var(--lg-refract, …)」嵌套传递——custom property 在
+     :root 上即完成 var() 解析，面板元素上的 --lg-refract 传不进继承链。
+     2026-08-26 v6：用户要求取消模糊——blur() 分量移除（变量名保留，免 7 处
+     组件改动），未装折射的面板（loading-card 等）同样无模糊。 */
+  --glass-blur:        saturate(175%) brightness(1.04);
+  --glass-blur-sm:     saturate(175%) brightness(1.04);
   --glass-radius:      16px;
   --glass-shadow:
     0 20px 50px rgba(0, 64, 128, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95),    /* 上缘强捕光 */
-    inset 0 -1px 0 rgba(255, 255, 255, 0.18),   /* 下缘微亮 */
-    inset 1px 0 0 rgba(255, 255, 255, 0.30),
-    inset -1px 0 0 rgba(255, 255, 255, 0.30);
+    0 2px 8px rgba(0, 64, 128, 0.06),           /* 近距贴影（浮起层次） */
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),    /* 上缘强捕光 */
+    inset 0 -1px 0 rgba(255, 255, 255, 0.20),   /* 下缘微亮 */
+    inset 1px 0 0 rgba(255, 255, 255, 0.32),
+    inset -1px 0 0 rgba(255, 255, 255, 0.32);
+  /* 玻璃上子表面（面板标题条/表头）：上亮下透的光泽渐变（v5 透明化） */
+  --glass-header:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
+  /* 玻璃内分割线（标题条/表头下缘） */
+  --glass-divider:     rgba(255, 255, 255, 0.38);
   --glass-shadow-sm:
     0 8px 24px rgba(0, 64, 128, 0.16),
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 1px 0 rgba(255, 255, 255, 0.80),
     inset 0 -1px 0 rgba(255, 255, 255, 0.15);
   /* 浮动面板统一宽度：图层/计算结果/仿真动画三面板同宽
      （取最长图层行「等效产形齿轮」+ 干涉按钮 + 透明度滑条全显示所需宽度） */
@@ -98,6 +114,111 @@ body {
 
 .el-card {
   border-color: var(--brand-border);
+}
+
+/* ================================================================
+   液态玻璃表面基类 — 边缘折光 + rim 光环（Apple Liquid Glass 分层复刻）
+   用法：玻璃面板根元素加 .liquid-glass + onMounted 调
+   installGlassRefraction(el, key)（liquidGlass.ts，Electron/Chromium 生效）。
+   未安装折射滤镜时 --lg-refract 回退 blur(0px) → 退化为纯模糊玻璃（保底）。
+   ================================================================ */
+
+.liquid-glass {
+  position: relative; /* 承载 ::after 表面层 */
+}
+
+/* 边缘折光环（rim light）：conic 渐变亮度随角度变化——固定光向下玻璃边缘的
+   镜面高光（kube.io: specular ≈ 法向×光照方向，-60° 最亮），mask 成 1.2px 环。
+   注意：只挂在有玻璃背景的元素上（透明容器上会出直角矩形框）。折射由
+   --glass-blur 内嵌的 --lg-refract 单层承担（v4，不再用 ::before 叠层） */
+.liquid-glass::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.2px;
+  background: conic-gradient(
+    from 210deg,
+    rgba(255, 255, 255, 0.95),
+    rgba(255, 255, 255, 0.10) 16%,
+    rgba(255, 255, 255, 0.55) 36%,
+    rgba(255, 255, 255, 0.05) 54%,
+    rgba(255, 255, 255, 0.85) 72%,
+    rgba(255, 255, 255, 0.12) 88%,
+    rgba(255, 255, 255, 0.95)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ================================================================
+   3D 视口环境渐变背景（.vp-ambient，gearViewport init 时挂到容器）
+   纯色背景下液态玻璃全部视觉成分失效（blur/折射纯色=纯色）——径向渐变
+   让面板有可透出/可折射的内容。xray 模式换浅白渐变（图纸感）。
+   ================================================================ */
+
+.vp-ambient {
+  background: radial-gradient(
+    120% 95% at 50% 36%,
+    #f8fbfd 0%,
+    #e8eff5 40%,
+    #d8e2eb 72%,
+    #c5d3de 100%
+  );
+}
+
+.vp-ambient.vp-xray {
+  background: radial-gradient(
+    120% 95% at 50% 36%,
+    #ffffff 0%,
+    #fafcfe 55%,
+    #eff3f7 100%
+  );
+}
+
+/* ================================================================
+   玻璃面板基类 — 面板风格唯一权威（2026-08-26 v6 定稿）
+   新面板照此组合，勿在组件里重复玻璃声明：
+     class="… glass-panel liquid-glass"        ← 标准浮动面板
+     class="… glass-panel-sm liquid-glass"     ← 小面板（视图切换/图例）
+     class="… glass-panel-strong"              ← 高可读（登录卡，无 rim）
+   - glass-panel*：底色/描边/圆角/阴影/backdrop（saturate+brightness，无模糊）
+   - liquid-glass：::after conic rim 环（边缘折光高光）+ installGlassRefraction
+     （liquidGlass.ts）注入的边缘折射 url —— 必须挂在有玻璃背景的元素上
+   - 定位/尺寸/z-index 留给组件自己的根类
+   ================================================================ */
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  box-shadow: var(--glass-shadow);
+  color: var(--brand-text, #1a2332);
+}
+
+.glass-panel-sm {
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur-sm);
+  -webkit-backdrop-filter: var(--glass-blur-sm);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow-sm);
+  color: var(--brand-text, #1a2332);
+}
+
+.glass-panel-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--glass-radius);
+  box-shadow: var(--glass-shadow);
+  color: var(--brand-text, #1a2332);
 }
 
 /* ================================================================
