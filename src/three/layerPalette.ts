@@ -89,6 +89,12 @@ export const LAYER_VISUALS: Record<LayerId, LayerVisual> = {
 /** 全部图层 id（图层面板显示顺序；内齿轮齿面/产形面/等效产形齿轮紧随工件；整环紧随单齿；扫掠点云置于最后）. */
 export const LAYER_IDS: LayerId[] = ['workpiece', 'toothFlank', 'conjugate', 'conjugateGear', 'rake', 'edge', 'flank', 'singleTooth', 'toolRing', 'sweptCloud']
 
+/**
+ * 刀具整环图层 id 的具名常量：步骤3 预设保留层 / 过期标记对象共用
+ * （评审 S3 收口——避免 'toolRing' 字面量散布，单源从类型层下沉到值层）.
+ */
+export const TOOL_RING_ID: LayerId = 'toolRing'
+
 /** 安装参数（中心距 a + 轴交角 Σ），供前端把刀具系 T 的几何变换到工件系 W + 画坐标轴. */
 export interface EnvelopeInstall {
   a: number        // 中心距 [mm]

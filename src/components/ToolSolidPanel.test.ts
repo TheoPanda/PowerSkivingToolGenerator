@@ -12,6 +12,7 @@ import { nextTick, reactive, type ComponentPublicInstance } from 'vue'
 import ToolSolidPanel from './ToolSolidPanel.vue'
 import * as api from '../api'
 import { resetLayersState, useLayers } from '../composables/useLayers'
+import { resetToolStaleState } from '../composables/useToolStale'
 import { gearParamsKey, type GearParams } from '../composables/useGearParams'
 
 type PanelInstance = ComponentPublicInstance & {
@@ -85,6 +86,7 @@ function collectLayerReadyIds(): { ids: string[]; detach: () => void } {
 
 beforeEach(() => {
   resetLayersState()
+  resetToolStaleState() // 过期态势真值在模块级单例（评审 A1），逐用例隔离
 })
 
 describe('ToolSolidPanel — 三档披露表单（PRD §4 骨架）', () => {
@@ -373,5 +375,25 @@ describe('ToolSolidPanel — 过期徽标时序（Q10-b / PRD §5.4）', () => {
     expect(wrapper.find('[data-test="stale-banner"]').exists()).toBe(false)
     expect('toolRing' in useLayers().state.stale).toBe(false)
     expect(wrapper.vm.pendingChanges).toBe(false)
+  })
+
+  it('评审 A1 回归：卸载期间发生的工件重生成，重进面板仍如实亮横幅（监听跨挂载常驻）', async () => {
+    // 第一挂载：成功生成整环（hasGeneratedOnce=true，过期门槛就绪）
+    const w1 = mountPanel()
+    await w1.find('button[data-test="generate-tool-ring"]').trigger('click')
+    await flushPromises()
+    w1.unmount()
+
+    // 面板不在场时工件重生成——旧实现里这正是监听真空期，事件被静默漏接
+    dispatchModelReady()
+    await nextTick()
+
+    // 重进步骤3：单例状态存续 → 横幅立即呈现过期态势
+    const w2 = mountPanel()
+    await nextTick()
+    expect(w2.vm.workpieceStale).toBe(true)
+    expect(w2.vm.staleBannerVisible).toBe(true)
+    expect(w2.find('[data-test="stale-banner"]').text()).toContain('工件已变更')
+    expect(useLayers().state.stale.toolRing).toBe(true)
   })
 })

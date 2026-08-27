@@ -101,7 +101,9 @@ export const TOOL_FIELD_RULES: Record<ToolValidatableField, ToolFieldRule> = {
     },
   },
   beta_t: {
-    tier: 'workpiece',
+    // 评审 C2 修正：β_t 归静态档——[10,20]° 是设计书文献典型值，与工件参数无关；
+    // 与工件侧的 Σ 耦合按 Q9-C 落位「导出量」组展示（W15 工艺窗口未销项，刻意不设校验约束）
+    tier: 'static',
     check(params) {
       const b = params.beta_t
       if (!Number.isFinite(b) || b < 0) {

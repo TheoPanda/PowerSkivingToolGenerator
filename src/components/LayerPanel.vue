@@ -10,7 +10,7 @@
  * - 显隐/透明度的权威源在 useLayers() 单例（PRD §5.5 上提）：本组件只读 state + 派发动作，
  *   并把 inject 到的 viewport 登记进去（晚于状态出现的实例也能补上全量同步）
  */
-import { inject, reactive, ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { inject, reactive, ref, computed, watch, onMounted, onUnmounted, onBeforeUnmount } from 'vue'
 import type { Ref } from 'vue'
 import { LAYER_IDS, LAYER_VISUALS, MATERIAL_PRESETS, type LayerId, type LayerReadyDetail } from '../three/layerPalette'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
@@ -32,6 +32,13 @@ const opacity = layers.state.opacity
 watch(viewportRef, (vp: GearViewport | null): void => {
   layers.registerViewport(vp)
 }, { immediate: true })
+
+// 卸载即解除登记（评审 C3）：LayerPanel 受登录门控 v-if，卸载后 useLayers 单例
+// 不得继续持有已 dispose 的 viewport 引用（否则步骤3 预设会对死实例下发指令）；
+// 重挂载时上方 watch(immediate) 立即重新登记，状态由单例全量回放、视觉无感。
+onBeforeUnmount((): void => {
+  layers.registerViewport(null)
+})
 
 // ── 面板拖拽（仅标题栏；位置 localStorage 记忆；默认右对齐视图切换面板下方） ──
 // 264px：四列 grid（名称 1fr + 可见 26 + 功能 42 + 透明度 58）需比共用浮层面板宽一档，

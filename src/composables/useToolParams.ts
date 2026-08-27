@@ -58,6 +58,18 @@ export const LOCKED_RAKE_TYPE: RakeTypeChoice = 'plane'
 export const LOCKED_RAKE_TYPE_NOTE =
   '锥面前刀面的 ±/∓ 符号分支未决（W5），待销项后开放'
 
+/**
+ * UI 前刀面选项 → RakeRequest.rake_type 的收窄映射（src/api/index.ts 该字段仅开放 'plane'）。
+ * 评审 S4 收口：以运行时守卫替代调用方的 `as 'plane'` 断言——W5 锁定期内非 plane 分支
+ * 在表单控件上 disabled 不可达，一旦走到即属接线错误，宁可在此炸测试也别静默发错请求。
+ */
+export function rakeTypeToWire(v: RakeTypeChoice): 'plane' {
+  if (v !== 'plane') {
+    throw new Error(`rake_type=${v} 未开放（W5 待销项；锁定器已禁用该选项）`)
+  }
+  return v
+}
+
 /** 锁定后刀面算法：螺旋导程法。轴向偏移法 K-2.17 属 T15（需产形面链与 z_off 字段），待销项后开放。 */
 export const LOCKED_FLANK_METHOD: FlankMethodChoice = 'helical_lead'
 export const LOCKED_FLANK_METHOD_NOTE =

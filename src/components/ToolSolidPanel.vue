@@ -15,11 +15,12 @@
  *     `{error, code}` JSON 契约里的 error 字段）
  *   - 成功替换 toolRing 图层：与 WorkpieceViewer.dispatchLayer 同一通道（window
  *     gear:layer-ready），MainView.addLayer 覆盖同 id 图层、LayerPanel.markLayerReady 重置可见性
- *   - 过期徽标（Q10-b）：监听工件生成成功事件 gear:model-ready（MainPanel.onModelReady 派发；
- *     注意与图层通道 gear:layer-ready 语义不同）→ 面板横幅 + useLayers.state.stale.toolRing
+ *   - 过期徽标（Q10-b）：真值在 useToolStale 模块级单例（评审 A1：监听跨挂载常驻，
+ *     步骤切换真空期不再漏 gear:model-ready——MainPanel.onModelReady 派发，注意与
+ *     图层通道 gear:layer-ready 语义不同）→ 面板横幅 + useLayers.state.stale.toolRing
  *     （LayerPanel 圆点共用真值）。不强隐旧图，重新生成交给用户决定
  */
-import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
 import {
   fetchEnvelopeToolRing,
   type FlankRequest,
@@ -47,8 +48,8 @@ import {
   type ToolFieldIssue,
   type ToolValidatableField,
 } from '../composables/toolSolidValidation'
-import { useLayers } from '../composables/useLayers'
-import type { LayerId, LayerReadyDetail } from '../three/layerPalette'
+import { useToolStale } from '../composables/useToolStale'
+import { TOOL_RING_ID, type LayerReadyDetail } from '../three/layerPalette'
 
 // ── 工件参数注入：与 WorkpieceViewer 同一取数途径（MainPanel provide，inject 键相同） ──
 const gearParams = inject(gearParamsKey)
@@ -59,9 +60,8 @@ if (!gearParams) {
 // ── 刀具参数（本面板独立实例；schema/默认值/wire 映射全部来自 useToolParams 单一来源） ──
 const toolParams = useToolParams()
 
-// ── 过期标记写入 useLayers 单例（横幅与 LayerPanel 圆点共用同一真值，不另立状态） ──
-const layers = useLayers()
-const STALE_LAYER: LayerId = 'toolRing'
+// ── 过期态势真值在 useToolStale 单例（评审 A1：跨挂载存续；横幅与 LayerPanel 圆点共用） ──
+const toolStale = useToolStale()
 
 /** 锁定项常量的展示映射（模板用；理由文案含缺口编号，PRD §7 未销项引用纪律）. */
 const lockedNotes = {
@@ -155,28 +155,10 @@ const pendingChanges = computed<boolean>(
   () => lastAppliedSnapshot.value !== snapshotOf(toToolPayload(toolParams)),
 )
 
-// ── 过期徽标（Q10-b / PRD §5.4）──────────────────────────────
-/** 工件重生成后置真（gear:model-ready）；整环重生成成功即清除. */
-const workpieceStale = ref<boolean>(false)
-
-/** 横幅仅在「本面板已生成过整环」之后才有意义——之前不存在任何会被过期的刀具，
- * 引导由按钮的「有待应用的变更」承担（mount 即收到首帧 gear:model-ready 不算过期）。 */
-const staleBannerVisible = computed<boolean>(
-  () => workpieceStale.value && lastAppliedSnapshot.value !== null,
-)
-
-function onWorkpieceModelReady(): void {
-  workpieceStale.value = true
-  layers.setLayerStale(STALE_LAYER, true)
-}
-
-onMounted(() => {
-  window.addEventListener('gear:model-ready', onWorkpieceModelReady)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('gear:model-ready', onWorkpieceModelReady)
-})
+// ── 过期徽标（Q10-b / PRD §5.4）：监听与真值都在 useToolStale 单例（评审 A1）──
+/** 组件层只读投影（模板与 defineExpose 断言用）. */
+const workpieceStale = computed<boolean>(() => toolStale.state.workpieceStale)
+const staleBannerVisible = toolStale.bannerVisible
 
 // ── 手动生成（PRD §3.1-2：一键 tool_ring 链路，结果替换 toolRing 图层旧内容） ──
 const generating = ref<boolean>(false)
@@ -192,6 +174,8 @@ async function generate(): Promise<void> {
   generateError.value = null
   try {
     const toolWire = toToolPayload(toolParams)
+    // 请求前捕获载荷快照（评审 C1：飞行中改参数不影响本次「已应用」语义）
+    const sentSnapshot = snapshotOf(toolWire)
     const req: FlankRequest = {
       workpiece: toPayload(gearParams!),
       tool: toolWire.tool,
@@ -203,13 +187,12 @@ async function generate(): Promise<void> {
 
     // 图层替换走既有通道：MainView 收 gear:layer-ready 后 addLayer 同 id 覆盖旧内容，
     // LayerPanel 同步 markLayerReady；detail 形状 = layerPalette.LayerReadyDetail
-    const detail: LayerReadyDetail = { id: STALE_LAYER, glbBase64: resp.layer.glb_base64 }
+    const detail: LayerReadyDetail = { id: TOOL_RING_ID, glbBase64: resp.layer.glb_base64 }
     window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail }))
 
-    // 成功：刷新快照（清除「有待应用的变更」高亮）+ 清除过期徽标（该层已基于当前工件参数重建）
-    lastAppliedSnapshot.value = snapshotOf(toToolPayload(toolParams))
-    workpieceStale.value = false
-    layers.setLayerStale(STALE_LAYER, false)
+    // 成功：按「实际发出的请求」刷新快照（清除待应用高亮）+ 单例内清除过期位/圆点
+    lastAppliedSnapshot.value = sentSnapshot
+    toolStale.markToolRingGenerated()
   } catch (e: unknown) {
     // request() 已把 { error, code } 拆成 Error.message —— 就地展示（仓库既有消费惯例）
     generateError.value = e instanceof Error ? e.message : '整环生成失败'
@@ -285,11 +268,11 @@ defineExpose({
             :class="{ warn: issueOf('z_t')!.level === 'warn' }"
           >{{ issueOf('z_t')!.message }}</p>
 
-          <!-- 刀具螺旋角（工件依赖校验档）U12：界面 ° -->
+          <!-- 刀具螺旋角（静态典型区间档，评审 C2：文献值非工件联动；Σ 耦合见「导出量」组）U12：界面 ° -->
           <div class="glass-field">
             <label class="glass-field-label">
               螺旋角 β_t
-              <span v-if="isWorkpieceTier('beta_t')" class="tier-tag" title="校验档位=工件依赖（PRD §5.2）：区间随工件参数联动">随工件</span>
+              <span class="tier-tag" title="设计书 §3.2 文献典型区间 [10°, 20°]（静态规则）；与工件的 Σ 耦合见下方「导出量」组——W15 工艺窗口未销项，不设校验约束">文献典型</span>
             </label>
             <input
               v-model.number="toolParams.beta_t"

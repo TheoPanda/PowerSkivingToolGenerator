@@ -30,7 +30,7 @@ import {
 import type { LayerReadyDetail } from '../three/layerPalette'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 import { gearParamsKey, toPayload } from '../composables/useGearParams'
-import { toToolPayload, useToolParams, type ToolWirePayload } from '../composables/useToolParams'
+import { rakeTypeToWire, toToolPayload, useToolParams, type ToolWirePayload } from '../composables/useToolParams'
 import { setWorkpieceResult } from '../composables/useWorkpieceState'
 import { openSimulation, setPhi } from '../composables/useSimulation'
 import { setInterferenceStats } from '../composables/useInterferenceLegend'
@@ -228,7 +228,7 @@ async function runEnvelope(): Promise<void> {
     const rakeResp = await fetchEnvelopeRake({
       workpiece: req.workpiece,
       tool: req.tool,
-      rake_type: toolWire.rake_type as 'plane',  // W5 未决 → 仅 plane 开放（LOCKED_RAKE_TYPE_NOTE）
+      rake_type: rakeTypeToWire(toolWire.rake_type),  // W5 未决 → 仅 plane 开放；非 plane 运行时守卫抛错
     })
     dispatchLayer('rake', rakeResp.layer.glb_base64)
 

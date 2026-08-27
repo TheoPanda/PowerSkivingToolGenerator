@@ -16,6 +16,7 @@ import {
   LOCKED_RAKE_TYPE_NOTE,
   LOCKED_FLANK_METHOD,
   LOCKED_FLANK_METHOD_NOTE,
+  rakeTypeToWire,
   type ToolParamsState,
 } from './useToolParams'
 
@@ -153,5 +154,17 @@ describe('useToolParams — 锁定项元数据（#36 复用）', () => {
     a.z_t = 99
     expect(b.z_t).toBe(41)
     expect(a.z_t).toBe(99)
+  })
+})
+
+describe('rakeTypeToWire — RakeRequest.rake_type 收窄映射（评审 S4）', () => {
+  it("唯一开放分支 'plane' 原样透传", () => {
+    expect(rakeTypeToWire('plane')).toBe('plane')
+  })
+
+  it('W5 锁定期内未开放分支运行时抛错（调用方禁用 as 断言后的守卫）', () => {
+    for (const v of ['cone', 'equation'] as const) {
+      expect(() => rakeTypeToWire(v)).toThrow(/W5/)
+    }
   })
 })

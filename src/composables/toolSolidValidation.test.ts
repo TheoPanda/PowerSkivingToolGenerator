@@ -25,10 +25,9 @@ describe('toolSolidValidation — 注册表结构', () => {
     )
   })
 
-  it('tier 分档：工件依赖={z_t, β_t}，其余静态（PRD §5.2 两档）', () => {
+  it('tier 分档：工件依赖={z_t}，其余静态（评审 C2 后 β_t 归静态——[10,20]° 为文献典型值，Σ 耦合走导出量展示）', () => {
     expect(TOOL_FIELD_RULES.z_t.tier).toBe('workpiece')
-    expect(TOOL_FIELD_RULES.beta_t.tier).toBe('workpiece')
-    for (const f of ['gamma_0', 'alpha_0', 'L', 'n_L'] as const) {
+    for (const f of ['beta_t', 'gamma_0', 'alpha_0', 'L', 'n_L'] as const) {
       expect(TOOL_FIELD_RULES[f].tier).toBe('static')
     }
   })

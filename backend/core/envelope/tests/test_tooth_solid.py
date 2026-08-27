@@ -18,6 +18,7 @@ from core.envelope.process_plan import compute_process_plan
 from core.envelope.rake import RakeSurface, build_plane_rake
 from core.envelope.swept_cloud import extract_gap_points
 from core.common.gltf_export import export_geometry_glb
+from core.common.glb_inspect import glb_positions
 from core.envelope.tooth_solid import (
     ROOT_OFFSET_RATIO_DEFAULT,
     build_tooth_loop,
@@ -76,19 +77,6 @@ def _edge_use(indices: list[int]) -> dict[frozenset[int], list[tuple[int, int]]]
         for u, v in ((a, b), (b, c), (c, a)):
             use.setdefault(frozenset((int(u), int(v))), []).append((int(u), int(v)))
     return use
-
-
-def _glb_positions(glb_bytes: bytes, mesh_index: int = 0):
-    """从 GLB bytes 解出 mesh 的 POSITION 顶点（float32 → float64 (n,3)，端到端校验用）."""
-    from pygltflib import GLTF2
-
-    g = GLTF2.load_from_bytes(glb_bytes)
-    prim = g.meshes[mesh_index].primitives[0]
-    acc = g.accessors[prim.attributes.POSITION]
-    bv = g.bufferViews[acc.bufferView]
-    off = bv.byteOffset or 0
-    raw = g.binary_blob()[off : off + bv.byteLength]
-    return np.frombuffer(raw, dtype=np.float32, count=acc.count * 3).reshape(-1, 3).astype(np.float64)
 
 
 class TestLimitRadius:
@@ -516,7 +504,7 @@ class TestBuildToolRing:
         solid = self._solid(n_L=2)
         pz = _ring_pz()
         geo = build_tool_ring(solid, z_t=41, p_z_mm=pz, j_t=jt)
-        pos = _glb_positions(export_geometry_glb([geo]))
+        pos = glb_positions(export_geometry_glb([geo]))
         n = len(solid.mesh_positions) // 3
         # 解出的顶点数正确（可解析性）+ 第 0/40 齿的轴向差 = 40·p_z·j_t（±p_z 错位在）
         assert len(pos) == 41 * n

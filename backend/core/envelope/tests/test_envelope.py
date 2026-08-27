@@ -10,23 +10,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import app
+from core.common.glb_inspect import glb_positions
 
 
 # ── 子 PRD-2 离散包络端点 ─────────────────────────────────────────────
-
-
-def _tool_ring_glb_positions(glb_bytes: bytes):
-    """解出 GLB mesh[0] 的 POSITION 顶点（float32 → float64 (n,3)），做坐标级断言."""
-    import numpy as np
-    from pygltflib import GLTF2
-
-    g = GLTF2.load_from_bytes(glb_bytes)
-    prim = g.meshes[0].primitives[0]
-    acc = g.accessors[prim.attributes.POSITION]
-    bv = g.bufferViews[acc.bufferView]
-    off = bv.byteOffset or 0
-    raw = g.binary_blob()[off : off + bv.byteLength]
-    return np.frombuffer(raw, dtype=np.float32, count=acc.count * 3).reshape(-1, 3).astype(np.float64)
 
 
 def _swept_cloud_request(**overrides):
@@ -315,7 +302,7 @@ def test_tool_ring_applies_helical_stagger(j_t: int):
 
     glb = base64.b64decode(data["layer"]["glb_base64"])
     assert glb[:4] == b"glTF"
-    pos = _tool_ring_glb_positions(glb)
+    pos = glb_positions(glb)
     n_per = len(pos) // z_t
     span_mm = float(pos[(z_t - 1) * n_per :][:, 2].mean() - pos[:n_per][:, 2].mean())
     assert span_mm == pytest.approx((z_t - 1) * p_z * j_t, abs=1e-2)
@@ -335,7 +322,7 @@ def test_tool_ring_stagger_meta_reports_signed_step():
     for d in (rp, rn):
         blob = base64.b64decode(d["layer"]["glb_base64"])
         assert blob[:4] == b"glTF"
-        assert _tool_ring_glb_positions(blob).shape[1] == 3
+        assert glb_positions(blob).shape[1] == 3
 
 
 # ── 子 PRD-5 解析路线端点 ─────────────────────────────────────────────
