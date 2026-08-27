@@ -11,7 +11,7 @@ import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 import { LAYER_IDS } from '../three/layerPalette'
 import { interferenceState, setInterferenceVisible } from '../composables/useInterferenceLegend'
 // 显隐权威源已上提为模块级单例（PRD §5.5）：用例间复位到默认，避免上个用例的显隐串场
-import { resetLayersState } from '../composables/useLayers'
+import { resetLayersState, useLayers } from '../composables/useLayers'
 
 function fakeViewport(): GearViewport {
   return {
@@ -209,6 +209,22 @@ describe('LayerPanel 图层列表', () => {
     window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail: { id: 'rake', glbBase64: 'x' } }))
     await nextTick()
     expect(wrapper.find('[data-test="layer-eye-rake"]').classes()).not.toContain('off')
+  })
+
+  it('过期圆点（TO-5）：useLayers.state.stale[toolRing] 置位时 toolRing 行名旁出现圆点，其余行不受牵连', async () => {
+    const wrapper = mountPanel()
+    expect(wrapper.find('[data-test="layer-stale-dot"]').exists()).toBe(false)
+    const layers = useLayers()
+    layers.setLayerStale('toolRing', true)
+    await nextTick()
+    // 恰好一个圆点且落在 toolRing 行内
+    const dots = wrapper.findAll('[data-test="layer-stale-dot"]')
+    expect(dots).toHaveLength(1)
+    expect(wrapper.find('[data-test="layer-row-toolRing"]').find('[data-test="layer-stale-dot"]').exists()).toBe(true)
+    // 清除（toolRing 重生成成功）→ 圆点消失
+    layers.setLayerStale('toolRing', false)
+    await nextTick()
+    expect(wrapper.find('[data-test="layer-stale-dot"]').exists()).toBe(false)
   })
 
   it('扫掠点云行「仿真」按钮派发 gear:request-simulation（产形面行不再有仿真按钮）', async () => {

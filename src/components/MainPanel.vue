@@ -9,6 +9,7 @@
 import { ref, reactive, provide, onMounted, watch } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
 import WorkpieceViewer from './WorkpieceViewer.vue'
+import ToolSolidPanel from './ToolSolidPanel.vue'
 import { createGearParams, gearParamsKey, type GearParams } from '../composables/useGearParams'
 import { useLayers } from '../composables/useLayers'
 import type { LayerId } from '../three/layerPalette'
@@ -154,7 +155,12 @@ defineExpose({ expanded, currentStep, step1Valid, step1GuideVisible, nextStep, g
           <WorkpieceViewer @model-ready="onModelReady" />
         </div>
 
-        <!-- 步骤 3~5 占位 -->
+        <!-- 步骤3 — 刀具几何体（TO-5）：占位页退役，三档披露表单 + 手动生成整环 -->
+        <div v-else-if="currentStep === 3">
+          <ToolSolidPanel />
+        </div>
+
+        <!-- 步骤 4~5 占位 -->
         <div v-else class="step-placeholder">
           <span class="placeholder-icon">{{ steps[currentStep - 1]?.icon || '📋' }}</span>
           <span class="placeholder-title">{{ steps[currentStep - 1]?.label || '' }}</span>

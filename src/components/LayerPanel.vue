@@ -302,6 +302,14 @@ function sliderBg(id: LayerId): { background: string } {
             :class="{ 'lp-swatch-spectrum': id === 'sweptCloud' }"
             :style="id === 'sweptCloud' ? spectrumSwatchStyle() : { background: colorOf(id) }"
           ></span>
+          <!-- 过期圆点（TO-5/PRD §5.4）：真值在 useLayers.state.stale，ToolSolidPanel 写入；
+               仅作提示，不强隐旧图（点显隐仍归用户手势路径管） -->
+          <span
+            v-if="layers.state.stale[id]"
+            class="lp-stale-dot"
+            data-test="layer-stale-dot"
+            title="工件已变更：该图层基于旧工件参数"
+          ></span>
           <span class="lp-name" :title="`聚焦 ${LAYER_VISUALS[id].label}`" @click="focusLayer(id)">
             {{ LAYER_VISUALS[id].label }}
           </span>
@@ -496,6 +504,15 @@ function sliderBg(id: LayerId): { background: string } {
 /* 扫掠点云色块：jet 渐变，稍宽以呈现光谱 */
 .lp-swatch-spectrum {
   width: 16px;
+}
+/* 过期圆点（toolRing 基于旧工件参数）：警示橙实心小点，仅指示不动显隐 */
+.lp-stale-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand-warning, #E67E22);
+  box-shadow: 0 0 0 2px rgba(230, 126, 34, 0.18);
 }
 .lp-name {
   flex: 1;

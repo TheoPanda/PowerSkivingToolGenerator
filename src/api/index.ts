@@ -264,7 +264,8 @@ export interface ToolRingResponse {
   layer: { id: 'toolRing'; glb_base64: string }
   coord_frame: string
   source: string
-  meta: ToothSolidMeta & { z_t: number }
+  /** TO-3 起 meta 新增实际施加的相邻齿轴向错位步距（带符号：p_z×j_t；直齿=0）. */
+  meta: ToothSolidMeta & { z_t: number; applied_p_z_mm?: number }
 }
 
 /** 后刀面：前刀面刃形 + 分截面刃形 → 三角网后刀面 GLB. */

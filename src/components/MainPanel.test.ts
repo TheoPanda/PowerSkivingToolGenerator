@@ -6,6 +6,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { mount, VueWrapper } from '@vue/test-utils'
 import MainPanel from './MainPanel.vue'
 import type { ComponentPublicInstance } from 'vue'
+import { resetLayersState, useLayers } from '../composables/useLayers'
 
 type MainPanelInstance = ComponentPublicInstance & {
   expanded: boolean
@@ -28,6 +29,7 @@ describe('MainPanel — 步骤内容区', () => {
   let wrapper: VueWrapper<MainPanelInstance>
 
   beforeEach(() => {
+    resetLayersState() // 图层预设用例与其它用例互不串场
     wrapper = createWrapper()
   })
 
@@ -60,14 +62,32 @@ describe('MainPanel — 步骤内容区', () => {
       expect(body.text()).not.toContain('即将推出')
     })
 
-    it('currentStep=3 时显示步骤 3 占位', async () => {
+    it('currentStep=3 时渲染 ToolSolidPanel（占位「即将推出」退役，TO-5）', async () => {
       wrapper.vm.expanded = true
       wrapper.vm.currentStep = 3
       await wrapper.vm.$nextTick()
 
       const body = wrapper.find('.step-body')
-      expect(body.text()).toContain('刀具几何体')
-      expect(body.text()).toContain('即将推出')
+      expect(body.text()).toContain('必填')
+      expect(body.text()).toContain('生成完整刀具体')
+      // 步骤3 不再是占位页
+      expect(body.text()).not.toContain('即将推出')
+    })
+
+    it('currentStep=3 时也执行「仅留 toolRing」图层预设（每次进入都执行，PRD §5.5）', async () => {
+      // useLayers 预设需要已登记 viewport（未登记整条跳过）——登记最小 stub
+      const layers = useLayers()
+      layers.registerViewport({ setLayerVisible: (): void => undefined, setLayerOpacity: (): void => undefined } as never)
+      wrapper.vm.expanded = true
+      wrapper.vm.currentStep = 2
+      await wrapper.vm.$nextTick()
+      layers.setLayerVisible('workpiece', true)
+
+      wrapper.vm.currentStep = 3
+      await wrapper.vm.$nextTick()
+
+      expect(layers.state.visible.toolRing).toBe(true)
+      expect(layers.state.visible.workpiece).toBe(false)
     })
 
     it('currentStep=4 时显示步骤 4 占位', async () => {

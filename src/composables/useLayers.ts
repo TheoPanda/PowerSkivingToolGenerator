@@ -16,6 +16,9 @@
  *     不做去重（回归红线）。
  *   - 机器路径（hideAllExcept 预设 / markLayerReady）：收敛式下发 —— 与当前状态相同的层
  *     不再发，保证重复触发幂等（连续切入步骤3 第二次起零视口调用）。
+ *
+ * 除此之外还代管一份纯状态位 stale（TO-5 过期徽标，PRD §5.4）：不下发视口、不改显隐，
+ * 只让「面板横幅」与「图层名旁圆点」共用同一真值。
  */
 import { reactive } from 'vue'
 import { LAYER_IDS, LAYER_VISUALS, type LayerId } from '../three/layerPalette'
@@ -27,6 +30,12 @@ export interface LayersState {
   visible: Record<LayerId, boolean>
   /** 各层透明度 [0..1]. */
   opacity: Record<LayerId, number>
+  /**
+   * 内容过期标记（TO-5 / PRD §5.4）：工件重生成后该层几何仍基于旧工件参数。
+   * 稀疏表——仅被显式标记过的层有条目；toolRing 由 ToolSolidPanel 写入
+   * （面板横幅 + LayerPanel 图层名旁过期圆点共用同一真值，无第二份状态）。
+   */
+  stale: Partial<Record<LayerId, boolean>>
 }
 
 function createLayersState(): LayersState {
@@ -35,6 +44,7 @@ function createLayersState(): LayersState {
     opacity: Object.fromEntries(
       LAYER_IDS.map((id) => [id, LAYER_VISUALS[id].defaultOpacity]),
     ) as Record<LayerId, number>,
+    stale: {},
   }
 }
 
@@ -74,6 +84,8 @@ export interface UseLayersApi {
   markLayerReady: (id: LayerId) => void
   /** 预设指令：仅留 keep 可见（收敛式幂等；viewport 未登记整条跳过）. */
   hideAllExcept: (keep: LayerId) => void
+  /** 过期标记写入（PRD §5.4：工件重生成 → toolRing 基于旧工件参数；重生成该层即清除）. */
+  setLayerStale: (id: LayerId, stale: boolean) => void
 }
 
 /** composable 入口：返回同一个单例状态与动作集（每组件调用不产生局部拷贝）. */
@@ -90,6 +102,7 @@ export function useLayers(): UseLayersApi {
     hideAll,
     markLayerReady,
     hideAllExcept,
+    setLayerStale,
   }
 }
 
@@ -172,6 +185,16 @@ function hideAllExcept(keep: LayerId): void {
     if (state.visible[id] === value) continue
     pushVisible(id, value)
   }
+}
+
+/** 内容过期标记写入：纯状态位，不碰视口也不碰显隐（不强隐旧图是 PRD §5.4 的明确裁决）.
+ * toolRing 重生成成功时调用方以 setLayerStale(id, false) 清除。 */
+function setLayerStale(id: LayerId, stale: boolean): void {
+  if (stale) {
+    state.stale[id] = true
+    return
+  }
+  delete state.stale[id]
 }
 
 /** 恢复初值（仅供单元测试隔离用；生产代码不得调用）. */

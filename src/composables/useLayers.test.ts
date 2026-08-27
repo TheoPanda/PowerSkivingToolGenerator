@@ -204,4 +204,36 @@ describe('useLayers', () => {
 
     for (const id of LAYER_IDS) expect(layers.state.visible[id]).toBe(true)
   })
+
+  describe('setLayerStale — 过期标记（TO-5 / PRD §5.4）', () => {
+    it('标记后写入 state.stale 稀疏表，清除即移除条目；显隐/视口均不受牵连（不强隐旧图）', () => {
+      const layers = useLayers()
+      const rec = recordingViewport()
+      layers.registerViewport(rec.vp)
+      resetCalls(rec)
+
+      layers.setLayerStale(TOOL_RING, true)
+      expect(layers.state.stale[TOOL_RING]).toBe(true)
+      layers.setLayerStale(TOOL_RING, false)
+      expect(TOOL_RING in layers.state.stale).toBe(false)
+
+      // 过期位是纯状态：不下发任何视口指令、不改可见性
+      expect(rec.visibleCalls).toHaveLength(0)
+      expect(layers.state.visible[TOOL_RING]).toBe(true)
+    })
+
+    it('各层独立：toolRing 的过期不影响其它层条目', () => {
+      const layers = useLayers()
+      layers.setLayerStale('rake', true)
+      layers.setLayerStale(TOOL_RING, true)
+      expect(Object.keys(layers.state.stale).sort()).toEqual(['rake', 'toolRing'].sort())
+    })
+
+    it('resetLayersState 连同过期位一起复位（用例间隔离）', () => {
+      const layers = useLayers()
+      layers.setLayerStale(TOOL_RING, true)
+      resetLayersState()
+      expect(useLayers().state.stale).toEqual({})
+    })
+  })
 })
