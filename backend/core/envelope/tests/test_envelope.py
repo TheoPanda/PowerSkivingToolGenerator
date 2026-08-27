@@ -15,6 +15,20 @@ from app import app
 # ── 子 PRD-2 离散包络端点 ─────────────────────────────────────────────
 
 
+def _tool_ring_glb_positions(glb_bytes: bytes):
+    """解出 GLB mesh[0] 的 POSITION 顶点（float32 → float64 (n,3)），做坐标级断言."""
+    import numpy as np
+    from pygltflib import GLTF2
+
+    g = GLTF2.load_from_bytes(glb_bytes)
+    prim = g.meshes[0].primitives[0]
+    acc = g.accessors[prim.attributes.POSITION]
+    bv = g.bufferViews[acc.bufferView]
+    off = bv.byteOffset or 0
+    raw = g.binary_blob()[off : off + bv.byteLength]
+    return np.frombuffer(raw, dtype=np.float32, count=acc.count * 3).reshape(-1, 3).astype(np.float64)
+
+
 def _swept_cloud_request(**overrides):
     """最小内齿轮包络请求（小离散参数加速测试）."""
     body = {
@@ -279,6 +293,49 @@ def test_tool_ring_rejects_bad_offset_ratio():
     body["hub"] = {"root_offset_ratio": 5.0}  # 偏置 > 极限半径 → 谷底越轴
     resp = client.post("/api/envelope/tool_ring", json=body)
     assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("j_t", [+1, -1])
+def test_tool_ring_applies_helical_stagger(j_t: int):
+    """TO-3/#34：整环相邻齿轴向错位已施加（不再是只上报不施用）.
+
+    meta 报出实际施加步距 applied_p_z_mm = p_z × j_t（带符号），且 GLB 网格顶点
+    坐标里确实存在该错位（首/末齿轴向差 ≈ (z_t−1)·p_z·j_t）。p_z 独立于单齿环
+    元数据 pitch_z_mm（那是前刀面在 ±π/z_t 的残余高差）。
+    """
+    client = TestClient(app)
+    req = _flank_request(tool={"z_t": 41, "beta_t_deg": 15.0, "j_t": j_t})
+    resp = client.post("/api/envelope/tool_ring", json=req)
+    assert resp.status_code == 200
+    data = resp.json()
+    m_n, z_t, beta_t = 2.0, 41, 15.0
+    p_z = math.pi * m_n / math.sin(math.radians(beta_t))     # 导程/z_t
+    assert data["meta"]["applied_p_z_mm"] == pytest.approx(p_z * j_t, rel=1e-9)
+    assert data["meta"]["pitch_z_mm"] != pytest.approx(p_z, rel=1e-3)  # 两物理量不同源
+
+    glb = base64.b64decode(data["layer"]["glb_base64"])
+    assert glb[:4] == b"glTF"
+    pos = _tool_ring_glb_positions(glb)
+    n_per = len(pos) // z_t
+    span_mm = float(pos[(z_t - 1) * n_per :][:, 2].mean() - pos[:n_per][:, 2].mean())
+    assert span_mm == pytest.approx((z_t - 1) * p_z * j_t, abs=1e-2)
+
+
+def test_tool_ring_stagger_meta_reports_signed_step():
+    """meta 错位步距随 j_t 反号（±j_t 默认参数冒烟，GLB 可解析）."""
+    client = TestClient(app)
+    body_pos = _flank_request(tool={"z_t": 41, "beta_t_deg": 15.0, "j_t": +1})
+    body_neg = _flank_request(tool={"z_t": 41, "beta_t_deg": 15.0, "j_t": -1})
+    rp = client.post("/api/envelope/tool_ring", json=body_pos).json()
+    rn = client.post("/api/envelope/tool_ring", json=body_neg).json()
+    base = abs(rp["meta"]["applied_p_z_mm"])
+    assert base == pytest.approx(math.pi * 2.0 / math.sin(math.radians(15.0)), rel=1e-9)
+    assert rp["meta"]["applied_p_z_mm"] == pytest.approx(+base)
+    assert rn["meta"]["applied_p_z_mm"] == pytest.approx(-base)
+    for d in (rp, rn):
+        blob = base64.b64decode(d["layer"]["glb_base64"])
+        assert blob[:4] == b"glTF"
+        assert _tool_ring_glb_positions(blob).shape[1] == 3
 
 
 # ── 子 PRD-5 解析路线端点 ─────────────────────────────────────────────

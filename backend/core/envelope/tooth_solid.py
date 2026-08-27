@@ -1,5 +1,8 @@
 """模块③ K-3.1 预览级 — 单齿闭合实体（B 方案 v2，2026-08-21 用户方案）.
 
+「预览级」指三角网伪实体（直接由网格拼装，非 OCCT 实体布尔），几何量本身按
+公式施加；K-3.2 刀体结构（内孔/键槽/刃带等，W9 未回读）仍不在本层。
+
 v1（r_hub 椭圆弧薄环带）的齿底呈片体，v2 按用户方案重做：刃形不做封闭环，
 而是**开放轮廓** = 上链（1/2齿根-齿侧-齿顶-齿侧-1/2齿根，按廓形列序的共轭链）
 + 齿根延伸 + 径向偏置 + 圆弧闭合：
@@ -11,8 +14,9 @@ v1（r_hub 椭圆弧薄环带）的齿底呈片体，v2 按用户方案重做：
     圆柱在刀具系的包络面（真实根切/成形面，v1 缺失正是片体根源）。
   - 径向偏置 = 从两齿距线端点沿刀具径向（前刀面内）偏置 1/20 分度圆直径。
   - 圆弧闭合 = 偏置端点间的圆弧（圆心在齿中线，谷底朝轴凸）。
-  - 阵列 z_t 份后相邻齿在齿距线上按角/径重合（z 向留 pitch_z_mm 螺旋错位，
-    与真实螺旋槽刀的齿间相位差一致，不再填缝）。
+  - 整环阵列 z_t 份时相邻齿在齿距线上按角/径重合，并沿 Z 施加螺旋错位
+    ΔZ_i = i·p_z·j_t（p_z = π·m_n/sinβ_t = 导程/z_t，ring_pitch_z_mm；
+    TO-3/#34 起 v8 已施加，直齿 β_t=0 错位为 0）。
 
 后刀面（/flank）与单齿实体共用同一闭合轮廓（用户指定）。坐标标签 T；内部
 rad / 接口 °。不依赖 OCCT。
@@ -28,6 +32,32 @@ from core.envelope.process_plan import ProcessPlan
 from core.envelope.rake import RakeSurface
 
 ROOT_OFFSET_RATIO_DEFAULT = 1.0 / 20.0  # 齿根径向偏置 = 1/20 分度圆直径（用户选定）
+
+_SIN_BETA_EPS = 1e-12  # sinβ 低于此值视为直齿（导程发散，纯轴向扫掠）
+
+
+def helical_lead_mm(m_n: float, z_t: int, beta_t_deg: float) -> float:
+    """螺旋导程 L_tp [mm]（K-2.15 螺旋导程法）：L_tp = z_t·π·m_n / sinβ_t.
+
+    全仓单一权威源（原 /flank router 与 build_tooth_solid 各持一份公式，TO-3/#34
+    收拢）。β_t→0 时导程发散（纯轴向扫掠），返回 math.inf，调用方自行退化处理
+    （router 序列化为 null，整环阵列错位取 0）。
+    """
+    sin_b = math.sin(math.radians(beta_t_deg))
+    if abs(sin_b) <= _SIN_BETA_EPS:
+        return math.inf
+    return z_t * m_n * math.pi / sin_b
+
+
+def ring_pitch_z_mm(m_n: float, z_t: int, beta_t_deg: float) -> float:
+    """整环相邻齿轴向错位步距 p_z = L_tp/z_t = π·m_n/sinβ_t [mm].
+
+    U7：β 数值恒正（旋向由 j_t 携带），本函数只给不带符号的数值；方向由
+    build_tool_ring 按 s=j_t 施加（U6 右手定则 +θ 对应右旋前进 +z）。
+    β_t=0（直齿）无轴向相位差，返回 0.0。
+    """
+    lead = helical_lead_mm(m_n=m_n, z_t=z_t, beta_t_deg=beta_t_deg)
+    return 0.0 if math.isinf(lead) else lead / z_t
 
 
 def helical_sweep(poly, theta: float, dz: float) -> list[list[float]]:
@@ -501,9 +531,7 @@ def build_tooth_solid(
     if len(loop.cap_indices) != 3 * (len(loop.pts) - 2):
         raise ValueError("cap_indices 缺失或不完整（build_tooth_loop 未正常执行）")
 
-    beta_t = math.radians(beta_t_deg)
-    sin_b = math.sin(beta_t)
-    lead = z_t * m_n * math.pi / sin_b if sin_b > 1e-12 else math.inf
+    lead = helical_lead_mm(m_n=m_n, z_t=z_t, beta_t_deg=beta_t_deg)
 
     n = len(loop.pts)
 
@@ -608,23 +636,37 @@ def build_tooth_solid(
     )
 
 
-def build_tool_ring(solid: ToothSolid, *, z_t: int) -> GeometrySpec:
-    """整环刀具：单齿闭合实体刚体旋转阵列 z_t 份（坐标 T）.
+def build_tool_ring(
+    solid: ToothSolid, *, z_t: int, p_z_mm: float = 0.0, j_t: int = 1
+) -> GeometrySpec:
+    """整环刀具：单齿闭合实体刚体螺旋阵列 z_t 份（坐标 T）.
 
-    相邻齿在齿距线上按刀具极角/半径重合（轮廓铺满整齿距）；z 向留 pitch_z_mm
-    螺旋错位（每齿前刀面为基准面的旋转像，与真实螺旋槽刀的齿间相位差一致）。
+    第 i 齿变换 = 绕 Z 转 θ_i = i·2π/z_t，同时沿 Z 平移 ΔZ_i = i·p_z·s，
+    其中 p_z = L_tp/z_t = π·m_n/sinβ_t（ring_pitch_z_mm）、s = j_t。符号约定：
+    U6 右手定则下绕 Z 的 +θ 对应右旋前进 +z；U7 β 数值恒正、旋向由 j_t 携带，
+    故平移方向随 j_t 翻转而**不在矩阵里藏负号**。θ 阵列方向与 j_t 无关。
+    p_z_mm=0（直齿 β_t=0）退化为纯旋转直阵列。
+
+    相邻齿在齿距线上按刀具极角/半径重合（轮廓铺满整齿距），轴向错开 p_z——
+    即真实螺旋槽刀的齿间相位差（TO-3/#34 起实际施加，不再只是上报量）。
+
+    K-3.1 定位不变：三角网伪实体预览级（非 OCCT 实体布尔，K-3.2 刀体结构 W9 未回读）。
     """
     if z_t < 2:
         raise ValueError(f"阵列份数 z_t={z_t} 至少 2")
+    if j_t not in (1, -1):
+        raise ValueError(f"旋向 j_t={j_t} 必须 +1 或 −1")
     n_tooth = len(solid.mesh_positions) // 3
     delta = 2.0 * math.pi / z_t
     positions: list[float] = []
     indices: list[int] = []
     for k in range(z_t):
-        c, s = math.cos(k * delta), math.sin(k * delta)
+        ang = k * delta
+        c, s = math.cos(ang), math.sin(ang)
+        dz = k * p_z_mm * j_t
         for i in range(0, len(solid.mesh_positions), 3):
             x, y, z = solid.mesh_positions[i], solid.mesh_positions[i + 1], solid.mesh_positions[i + 2]
-            positions += [x * c - y * s, x * s + y * c, z]
+            positions += [x * c - y * s, x * s + y * c, z + dz]
         indices += [i + k * n_tooth for i in solid.mesh_indices]
     normals = compute_vertex_normals(positions, indices)
     return GeometrySpec(

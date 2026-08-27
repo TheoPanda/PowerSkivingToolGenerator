@@ -20,7 +20,9 @@ from core.envelope.tooth_solid import (
     build_single_tooth_solid,
     build_tooth_loop,
     build_tool_ring,
+    helical_lead_mm,
     limit_radius,
+    ring_pitch_z_mm,
 )
 from core.envelope.analytic import compute_analytic_edge, cross_check
 from core.envelope.conjugate import compute_conjugate_surface
@@ -541,12 +543,10 @@ def envelope_flank(req: FlankRequest) -> dict:
                 theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
                 b_w=p.b_w, n_z=req.discretization.n_z,  # 斜齿数值求交链（K-2.8b）
             )
-            beta_t = math.radians(req.tool.beta_t_deg)
+            # 导程单一权威源（tooth_solid.helical_lead_mm，与整环错位共用）；
             # β_t=0 → Ltp→∞（纯轴向扫掠）：JSON 不可序列化 inf，回 null
-            lead_pitch = (
-                req.tool.z_t * p.m_n * math.pi / math.sin(beta_t)
-                if math.sin(beta_t) > 1e-12 else None
-            )
+            _lead = helical_lead_mm(p.m_n, req.tool.z_t, req.tool.beta_t_deg)
+            lead_pitch = None if math.isinf(_lead) else _lead
             source = "螺旋导程法（K-2.15/16，闭合轮廓 ribbon，B 方案 v2）"
         else:
             raise ValueError(
@@ -619,7 +619,12 @@ def envelope_single_tooth(req: FlankRequest) -> dict:
 
 @router.post("/tool_ring")
 def envelope_tool_ring(req: FlankRequest) -> dict:
-    """K-3.1 整环刀具端点（B 方案 v2）：单齿闭合实体刚体阵列 z_t 份 GLB."""
+    """K-3.1 整环刀具端点（B 方案 v2）：单齿实体绕 Z 阵列 z_t 份 + 螺旋错位 GLB.
+
+    相邻齿轴向错位 ΔZ_i = i·p_z·j_t，p_z = 导程/z_t = π·m_n/sinβ_t
+    （tooth_solid.ring_pitch_z_mm 单一权威；TO-3/#34 起实际施加，直齿 β_t=0 为 0）。
+    仍是三角网伪实体预览级（K-3.2 刀体结构 W9 未回读）。
+    """
     try:
         p = req.workpiece.to_gear_params()
     except ValueError as e:
@@ -637,7 +642,8 @@ def envelope_tool_ring(req: FlankRequest) -> dict:
                 theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
                 b_w=p.b_w, n_z=req.discretization.n_z,  # 斜齿数值求交链（K-2.8b）
             )
-            geo = build_tool_ring(solid, z_t=req.tool.z_t)
+            p_z_mm = ring_pitch_z_mm(m_n=p.m_n, z_t=req.tool.z_t, beta_t_deg=req.tool.beta_t_deg)
+            geo = build_tool_ring(solid, z_t=req.tool.z_t, p_z_mm=p_z_mm, j_t=req.tool.j_t)
         else:
             raise ValueError(
                 f"tool_type={req.tool_type}/flank_method={req.flank_method} 未实现"
@@ -654,6 +660,8 @@ def envelope_tool_ring(req: FlankRequest) -> dict:
                 "root_offset_mm": solid.loop.offset_mm,
                 "arch_spread_deg": solid.loop.arch_spread_deg,
                 "pitch_z_mm": solid.loop.pitch_z_mm,
+                # 实际施加的相邻齿轴向错位步距（带符号：p_z × j_t；直齿 = 0）
+                "applied_p_z_mm": p_z_mm * req.tool.j_t,
                 "loop_points": solid.n_loop,
                 "n_sections": solid.n_sections,
                 "volume_mm3": solid.volume_mm3,
