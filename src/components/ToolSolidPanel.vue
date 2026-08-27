@@ -5,7 +5,8 @@
  * 三档披露表单（分组照抄设计书 §3.2 参数字典交互方式列）：
  *   ① 必填（平铺）：tool_type[锁 T7/T15] / z_t / β_t / j_t(segmented ±1) / rake_type[锁 W5] / L
  *   ② 可默认（默认收起，折叠态徽标显示当前值）：γ₀=5° / α₀=8°[注 W2 基线] / n_L=16 / flank_method[锁 T15]
- *   ③ 导出量（只读折叠，reactive 即时刷新）：Σ / a / r_pt / L_tp(导程) / p_z=L_tp/z_t
+ *   ③ 导出量（只读折叠，reactive 即时刷新）：Σ / a / r_pt / L_tp(导程)
+ *     （p_z 行已随 2026-08-27 整环错位勘误回退一并下线——展示「错位步距」会误导）
  *
  * 数据流契约（ADR-020）：
  *   - 零数值继承：刀具输入是自己的独立实例（useToolParams 每次 reactive 独立），
@@ -465,11 +466,6 @@ defineExpose({
             <span class="derived-name">螺旋导程 L_tp</span>
             <span class="derived-value" data-test="exp-lead">{{ fmtNum(exported.lead_mm, 3) }} mm</span>
             <span class="derived-src">K-2.15</span>
-          </div>
-          <div class="derived-row">
-            <span class="derived-name">错位步距 p_z</span>
-            <span class="derived-value" data-test="exp-pitch-z">{{ fmtNum(exported.pitch_z_mm, 3) }} mm</span>
-            <span class="derived-src">K-2.15/L_tp÷z_t</span>
           </div>
           <p v-if="!workpieceReady" class="glass-field-hint">先在步骤1 填齐 m_n / z_w / b_w 后节圆与中心距方可联动</p>
         </div>

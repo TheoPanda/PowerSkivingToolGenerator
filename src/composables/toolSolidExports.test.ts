@@ -4,8 +4,9 @@
  * golden 全部取自后端实现/后端测试：
  *   - 算例1：backend/core/envelope/tests/test_process_plan.py TestExample1
  *     （Σ=15°、r_pw=82、r_pt≈42.4463 精确值、a=r_pw−r_pt≈39.5537）
- *   - L_tp/p_z：与 WorkpieceViewer.test.ts mockFlank.lead_pitch=995.33 同源一致，
- *     及 backend/core/envelope/tooth_solid.py 的 helical_lead_mm/ring_pitch_z_mm 公式
+ *   - L_tp：与 WorkpieceViewer.test.ts mockFlank.lead_pitch=995.33 同源一致，
+ *     及 backend/core/envelope/tooth_solid.py 的 helical_lead_mm 公式
+ *   （p_z 断言已于 2026-08-27 勘误回退时删除——整环无错位，见 PRD §3.1-5 勘误注记）
  *   - 斜齿工件：test_process_plan.py TestHelicalWorkpiece（β_w=19/z_w=38/z_t=21/m_n=1.25/β_t=2）
  */
 import { describe, it, expect } from 'vitest'
@@ -14,7 +15,6 @@ import {
   k16ToolPitchRadiusMm,
   k15CenterDistanceMm,
   k215HelicalLeadMm,
-  ringPitchZMm,
   computeToolExportQuantities,
   SIN_BETA_EPS,
   type ExportWorkpieceContext,
@@ -62,14 +62,9 @@ describe('toolSolidExports — K-1.x 单公式', () => {
 
   it('K-2.15 L_tp = z_t·π·m_n/sinβ_t（算例1 = 995.3309 mm）', () => {
     expect(k215HelicalLeadMm(2.0, 41, 15)).toBeCloseTo(995.3309173686231, 6)
-    // 直齿退化：sinβ→0 发散返回 Infinity（helical_lead_mm L44-48）
+    // 直齿退化：sinβ→0 发散返回 Infinity（tooth_solid.helical_lead_mm）
     expect(k215HelicalLeadMm(2.0, 41, 0)).toBe(Number.POSITIVE_INFINITY)
     expect(SIN_BETA_EPS).toBe(1e-12) // 与 tooth_solid._SIN_BETA_EPS 同值
-  })
-
-  it('p_z = L_tp/z_t = π·m_n/sinβ_t；直齿 β_t=0 → 0.0（ring_pitch_z_mm）', () => {
-    expect(ringPitchZMm(2.0, 41, 15)).toBeCloseTo(24.2763638382591, 9)
-    expect(ringPitchZMm(2.0, 41, 0)).toBe(0)
   })
 })
 
@@ -80,7 +75,6 @@ describe('toolSolidExports — 聚合导出量（reactive 即时刷新的数据�
     expect(q.r_pt_mm).toBeCloseTo(42.446323396813405, 9)
     expect(q.a_mm).toBeCloseTo(39.553676603186595, 9)
     expect(q.lead_mm).toBeCloseTo(995.3309173686231, 6)
-    expect(q.pitch_z_mm).toBeCloseTo(24.2763638382591, 9)
   })
 
   it('斜齿工件（Tsai 2023 同例）：Σ=21°、内齿轮 a 为减法分支', () => {
@@ -95,13 +89,12 @@ describe('toolSolidExports — 聚合导出量（reactive 即时刷新的数据�
     expect(q.a_mm).toBeCloseTo(rpw - rpt, 12)
   })
 
-  it('直齿刀具 β_t=0：lead_mm=null（与后端 router 序列化 inf→null 同型），p_z=0 不为 null', () => {
+  it('直齿刀具 β_t=0：lead_mm=null（与后端 router 序列化 inf→null 同型）', () => {
     const q = computeToolExportQuantities(
       { ...createToolParams(), beta_t: 0 },
       EX1_WORKPIECE,
     )
     expect(q.lead_mm).toBeNull()
-    expect(q.pitch_z_mm).toBe(0)
     expect(q.sigma_deg).toBeNull() // β_t=0 且 β_w=0 → Σ=0 后端拒绝（刮齿需轴交角），前端不展示数值
   })
 

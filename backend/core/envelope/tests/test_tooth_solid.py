@@ -4,8 +4,10 @@ B 方案 v2（2026-08-21 用户方案）：开放轮廓 = 上链（1/2齿根-齿
 按廓形列序的共轭链，折返处切分）+ 沿理论极限圆 r_limit = r_a − a 的齿根延伸到齿距线
 ±π/z_t + 径向偏置 1/20 分度圆直径 + 谷底圆弧闭合；后刀面与单齿实体同轮廓。
 断言：r_limit 公式、链共面/列序/折返切分、延伸贴极限圆、偏置量与方向、圆弧过两端点、
-轮廓简单星形、实体水密 + 体积 > 0、整环齿距线角/径重合 + 螺旋错位 ΔZ_i = i·p_z·j_t
-（TO-3/#34 起 build_tool_ring 实际施加）。
+轮廓简单星形、实体水密 + 体积 > 0、整环齿距线角/径重合 + **同相位周向阵列**
+（2026-08-27 勘误回退：#34 曾施加逐齿轴向错位 ΔZ_i=i·p_z·j_t，用户实测证实会把
+单齿串成长蜗杆，已删除——缘由见 build_tool_ring docstring；本文件各断言已按
+「无任何轴向错位」口径重写）。
 """
 
 import math
@@ -25,7 +27,6 @@ from core.envelope.tooth_solid import (
     build_tooth_solid,
     build_tool_ring,
     limit_radius,
-    ring_pitch_z_mm,
 )
 from core.workpiece.models import GearParams
 
@@ -414,11 +415,6 @@ class TestBuildToothSolid:
         assert set(solid.ribbon_indices) <= set_full
 
 
-def _ring_pz() -> float:
-    """算例1 整环错位步距 p_z = π·m_n/sinβ_t（mm）——与 router 路径同一权威函数."""
-    return ring_pitch_z_mm(m_n=2.0, z_t=41, beta_t_deg=15.0)
-
-
 class TestBuildToolRing:
     def _solid(self, n_L: int = 2):
         plan = _plan()
@@ -431,22 +427,18 @@ class TestBuildToolRing:
     def test_vertex_count_scaled(self):
         """整环顶点 = z_t × 单齿（无填缝带）."""
         solid = self._solid()
-        ring = build_tool_ring(solid, z_t=41, p_z_mm=_ring_pz(), j_t=-1)
+        ring = build_tool_ring(solid, z_t=41)
         n_tooth = len(solid.mesh_positions) // 3
         assert len(ring.positions) // 3 == 41 * n_tooth
         assert ring.layer_id == "toolRing"
 
-    def test_adjacent_teeth_axial_stagger_equals_pz(self):
-        """TO-3/#34：第 i 齿变换 = 绕 Z 转 θ_i + 沿 Z 平移 ΔZ_i = i·p_z·s（s=j_t）.
-
-        断言两件事：① XY 随纯旋转走（θ 阵列方向不受 j_t 影响）；② 各齿块轴向
-        偏移严格等于 i·p_z·j_t（本用例 j_t=−1 → 后一齿向 −z 错位；算例1 β_t=15°、
-        m_n=2 时 p_z ≈ 24.28mm，远大于单齿重磨扫掠高 0.4mm）。
-        """
+    def test_same_phase_pure_rotation(self):
+        """K-3.1 同相位周向阵列（2026-08-27 勘误回退后的唯一口径）：① XY 分量为
+        绕 Z 的纯旋转像；② 各齿块的 z 坐标与单齿**逐点恒等**——不允许存在任何
+        轴向错位（#34 的 ΔZ_i=i·p_z·j_t 已被用户实测证伪并回退，历史见
+        build_tool_ring docstring）。"""
         solid = self._solid()
-        pz, jt = _ring_pz(), -1
-        assert pz == pytest.approx(math.pi * 2.0 / math.sin(math.radians(15.0)), rel=1e-12)
-        ring = build_tool_ring(solid, z_t=41, p_z_mm=pz, j_t=jt)
+        ring = build_tool_ring(solid, z_t=41)
         P0 = np.asarray(solid.mesh_positions, dtype=np.float64).reshape(-1, 3)
         R = np.asarray(ring.positions, dtype=np.float64).reshape(-1, 3)
         n = len(P0)
@@ -457,36 +449,10 @@ class TestBuildToolRing:
             c, s_ = math.cos(k * ang), math.sin(k * ang)
             exp_xy = np.stack([P0[:, 0] * c - P0[:, 1] * s_, P0[:, 0] * s_ + P0[:, 1] * c], axis=1)
             assert np.allclose(blk[:, :2], exp_xy, atol=1e-9), f"齿 {k} 的旋转分量不符"
-            assert np.allclose(blk[:, 2], P0[:, 2] + k * pz * jt, atol=1e-9), f"齿 {k} 的轴向错位不符"
+            assert np.allclose(blk[:, 2], P0[:, 2], atol=1e-12), f"齿 {k} 出现了轴向错位"
 
-    def test_stagger_sign_flips_with_j_t(self):
-        """旋向符号约定：p_z 数值恒正（U7），错位方向由 s=j_t 携带并随之翻转."""
-        solid = self._solid()
-        pz = _ring_pz()
-        P0 = np.asarray(solid.mesh_positions, dtype=np.float64).reshape(-1, 3)
-        n = len(P0)
-
-        def dz_first_tooth(jt: int) -> float:
-            ring = build_tool_ring(solid, z_t=41, p_z_mm=pz, j_t=jt)
-            R = np.asarray(ring.positions, dtype=np.float64).reshape(-1, 3)
-            return float(R[n : 2 * n][:, 2].mean() - P0[:, 2].mean())
-
-        d_pos, d_neg = dz_first_tooth(+1), dz_first_tooth(-1)
-        assert d_pos == pytest.approx(pz, abs=1e-9)   # U6 右手 +θ ↔ 右旋前进 +z
-        assert d_neg == pytest.approx(-pz, abs=1e-9)  # 左旋镜像
-
-    def test_zero_pitch_is_pure_rotation(self):
-        """p_z=0（直齿 β_t=0 或显式关闭）退化为纯旋转直阵列：各齿块 z 与基准完全一致."""
-        solid = self._solid()
-        ring = build_tool_ring(solid, z_t=41, p_z_mm=0.0, j_t=-1)
-        P0 = np.asarray(solid.mesh_positions, dtype=np.float64).reshape(-1, 3)
-        R = np.asarray(ring.positions, dtype=np.float64).reshape(-1, 3)
-        n = len(P0)
-        for k in range(41):
-            assert np.allclose(R[k * n : (k + 1) * n][:, 2], P0[:, 2], atol=0.0)
-
-    def test_ring_pitch_zero_for_spur(self):
-        """β_t=0：导程发散（inf）而错位步距取 0（U6/U7 无轴向相位差）.
+    def test_spur_lead_diverges(self):
+        """β_t=0：导程发散（inf）——后刀面螺旋扫掠链的退化口径.
 
         说明：不做 β_t=0 的整环 API 冒烟——刮齿需 Σ≠0，且前刀面在 β_t=0 时与
         极限圆柱的交线退化使闭合轮廓自相交（既有管线限制，非本次改动引入），
@@ -495,40 +461,33 @@ class TestBuildToolRing:
         from core.envelope.tooth_solid import helical_lead_mm
 
         assert helical_lead_mm(m_n=2.0, z_t=41, beta_t_deg=0.0) == math.inf
-        assert ring_pitch_z_mm(m_n=2.0, z_t=41, beta_t_deg=0.0) == 0.0
 
-    @pytest.mark.parametrize("jt", [+1, -1])
-    def test_glb_export_carries_stagger(self, jt: int):
-        """冒烟（TO-3 AC）：build_tool_ring → GLB 导出路径不炸，且导出网格顶点坐标
-        里确实存在齿间 z 向错位（±j_t 双向）。"""
+    def test_glb_export_same_phase_extent(self):
+        """冒烟（#34 回退 AC）：整环 GLB 导出路径不炸，且全环 z 向跨度与单齿完全
+        一致——齿间不存在任何轴向间隙（用户实测反例的永久回归锁）。"""
         solid = self._solid(n_L=2)
-        pz = _ring_pz()
-        geo = build_tool_ring(solid, z_t=41, p_z_mm=pz, j_t=jt)
+        geo = build_tool_ring(solid, z_t=41)
         pos = glb_positions(export_geometry_glb([geo]))
-        n = len(solid.mesh_positions) // 3
-        # 解出的顶点数正确（可解析性）+ 第 0/40 齿的轴向差 = 40·p_z·j_t（±p_z 错位在）
-        assert len(pos) == 41 * n
-        span = float(pos[40 * n : 41 * n][:, 2].mean() - pos[:n][:, 2].mean())
-        assert span == pytest.approx(40 * pz * jt, abs=1e-3)
-        # 相邻齿交错量非零且方向随 j_t 翻转（守卫「p_z 只上报不施加」回归）
-        assert span != 0.0 and (span > 0.0) == (jt > 0)
+        base = np.asarray(solid.mesh_positions, dtype=np.float64).reshape(-1, 3)
+        n = len(base)
+        assert len(pos) == 41 * n  # 可解析性
+        tooth_span = float(base[:, 2].max() - base[:, 2].min())
+        ring_span = float(pos[:, 2].max() - pos[:, 2].min())
+        assert ring_span == pytest.approx(tooth_span, abs=1e-6)
 
     def test_pitch_boundary_consistency(self):
-        """齿距线相位闭合仍成立，轴向关系改由螺旋错位主导.
+        """齿距线相位闭合：角/径重合 + 轴向恢复「对应局部点 z 恒等」的同相位口径.
 
-        v8（TO-3/#34）前的断言是「z 差 ≤ pitch_z_mm」——那是直阵列下前刀面倾斜在
-        ±π/z_t 两端留下的残余高差（≈1.6mm）。现在齿 i 额外平移 ΔZ_i=i·p_z·s，
-        算例1 的 p_z=π·m_n/sinβ_t≈24.28mm 支配该项，故：
-          - 极角/半径相位重合**保持不变**（旋转像同圆同角）；
-          - 轴向改为逐点核对：齿 0 零位移（pr），齿 1 整体 −p_z（pl1，j_t=−1）。
+        历史注记：v8/#34 曾把轴向断言改为 ΔZ_i=i·p_z 主导（2026-08-27 实测证伪
+        回退）。回退后相邻齿在齿距线上的配对点轴向严格恒等，±π/z_t 两端的残余
+        高差回到单齿固有的 pitch_z_mm≈1.6mm 口径以内。
         """
         plan = _plan()
         rake = _rake(plan)
         loop = _loop(plan, rake, _chain(plan, rake))
         z_t = 41
         solid = build_tooth_solid(loop, rake, m_n=2.0, beta_t_deg=15.0, z_t=z_t, L=0.4, n_L=2)
-        pz = _ring_pz()
-        ring = build_tool_ring(solid, z_t=z_t, p_z_mm=pz, j_t=-1)
+        ring = build_tool_ring(solid, z_t=z_t)
         P = np.array(ring.positions, dtype=np.float64).reshape(-1, 3)
         base = np.array(solid.mesh_positions, dtype=np.float64).reshape(-1, 3)
         n_tooth = len(base)  # 单齿顶点数
@@ -542,7 +501,7 @@ class TestBuildToolRing:
         ext1 = [p for p in sec1 if abs(math.hypot(p[0], p[1]) - r_limit) < 1e-6]
         ths1 = [math.atan2(p[1], p[0]) for p in ext1]
         pl1 = ext1[int(np.argmin(ths1))]    # 齿 1 的 −π/z_t 齿距线点
-        # 相位闭合（旋转像）：角/径精确相等——与改动前一致，未被 j_t 影响
+        # 相位闭合（旋转像）：角/径精确相等
         assert math.atan2(pr[1], pr[0]) == pytest.approx(math.atan2(pl1[1], pl1[0]), abs=1e-12)
         assert math.hypot(pr[0], pr[1]) == pytest.approx(math.hypot(pl1[0], pl1[1]), abs=1e-12)
         # 轴向基准点（单齿局部，前帽 N 点 = 截面 0 = 前刀面 F=0 平面，无扫掠位移）
@@ -554,10 +513,10 @@ class TestBuildToolRing:
         b_ths = [math.atan2(base_sec0[i][1], base_sec0[i][0]) for i in b_ext]
         lo_idx, hi_idx = b_ext[int(np.argmin(b_ths))], b_ext[int(np.argmax(b_ths))]
         z_lo_local, z_hi_local = base_sec0[lo_idx][2], base_sec0[hi_idx][2]
-        assert pr[2] == pytest.approx(z_hi_local, abs=1e-12)     # 齿 0：ΔZ_0 = 0
-        assert pl1[2] == pytest.approx(z_lo_local - pz, abs=1e-9)  # 齿 1：ΔZ_1 = −p_z
-        # 记录物理变更事实：错位量支配残余高差（旧 golden「≤ pitch_z」不再适用）
-        assert abs(pl1[2] - pr[2]) > loop.pitch_z_mm
+        assert pr[2] == pytest.approx(z_hi_local, abs=1e-12)  # 齿 0：无位移
+        assert pl1[2] == pytest.approx(z_lo_local, abs=1e-12)  # 齿 1：同样无位移
+        # 残余高差守卫：回到「不超过单齿固有 pitch_z_mm」的直阵列口径
+        assert abs(pl1[2] - pr[2]) <= loop.pitch_z_mm + 1e-9
 
 
 class TestHelicalSolid:
@@ -633,9 +592,6 @@ class TestHelicalSolid:
             m_n=p.m_n, L=20.0, n_L=8, m=181, r_f=p.root_radius(),
             normals=normals, b_w=p.b_w, n_z=21,
         )
-        ring = build_tool_ring(
-            solid, z_t=z_t,
-            p_z_mm=ring_pitch_z_mm(m_n=p.m_n, z_t=z_t, beta_t_deg=beta_t), j_t=-1,
-        )
+        ring = build_tool_ring(solid, z_t=z_t)
         n_per = len(solid.mesh_positions) // 3
         assert len(ring.positions) // 3 == n_per * z_t

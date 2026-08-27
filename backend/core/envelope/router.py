@@ -22,7 +22,6 @@ from core.envelope.tooth_solid import (
     build_tool_ring,
     helical_lead_mm,
     limit_radius,
-    ring_pitch_z_mm,
 )
 from core.envelope.analytic import compute_analytic_edge, cross_check
 from core.envelope.conjugate import compute_conjugate_surface
@@ -619,10 +618,10 @@ def envelope_single_tooth(req: FlankRequest) -> dict:
 
 @router.post("/tool_ring")
 def envelope_tool_ring(req: FlankRequest) -> dict:
-    """K-3.1 整环刀具端点（B 方案 v2）：单齿实体绕 Z 阵列 z_t 份 + 螺旋错位 GLB.
+    """K-3.1 整环刀具端点（B 方案 v2）：单齿实体绕 Z **同相位周向阵列** z_t 份 GLB.
 
-    相邻齿轴向错位 ΔZ_i = i·p_z·j_t，p_z = 导程/z_t = π·m_n/sinβ_t
-    （tooth_solid.ring_pitch_z_mm 单一权威；TO-3/#34 起实际施加，直齿 β_t=0 为 0）。
+    无轴向错位（2026-08-27 勘误：#34 的逐齿 ΔZ=i·p_z·j_t 实测证伪已回退，
+    缘由见 build_tool_ring docstring——单齿本体即螺旋条带，周向阵列即完整刀体）。
     仍是三角网伪实体预览级（K-3.2 刀体结构 W9 未回读）。
     """
     try:
@@ -642,8 +641,7 @@ def envelope_tool_ring(req: FlankRequest) -> dict:
                 theta_range_deg=req.discretization.theta_range_deg, normals=ctx.norms,
                 b_w=p.b_w, n_z=req.discretization.n_z,  # 斜齿数值求交链（K-2.8b）
             )
-            p_z_mm = ring_pitch_z_mm(m_n=p.m_n, z_t=req.tool.z_t, beta_t_deg=req.tool.beta_t_deg)
-            geo = build_tool_ring(solid, z_t=req.tool.z_t, p_z_mm=p_z_mm, j_t=req.tool.j_t)
+            geo = build_tool_ring(solid, z_t=req.tool.z_t)
         else:
             raise ValueError(
                 f"tool_type={req.tool_type}/flank_method={req.flank_method} 未实现"
@@ -660,8 +658,6 @@ def envelope_tool_ring(req: FlankRequest) -> dict:
                 "root_offset_mm": solid.loop.offset_mm,
                 "arch_spread_deg": solid.loop.arch_spread_deg,
                 "pitch_z_mm": solid.loop.pitch_z_mm,
-                # 实际施加的相邻齿轴向错位步距（带符号：p_z × j_t；直齿 = 0）
-                "applied_p_z_mm": p_z_mm * req.tool.j_t,
                 "loop_points": solid.n_loop,
                 "n_sections": solid.n_sections,
                 "volume_mm3": solid.volume_mm3,

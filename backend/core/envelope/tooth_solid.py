@@ -14,9 +14,11 @@ v1（r_hub 椭圆弧薄环带）的齿底呈片体，v2 按用户方案重做：
     圆柱在刀具系的包络面（真实根切/成形面，v1 缺失正是片体根源）。
   - 径向偏置 = 从两齿距线端点沿刀具径向（前刀面内）偏置 1/20 分度圆直径。
   - 圆弧闭合 = 偏置端点间的圆弧（圆心在齿中线，谷底朝轴凸）。
-  - 整环阵列 z_t 份时相邻齿在齿距线上按角/径重合，并沿 Z 施加螺旋错位
-    ΔZ_i = i·p_z·j_t（p_z = π·m_n/sinβ_t = 导程/z_t，ring_pitch_z_mm；
-    TO-3/#34 起 v8 已施加，直齿 β_t=0 错位为 0）。
+  - 整环阵列 z_t 份为**同相位周向阵列**（设计书 K-3.1 原义，与工件侧 ADR-002 同构）：
+    单齿本体已是沿导程螺旋扫掠的条带（自带扭转），z_t 个条带绕 Z 纯旋转即拼成完整
+    斜齿轮刀具体。勘误记录：TO-3/#34 曾施加逐齿轴向错位 ΔZ_i=i·π·m_n/sinβ_t·j_t，
+    2026-08-27 用户实测证伪——那会把 L≈20mm 宽的单齿串成总跨度近千米的蜗杆状弹簧；
+    错位语义属 hob 类单头螺纹排布，不适用于车齿刀，已回退。
 
 后刀面（/flank）与单齿实体共用同一闭合轮廓（用户指定）。坐标标签 T；内部
 rad / 接口 °。不依赖 OCCT。
@@ -41,23 +43,13 @@ def helical_lead_mm(m_n: float, z_t: int, beta_t_deg: float) -> float:
 
     全仓单一权威源（原 /flank router 与 build_tooth_solid 各持一份公式，TO-3/#34
     收拢）。β_t→0 时导程发散（纯轴向扫掠），返回 math.inf，调用方自行退化处理
-    （router 序列化为 null，整环阵列错位取 0）。
+    （router 序列化为 null）。导程是后刀面螺旋扫掠链的真实几何参数；注意它不再
+    用于整环阵列错位——K-3.1 阵列为同相位周向阵列（见模块 docstring 勘误记录）。
     """
     sin_b = math.sin(math.radians(beta_t_deg))
     if abs(sin_b) <= _SIN_BETA_EPS:
         return math.inf
     return z_t * m_n * math.pi / sin_b
-
-
-def ring_pitch_z_mm(m_n: float, z_t: int, beta_t_deg: float) -> float:
-    """整环相邻齿轴向错位步距 p_z = L_tp/z_t = π·m_n/sinβ_t [mm].
-
-    U7：β 数值恒正（旋向由 j_t 携带），本函数只给不带符号的数值；方向由
-    build_tool_ring 按 s=j_t 施加（U6 右手定则 +θ 对应右旋前进 +z）。
-    β_t=0（直齿）无轴向相位差，返回 0.0。
-    """
-    lead = helical_lead_mm(m_n=m_n, z_t=z_t, beta_t_deg=beta_t_deg)
-    return 0.0 if math.isinf(lead) else lead / z_t
 
 
 def helical_sweep(poly, theta: float, dz: float) -> list[list[float]]:
@@ -77,7 +69,7 @@ class ToothLoop:
     offset_mm: float        # 径向偏置量 = ratio × 分度圆直径 [mm]
     theta_c: float          # 齿中线刀具极角 [rad]
     arch_spread_deg: float  # 上链（折返点间）刀具极角展布 [°]
-    pitch_z_mm: float       # 相邻齿齿距线 z 向错位（阵列固有螺旋错位）[mm]
+    pitch_z_mm: float       # 单齿固有量：前刀面斜置下齿距线 ±π/z_t 两端的高差（非整环错位）[mm]
     arc_end_idx: tuple[int, int] = (0, 0)  # 偏置圆弧两端点（θ_c±π/z_t 侧）在 pts 中下标
     # 与 pts 等长：True = 齿底构造段（延伸/偏置/圆弧），False = 共轭上链（/edge 图层
     # 附加构造段线用——完整刃口 = 共轭上链 + 构造段；构造序下两段各自连续）
@@ -636,26 +628,24 @@ def build_tooth_solid(
     )
 
 
-def build_tool_ring(
-    solid: ToothSolid, *, z_t: int, p_z_mm: float = 0.0, j_t: int = 1
-) -> GeometrySpec:
-    """整环刀具：单齿闭合实体刚体螺旋阵列 z_t 份（坐标 T）.
+def build_tool_ring(solid: ToothSolid, *, z_t: int) -> GeometrySpec:
+    """整环刀具：单齿闭合实体绕 Z **同相位周向阵列** z_t 份（坐标 T）.
 
-    第 i 齿变换 = 绕 Z 转 θ_i = i·2π/z_t，同时沿 Z 平移 ΔZ_i = i·p_z·s，
-    其中 p_z = L_tp/z_t = π·m_n/sinβ_t（ring_pitch_z_mm）、s = j_t。符号约定：
-    U6 右手定则下绕 Z 的 +θ 对应右旋前进 +z；U7 β 数值恒正、旋向由 j_t 携带，
-    故平移方向随 j_t 翻转而**不在矩阵里藏负号**。θ 阵列方向与 j_t 无关。
-    p_z_mm=0（直齿 β_t=0）退化为纯旋转直阵列。
+    第 i 齿变换 = 纯绕 Z 旋转 θ_i = i·2π/z_t，**无任何轴向错位**。
+    几何依据：单齿本体已是沿导程螺旋扫掠的条带（截面恒定螺旋扫掠，自带扭转），
+    各条带共享同一对端面 —— 周向阵列即在任意横截面给出 z_t 个错开 2π/z_t 的完整
+    齿廓，齿线自动落在螺旋线上；这正是工件侧 ADR-002「单齿放样 → 阵列 → 并」的
+    同构做法，也是设计书 K-3.1「周向阵列 z_t 份」的原义。
 
-    相邻齿在齿距线上按刀具极角/半径重合（轮廓铺满整齿距），轴向错开 p_z——
-    即真实螺旋槽刀的齿间相位差（TO-3/#34 起实际施加，不再只是上报量）。
+    勘误记录（2026-08-27）：TO-3/#34 曾按 ΔZ_i = i·(L_tp/z_t)·j_t 施加逐齿轴向
+    错位，用户实测证伪——那会把宽度 L 的单齿串成总跨度 (z_t−1)·p_z 的蜗杆状弹簧，
+    齿间出现 p_z≈24mm 的巨大轴向间隙。该语义属 hob 类单头螺纹排布，不适用于
+    车齿刀。导程 L_tp 只进入后刀面螺旋扫掠链（helical_lead_mm），与本阵列无关。
 
     K-3.1 定位不变：三角网伪实体预览级（非 OCCT 实体布尔，K-3.2 刀体结构 W9 未回读）。
     """
     if z_t < 2:
         raise ValueError(f"阵列份数 z_t={z_t} 至少 2")
-    if j_t not in (1, -1):
-        raise ValueError(f"旋向 j_t={j_t} 必须 +1 或 −1")
     n_tooth = len(solid.mesh_positions) // 3
     delta = 2.0 * math.pi / z_t
     positions: list[float] = []
@@ -663,10 +653,9 @@ def build_tool_ring(
     for k in range(z_t):
         ang = k * delta
         c, s = math.cos(ang), math.sin(ang)
-        dz = k * p_z_mm * j_t
         for i in range(0, len(solid.mesh_positions), 3):
             x, y, z = solid.mesh_positions[i], solid.mesh_positions[i + 1], solid.mesh_positions[i + 2]
-            positions += [x * c - y * s, x * s + y * c, z + dz]
+            positions += [x * c - y * s, x * s + y * c, z]
         indices += [i + k * n_tooth for i in solid.mesh_indices]
     normals = compute_vertex_normals(positions, indices)
     return GeometrySpec(

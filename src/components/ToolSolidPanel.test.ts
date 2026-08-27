@@ -31,7 +31,7 @@ const MOCK_TOOL_RING: api.ToolRingResponse = {
   meta: {
     r_limit_mm: 40.45, root_radius_mm: 36.2, root_offset_mm: 4.24,
     arch_spread_deg: 5.7, pitch_z_mm: 24.276, loop_points: 130,
-    n_sections: 5, volume_mm3: 45.6, z_t: 41, applied_p_z_mm: -24.276,
+    n_sections: 5, volume_mm3: 45.6, z_t: 41,
   },
 }
 

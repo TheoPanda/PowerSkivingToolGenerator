@@ -283,46 +283,29 @@ def test_tool_ring_rejects_bad_offset_ratio():
 
 
 @pytest.mark.parametrize("j_t", [+1, -1])
-def test_tool_ring_applies_helical_stagger(j_t: int):
-    """TO-3/#34：整环相邻齿轴向错位已施加（不再是只上报不施用）.
+def test_tool_ring_same_phase_no_axial_stagger(j_t: int):
+    """整环 API 级回归锁（2026-08-27 勘误回退）：/tool_ring 输出为同相位周向阵列.
 
-    meta 报出实际施加步距 applied_p_z_mm = p_z × j_t（带符号），且 GLB 网格顶点
-    坐标里确实存在该错位（首/末齿轴向差 ≈ (z_t−1)·p_z·j_t）。p_z 独立于单齿环
-    元数据 pitch_z_mm（那是前刀面在 ±π/z_t 的残余高差）。
+    #34 曾在此断言「相邻齿轴向错位已施加」——用户实测证实那会产生 p_z≈24mm 的
+    齿间轴向间隙，属需求侧公式误设，已回退。本测试锁死正确口径：① meta 不再
+    携带 applied_p_z_mm 键；② 整环 GLB 的 z 向跨度与单齿一致（j_t 取值对几何
+    无影响——阵列不含任何平移分量）。
     """
     client = TestClient(app)
     req = _flank_request(tool={"z_t": 41, "beta_t_deg": 15.0, "j_t": j_t})
     resp = client.post("/api/envelope/tool_ring", json=req)
     assert resp.status_code == 200
     data = resp.json()
-    m_n, z_t, beta_t = 2.0, 41, 15.0
-    p_z = math.pi * m_n / math.sin(math.radians(beta_t))     # 导程/z_t
-    assert data["meta"]["applied_p_z_mm"] == pytest.approx(p_z * j_t, rel=1e-9)
-    assert data["meta"]["pitch_z_mm"] != pytest.approx(p_z, rel=1e-3)  # 两物理量不同源
+    z_t = 41
+    assert "applied_p_z_mm" not in data["meta"]  # 错位概念已随回退删除
 
     glb = base64.b64decode(data["layer"]["glb_base64"])
     assert glb[:4] == b"glTF"
     pos = glb_positions(glb)
     n_per = len(pos) // z_t
-    span_mm = float(pos[(z_t - 1) * n_per :][:, 2].mean() - pos[:n_per][:, 2].mean())
-    assert span_mm == pytest.approx((z_t - 1) * p_z * j_t, abs=1e-2)
-
-
-def test_tool_ring_stagger_meta_reports_signed_step():
-    """meta 错位步距随 j_t 反号（±j_t 默认参数冒烟，GLB 可解析）."""
-    client = TestClient(app)
-    body_pos = _flank_request(tool={"z_t": 41, "beta_t_deg": 15.0, "j_t": +1})
-    body_neg = _flank_request(tool={"z_t": 41, "beta_t_deg": 15.0, "j_t": -1})
-    rp = client.post("/api/envelope/tool_ring", json=body_pos).json()
-    rn = client.post("/api/envelope/tool_ring", json=body_neg).json()
-    base = abs(rp["meta"]["applied_p_z_mm"])
-    assert base == pytest.approx(math.pi * 2.0 / math.sin(math.radians(15.0)), rel=1e-9)
-    assert rp["meta"]["applied_p_z_mm"] == pytest.approx(+base)
-    assert rn["meta"]["applied_p_z_mm"] == pytest.approx(-base)
-    for d in (rp, rn):
-        blob = base64.b64decode(d["layer"]["glb_base64"])
-        assert blob[:4] == b"glTF"
-        assert glb_positions(blob).shape[1] == 3
+    ring_span = float(pos[:, 2].max() - pos[:, 2].min())
+    tooth_span = float(pos[:n_per][:, 2].max() - pos[:n_per][:, 2].min())
+    assert ring_span == pytest.approx(tooth_span, abs=1e-2)  # 单齿宽 L≈2mm 口径内全环等跨
 
 
 # ── 子 PRD-5 解析路线端点 ─────────────────────────────────────────────

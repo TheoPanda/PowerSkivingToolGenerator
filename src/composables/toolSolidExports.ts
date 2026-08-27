@@ -11,8 +11,8 @@
  *          —— k_io 分支以实际代码为准：内齿轮 k_io=−1 → a = r_pw − r_pt（相减）
  *   K-2.15 L_tp = z_t·π·m_n/sinβ_t；sinβ→0 发散返回 Infinity
  *          ← tooth_solid.helical_lead_mm
- *   p_z    p_z = L_tp/z_t = π·m_n/sinβ_t；导程发散时取 0.0（直齿无轴向相位差）
- *          ← tooth_solid.ring_pitch_z_mm（build_tool_ring 施加 ΔZ_i = i·p_z·j_t）
+ *   （p_z=L_tp/z_t 不再展示：2026-08-27 勘误——整环为同相位周向阵列、无错位，
+ *     单独展示「错位步距」会误导用户以为齿真的沿 Z 错开该距离，#34 事故根源）
  *
  * 单位纪律 U12：界面显示 °/mm —— 本模块入参出参一律 度/mm，不出现 rad 泄漏。
  * 失效退化对齐后端：Σ≈0 后端 raise「Σ=0」（process_plan.compute_process_plan）→ 前端置 null 不展示；
@@ -51,8 +51,6 @@ export interface ToolExportQuantities {
   a_mm: number | null
   /** 螺旋导程 L_tp [mm]；β_t=0 发散 → null. */
   lead_mm: number | null
-  /** 整环相邻齿轴向错位步距 p_z [mm]（不带符号；直齿 → 0）. */
-  pitch_z_mm: number
 }
 
 /**
@@ -111,13 +109,6 @@ export function k215HelicalLeadMm(m_n: number, z_t: number, beta_t_deg: number):
   return (z_t * m_n * Math.PI) / sinB
 }
 
-/** 整环错位步距 p_z = L_tp/z_t = π·m_n/sinβ_t [mm]；直齿 β_t=0 → 0.0（tooth_solid.ring_pitch_z_mm）.
- * 返回值不带符号——方向由 build_tool_ring 按 j_t 施加（ΔZ_i = i·p_z·j_t）。 */
-export function ringPitchZMm(m_n: number, z_t: number, beta_t_deg: number): number {
-  const lead = k215HelicalLeadMm(m_n, z_t, beta_t_deg)
-  return Number.isFinite(lead) ? lead / z_t : 0.0
-}
-
 /** 数值合法性兜底：非法值（NaN/∞/非正）一律 false，避免 NaN 泄漏到只读区. */
 function usable(v: number | null, minExclusive: number): boolean {
   return v !== null && Number.isFinite(v) && v > minExclusive
@@ -137,7 +128,6 @@ export function computeToolExportQuantities(
     r_pt_mm: null,
     a_mm: null,
     lead_mm: null,
-    pitch_z_mm: 0,
   }
   const betaT = tool.beta_t
 
@@ -169,9 +159,8 @@ export function computeToolExportQuantities(
   result.r_pt_mm = r_pt
   result.a_mm = Number.isFinite(a) ? a : null
 
-  // K-2.15 链：导程 + 错位步距
+  // K-2.15 链：螺旋导程
   const lead = k215HelicalLeadMm(mN, tool.z_t, betaT)
   result.lead_mm = Number.isFinite(lead) ? lead : null
-  result.pitch_z_mm = ringPitchZMm(mN, tool.z_t, betaT)
   return result
 }
