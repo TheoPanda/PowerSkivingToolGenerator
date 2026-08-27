@@ -2,7 +2,7 @@
  * LayerPanel 组件测试 — provide/inject 接口（注入 fake viewport，测图层行/表头/显隐/
  * 聚焦/透明度/一键全显全隐/Alt 独显/可见计数徽章）.
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { nextTick, ref } from 'vue'
 import * as THREE from 'three'
@@ -10,6 +10,8 @@ import LayerPanel from './LayerPanel.vue'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 import { LAYER_IDS } from '../three/layerPalette'
 import { interferenceState, setInterferenceVisible } from '../composables/useInterferenceLegend'
+// 显隐权威源已上提为模块级单例（PRD §5.5）：用例间复位到默认，避免上个用例的显隐串场
+import { resetLayersState } from '../composables/useLayers'
 
 function fakeViewport(): GearViewport {
   return {
@@ -55,6 +57,10 @@ function mountPanel(viewport: GearViewport = fakeViewport()) {
 }
 
 describe('LayerPanel 图层列表', () => {
+  beforeEach(() => {
+    resetLayersState()
+  })
+
   it('渲染 10 个图层行', () => {
     const wrapper = mountPanel()
     for (const id of LAYER_IDS) {

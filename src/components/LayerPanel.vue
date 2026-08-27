@@ -7,17 +7,31 @@
  * - 标题栏：可见计数徽章 + 一键全显/全隐（全显兼重置透明度与视图，原「全部显示」语义）
  * - Alt+点击眼睛 = 独显该层（再次操作恢复全部可见；不动透明度）
  * - 拖动松手贴边吸附（与 ResultPanel 同规格：四边 50px 阈值，左/右/上/下各留边距）
- * - 图层定义来自 layerPalette（单源）；操作经 inject 的 gearViewport 实例下发
+ * - 显隐/透明度的权威源在 useLayers() 单例（PRD §5.5 上提）：本组件只读 state + 派发动作，
+ *   并把 inject 到的 viewport 登记进去（晚于状态出现的实例也能补上全量同步）
  */
-import { inject, reactive, ref, computed, onMounted, onUnmounted } from 'vue'
+import { inject, reactive, ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import type { Ref } from 'vue'
 import { LAYER_IDS, LAYER_VISUALS, MATERIAL_PRESETS, type LayerId, type LayerReadyDetail } from '../three/layerPalette'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
+import { useLayers } from '../composables/useLayers'
 import { setInterferenceVisible } from '../composables/useInterferenceLegend'
 import { PANEL_MARGIN, SNAP_TOP, SNAP_THRESHOLD, RIGHT_COLUMN_TOP } from './panelLayout'
 import { installGlassRefraction } from './liquidGlass'
 
 const viewportRef = inject<Ref<GearViewport | null>>(GEAR_VIEWPORT_KEY, ref(null))
+
+// ── 图层权威状态 + 动作（useLayers 单例；本组件不再持有可见性真值） ──
+const layers = useLayers()
+/** 眼睛开关读的显隐表（state.visible 的响应式引用）. */
+const visible = layers.state.visible
+/** 滑条读的透明度表. */
+const opacity = layers.state.opacity
+
+// viewport 由 MainView 在 onMounted 创建，晚于本组件 setup → 监听注入值非空即登记
+watch(viewportRef, (vp: GearViewport | null): void => {
+  layers.registerViewport(vp)
+}, { immediate: true })
 
 // ── 面板拖拽（仅标题栏；位置 localStorage 记忆；默认右对齐视图切换面板下方） ──
 // 264px：四列 grid（名称 1fr + 可见 26 + 功能 42 + 透明度 58）需比共用浮层面板宽一档，
@@ -121,51 +135,26 @@ function onResize(): void {
   prevH = window.innerHeight
 }
 
-/** 图层显隐状态（初始全显示）. */
-const visible = reactive<Record<LayerId, boolean>>(
-  Object.fromEntries(LAYER_IDS.map((id) => [id, true])) as Record<LayerId, boolean>,
-)
-/** 图层透明度状态（初始从 palette 默认）. */
-const opacity = reactive<Record<LayerId, number>>(
-  Object.fromEntries(LAYER_IDS.map((id) => [id, LAYER_VISUALS[id].defaultOpacity])) as Record<LayerId, number>,
-)
 /** 工件视图模式：实体（false）/ 透明线框（true）. */
 const workpieceWireframe = ref<boolean>(false)
 
 /** 可见层数（徽章「n/总」）. */
 const visibleCount = computed<number>(() => LAYER_IDS.filter((id) => visible[id]).length)
 
-/** 当前是否为某层独显态（该层可见且其余全隐）. */
-function isSolo(id: LayerId): boolean {
-  return visible[id] && LAYER_IDS.every((x) => x === id || !visible[x])
-}
-
 function toggleVisible(id: LayerId, e: MouseEvent): void {
   if (e.altKey) {
-    soloLayer(id)
+    layers.soloLayer(id)
     return
   }
-  visible[id] = !visible[id]
-  viewportRef.value?.setLayerVisible(id, visible[id])
-}
-
-/** 独显该层（Alt+点击眼睛）：其余全隐；已是独显态则恢复全部可见（不动透明度）. */
-function soloLayer(id: LayerId): void {
-  const solo = isSolo(id)
-  for (const x of LAYER_IDS) {
-    const v = solo ? true : x === id
-    visible[x] = v
-    viewportRef.value?.setLayerVisible(x, v)
-  }
+  layers.setLayerVisible(id, !visible[id])
 }
 
 function changeOpacity(id: LayerId, v: number): void {
-  opacity[id] = v
-  viewportRef.value?.setLayerOpacity(id, v)
+  layers.setLayerOpacity(id, v)
 }
 
 function focusLayer(id: LayerId): void {
-  viewportRef.value?.focusLayer(id)
+  layers.focusLayer(id)
 }
 
 /** 工件透明线框切换：实体 ↔ 透明线框. */
@@ -183,14 +172,9 @@ function toggleConjugateGearInterference(): void {
   setInterferenceVisible(conjugateGearInterference.value)
 }
 
-/** 全显（原「全部显示」）：全部可见 + 透明度回默认 + 工件实体视图 + 干涉样式复位. */
+/** 全显（原「全部显示」）：图层显隐+透明度回默认走 useLayers，工件实体视图 + 干涉样式复位留在本组件. */
 function showAll(): void {
-  for (const id of LAYER_IDS) {
-    visible[id] = true
-    opacity[id] = LAYER_VISUALS[id].defaultOpacity
-    viewportRef.value?.setLayerVisible(id, true)
-    viewportRef.value?.setLayerOpacity(id, LAYER_VISUALS[id].defaultOpacity)
-  }
+  layers.showAll()
   // 工件视图一并回到实体；干涉样式/图例一并复位
   workpieceWireframe.value = false
   viewportRef.value?.setWorkpieceView('solid')
@@ -203,10 +187,7 @@ function showAll(): void {
 
 /** 全隐：仅显隐批量关闭（透明度/视图样式保留，恢复显示时不丢用户调整）. */
 function hideAll(): void {
-  for (const id of LAYER_IDS) {
-    visible[id] = false
-    viewportRef.value?.setLayerVisible(id, false)
-  }
+  layers.hideAll()
 }
 
 /** 触发运动仿真：派发事件由 WorkpieceViewer 处理（它持有请求参数）. */
@@ -214,11 +195,10 @@ function startSimulation(): void {
   window.dispatchEvent(new CustomEvent('gear:request-simulation'))
 }
 
-/** 图层重新生成（重新点「开始包络」→ gear:layer-ready）→ 重置该层显隐/透明度为默认（图层默认显示）. */
+/** 图层重新生成（重新点「开始包络」→ gear:layer-ready）→ 重置该层为默认可见/默认透明度（权威源在 useLayers）. */
 function onLayerReady(e: Event): void {
   const detail = (e as CustomEvent).detail as LayerReadyDetail
-  visible[detail.id] = true
-  opacity[detail.id] = LAYER_VISUALS[detail.id].defaultOpacity
+  layers.markLayerReady(detail.id)
 }
 
 onMounted(() => {

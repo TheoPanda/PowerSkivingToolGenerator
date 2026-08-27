@@ -6,10 +6,12 @@
  * - 派发 panel:toggle（面板展开/收起 → 模型缩放/右移联动）
  * - 步骤2 的 WorkpieceViewer 生成 GLB 后经 onModelReady 派发 gear:model-ready
  */
-import { ref, reactive, provide, onMounted } from 'vue'
+import { ref, reactive, provide, onMounted, watch } from 'vue'
 import GearParamsPanel from './GearParamsPanel.vue'
 import WorkpieceViewer from './WorkpieceViewer.vue'
 import { createGearParams, gearParamsKey, type GearParams } from '../composables/useGearParams'
+import { useLayers } from '../composables/useLayers'
+import type { LayerId } from '../three/layerPalette'
 import { installGlassRefraction } from './liquidGlass'
 
 // ---- gearParams store（单一 schema 模块提供默认值） ----
@@ -41,6 +43,15 @@ const steps = [
   { id: 5, label: '工艺文件', icon: '📋' },
 ]
 const currentStep = ref<number>(1)
+
+// ── 步骤3 图层预设（PRD §5.5 / ADR-020③）：切入瞬间一次性收拢为仅刀具整环可见 ──
+// watch 对 ref 只在值变化时触发 → 每次切入步骤3 都执行、停在步骤3 不重复；离开无动作。
+// 预设不锁死：用户可再手动开任一层，直到下次切入才重新收拢。viewport 未登记时 useLayers 安全跳过。
+const STEP3_KEEP_LAYER: LayerId = 'toolRing'
+
+watch(currentStep, (step: number): void => {
+  if (step === 3) useLayers().hideAllExcept(STEP3_KEEP_LAYER)
+})
 
 // ---- 步骤完成判定 ----
 const step1Valid = ref<boolean>(false)
