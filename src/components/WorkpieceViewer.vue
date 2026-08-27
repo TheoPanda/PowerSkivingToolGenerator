@@ -3,11 +3,12 @@
  * WorkpieceViewer.vue — 步骤2：工件齿轮生成 + 包络计算
  *
  * - 挂载即调用 fetchWorkpiece 生成齿轮 GLB（模块①，结果/spec 写全局单例）
- * - 「包络计算」区块：输入刀具参数 → 依次调 edge / conjugate / conjugateGear /
+ * - 「包络计算」区块：输入刀具参数（schema 由 useToolParams 单一来源提供）→
+ *   依次调 edge / conjugate / conjugateGear /
  *   rake / flank / singleTooth 端点（共轭法），经 gear:layer-ready 事件叠加图层
  * - 诊断条显示 ffα 与覆盖判据（成功绿勾 / 失败红叉）
  */
-import { ref, inject, onMounted, reactive, computed, type Ref } from 'vue'
+import { ref, inject, onMounted, computed, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   fetchWorkpiece,
@@ -29,6 +30,7 @@ import {
 import type { LayerReadyDetail } from '../three/layerPalette'
 import { GEAR_VIEWPORT_KEY, type GearViewport } from '../three/gearViewport'
 import { gearParamsKey, toPayload } from '../composables/useGearParams'
+import { toToolPayload, useToolParams, type ToolWirePayload } from '../composables/useToolParams'
 import { setWorkpieceResult } from '../composables/useWorkpieceState'
 import { openSimulation, setPhi } from '../composables/useSimulation'
 import { setInterferenceStats } from '../composables/useInterferenceLegend'
@@ -46,18 +48,10 @@ const glbBase64 = ref<string | null>(null)
 const error = ref<string | null>(null)
 
 // ── 包络计算状态 ──
-const toolParams = reactive({
-  z_t: 41,        // 默认匹配算例1 内齿轮 z_w=82（端到端 demo）
-  beta_t: 15,
-  j_t: -1,        // 左旋 → Σ=+15°（内齿轮旋向相反）
-  gamma_0: 5,     // 前角（子 PRD-3 前刀面 K-2.1 输入）
-  alpha_0: 8,     // 顶刃后角 α₀（圆锥刀专用；圆柱刀螺旋导程法 α₀=0 构造性后角，不参与）
-  rake_type: 'plane',  // 前刀面形式（v1 仅 plane；equation/cone 灰置）
-  tool_type: 'cylindrical',     // 刀型：圆柱（圆锥二期）
-  flank_method: 'helical_lead', // 后刀面算法：螺旋导程法（轴向偏移法二期）
-  L: 20,          // 刀齿轴向长度（总重磨量）[mm]：≈工件齿宽量级，过小实体呈薄片
-  n_L: 16,        // 重磨等分数（后刀面扫掠截面数；过粗呈折面棱线，间距 20/16=1.25mm）
-})
+// 刀具参数表单数据源迁至 useToolParams（TO-2 单一来源）：schema / 默认值 / wire 映射
+// 全部由 composable 派生；默认值唯一权威＝backend/core/envelope/router.py 的 pydantic Field，
+// 锁定项（cylindrical/plane/helical_lead）理由文案带缺口编号（T7/T15/W5）见该模块。
+const toolParams = useToolParams()
 const envelopeRunning = ref<boolean>(false)
 const envelopeError = ref<string | null>(null)
 const ffaUm = ref<number | null>(null)
@@ -171,15 +165,12 @@ async function runEnvelope(): Promise<void> {
   coverageReport.value = null
 
   try {
+    // 刀具段 wire 载荷由 useToolParams.toToolPayload 统一组装
+    // （tool 段 / rake_type / resharpening+tool_type+flank_method 分片，落位见该模块）
+    const toolWire: ToolWirePayload = toToolPayload(toolParams)
     const req: EnvelopeRequest = {
       workpiece: toPayload(gearParams!),
-      tool: {
-        z_t: toolParams.z_t,
-        beta_t_deg: toolParams.beta_t,
-        j_t: toolParams.j_t,
-        gamma_0_deg: toolParams.gamma_0,
-        alpha_0_deg: toolParams.alpha_0,
-      },
+      tool: toolWire.tool,
       // discretization 缺省 → 后端默认 n=200/m=181/θ=±40°
     }
     lastEnvelopeReq = req
@@ -237,7 +228,7 @@ async function runEnvelope(): Promise<void> {
     const rakeResp = await fetchEnvelopeRake({
       workpiece: req.workpiece,
       tool: req.tool,
-      rake_type: toolParams.rake_type as 'plane',
+      rake_type: toolWire.rake_type as 'plane',  // W5 未决 → 仅 plane 开放（LOCKED_RAKE_TYPE_NOTE）
     })
     dispatchLayer('rake', rakeResp.layer.glb_base64)
 
@@ -247,9 +238,9 @@ async function runEnvelope(): Promise<void> {
       const flankReq = {
         workpiece: req.workpiece,
         tool: req.tool,
-        resharpening: { L: toolParams.L, n_L: toolParams.n_L },
-        tool_type: toolParams.tool_type as 'cylindrical' | 'conical',
-        flank_method: toolParams.flank_method as 'helical_lead' | 'axial_offset',
+        resharpening: toolWire.resharpening,
+        tool_type: toolWire.tool_type,       // T7/T15 锁定 cylindrical
+        flank_method: toolWire.flank_method, // T15 锁定 helical_lead
       }
       const flankResp = await fetchEnvelopeFlank(flankReq)
       dispatchLayer('flank', flankResp.layer.glb_base64)
