@@ -197,9 +197,6 @@ class GearParams:
 
     # 齿厚指定 (三选一, E1)
     tooth_method: str = "x_w"  # "x_w" | "W_k" | "M"
-
-    # 齿厚指定 (三选一, E1)
-    tooth_method: str = "x_w"  # "x_w" | "W_k" | "M"
     x_w: float = 0.0    # 变位系数
     W_k: float | None = None   # 公法线长度 [mm]
     k_teeth: int | None = None # 跨齿数
