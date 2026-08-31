@@ -676,7 +676,10 @@ def envelope_tool_ring(req: FlankRequest) -> dict:
             d_bore=req.tool_body.d_bore, keyway_b=req.tool_body.keyway_b,
             keyway_t1=req.tool_body.keyway_t1, B=req.tool_body.B_body,
         )
-        body_geo, body_desc = build_tool_body(ctx.rake, r_root=r_root, resolved=resolved)
+        body_geo, body_desc = build_tool_body(
+            ctx.rake, r_root=r_root, resolved=resolved,
+            theta_c=solid.loop.theta_c, z_t=req.tool.z_t,  # 同相位折叠（对齐齿圈阵列相位）
+        )
         glb = export_geometry_glb_base64([geo])
         body_glb = export_geometry_glb_base64([body_geo])
         return {

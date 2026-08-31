@@ -5,8 +5,10 @@ docs/specs/2026-08-31-tool-body-design.md）：
 
   - 外缘 = 齿圈谷底圆柱 r_root（ToothLoop.root_radius，派生只读——用户填了必与
     齿圈打架，故不入参数）；
-  - 前端面 = 前刀面平面整环延伸（[23]§3.3② 内圈前端面平行规则；本项目所有齿共
-    用同一前刀面平面，退化为整环同面——重磨前端面时刀体跟着磨、永不挡切屑）；
+  - 前端面 = 前刀面平面**按槽位折叠**（[23]§3.3② 内圈前端面平行规则）：理想平面
+    会在斜齿/大γ下与「基准齿×z_t 纯旋转」的刀具整环产生十余毫米 z 相位错位
+    （2026-08-31 用户实测「光滑透明椭球」根因）——前端面 z 按基准齿窗口折叠，
+    逐扇区与前刀面平行，与整环阵列同一近似等级，重磨不挡屑规则保持；
   - 纯轴向直拉伸（键槽必须笔直——装键现实约束；斜齿不做螺旋扭转，与刀齿后端的
     微小错缝预览级接受，正式级布尔自然消解）；
   - 双闭环端面（外=谷底圆、内=孔圆±键槽缺口）**极角配对 quad-strip** 剖分：环形
@@ -228,14 +230,39 @@ def _rake_z(rake: RakeSurface, x: float, y: float) -> float:
     return -(rake.A * x + rake.B * y + rake.const) / rake.C
 
 
+def _make_phase_folder(theta_c: float, z_t: int):
+    """同相位折叠：把极角折回基准齿窗口 [theta_c−π/z_t, theta_c+π/z_t).
+
+    刀具整环 = 基准齿 ×41 **纯旋转**阵列（K-3.1 勘误口径）：旋转不改 z，故 41 个齿的
+    前刀面全部停在基准齿窗口的 z 相位。刀体前端面若取理想前刀面平面（z 随全周角变化，
+    斜齿下跨幅达 ±2·sinγ·r 量级），会与齿圈产生十余毫米的 z 相位错位（一侧高出齿圈、
+    另一侧缩进——2026-08-31 用户实测「光滑透明椭球」根因）。折叠后刀体边缘 z 与齿圈
+    谷底弧逐扇区严丝合缝，[23]§3.3②「前端面∥前刀面」按槽位扇区成立——与整环阵列
+    同一近似等级。
+    """
+    half = math.pi / z_t
+
+    def fold(theta: float) -> float:
+        rel = (theta - theta_c + math.pi) % (2.0 * math.pi) - math.pi  # (−π, π]
+        folded = (rel + half) % (2.0 * half) - half                    # [−half, half)
+        return theta_c + folded
+
+    return fold
+
+
 def build_tool_body(
     rake: RakeSurface,
     *,
     r_root: float,
     resolved: ToolBodyResolved,
+    theta_c: float,
+    z_t: int,
     n_base: int = 256,
 ) -> tuple[GeometrySpec, dict]:
     """刀体网格（双闭环 quad-strip，纯轴向直拉伸）+ 解析描述包.
+
+    前端面 z 相位按 2π/z_t 折叠回基准齿窗口（_make_phase_folder）——与刀具整环的
+    同相位旋转阵列严丝合缝（理想平面会与旋转阵列的齿圈产生十余毫米 z 错位）。
 
     顶点布局：前外 FO / 前内 FI / 后外 RO / 后内 RI 四条环（各 n 个），前后端面、
     内外壁共用环顶点 → 构造性水密。绕向经散度体积自适应翻转（outward）。
@@ -263,9 +290,11 @@ def build_tool_body(
     angles = _sample_angles(n_base, corners)
     n = len(angles)
 
+    fold = _make_phase_folder(theta_c, z_t)
+
     def _pt(r: float, theta: float, dz: float) -> list[float]:
         x, y = r * math.cos(theta), r * math.sin(theta)
-        return [x, y, _rake_z(rake, x, y) + dz]
+        return [x, y, _rake_z(rake, r * math.cos(fold(theta)), r * math.sin(fold(theta))) + dz]
 
     r_in = [
         _inner_radius(a, r_bore, resolved.keyway_b, resolved.keyway_t1) for a in angles

@@ -152,8 +152,10 @@ _RAKE = build_plane_rake(gamma_deg=5.0, beta_t_deg=0.0, r_pt=42.45)
 def _build(**kw):
     base = dict(mounting="bore_keyway", d_pt=84.9, m_n=2.0, L=12.0, B=12.0, r_root=30.0)
     base.update(kw)
+    theta_c = base.pop("theta_c", 0.0)
+    z_t = base.pop("z_t", 41)
     resolved = resolve_tool_body_params(**base)
-    return build_tool_body(_RAKE, r_root=30.0, resolved=resolved)
+    return build_tool_body(_RAKE, r_root=30.0, resolved=resolved, theta_c=theta_c, z_t=z_t)
 
 
 def _edge_stats(indices: list[int]):
@@ -225,11 +227,24 @@ class TestToolBodyMesh:
         resolved = resolve_tool_body_params(
             mounting="bore", d_pt=84.9, m_n=2.0, L=12.0, r_root=30.0
         )
-        spec, desc = build_tool_body(_RAKE, r_root=30.0, resolved=resolved)
+        spec, desc = build_tool_body(_RAKE, r_root=30.0, resolved=resolved, theta_c=0.0, z_t=41)
         assert desc["loop"]["keyway"] is None
         assert desc["boolean_def"]["cut"] == ["bore_cylinder"]
         und, _ = _edge_stats(spec.indices)
         assert set(und.values()) == {2}
+
+    def test_phase_folded_front_band(self):
+        """同相位折叠回归锁（2026-08-31「光滑椭球」根因）：前端面 z 跨幅与基准齿窗口同宽.
+
+        β_t=15° 理想平面在整环上的 z 跨幅 ≈ 2·sinγ_eff·r ≈ 19mm；折叠后前端面只取
+        基准齿窗口（±π/41 ≈ ±4.4°）的 z——跨幅应缩到 ~2mm 量级，与刀具整环
+        （旋转不改 z，全部齿停在基准窗口相位）严丝合缝。
+        """
+        spec, _ = _build()
+        pos = spec.positions
+        n = len(pos) // 3 // 4
+        front_z = [pos[3 * j + 2] for j in list(range(n)) + list(range(n, 2 * n))]  # FO+FI
+        assert max(front_z) - min(front_z) < 3.0  # 未折叠时 ≈ 19.5mm
 
     def test_degenerate_guard_r_root_le_bore(self):
         # 绕过 resolve（其「越谷底圆」硬校验先拦）直接构造，打构建器自身的护栏
@@ -238,4 +253,4 @@ class TestToolBodyMesh:
             B=12.0, segment_dia=75.0, thickness_is_standard=True, warnings=[],
         )
         with pytest.raises(ValueError, match="≤ 孔半径"):
-            build_tool_body(_RAKE, r_root=15.0, resolved=resolved)
+            build_tool_body(_RAKE, r_root=15.0, resolved=resolved, theta_c=0.0, z_t=41)

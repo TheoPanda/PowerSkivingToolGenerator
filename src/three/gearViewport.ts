@@ -957,7 +957,7 @@ export function createGearViewport(options: GearViewportOptions): GearViewport {
     envelopeInstall = { a, sigma: (sigmaDeg * Math.PI) / 180 }
     envelopeJt = j_t
     // 注意：本列表仅收刀具系 T 图层；toothFlank（内齿轮齿面）为 W 系，勿加入（免 T→W 变换）
-    for (const id of ['rake', 'edge', 'flank', 'singleTooth', 'toolRing', 'conjugate', 'conjugateGear', 'interference'] as LayerId[]) {
+    for (const id of ['rake', 'edge', 'flank', 'singleTooth', 'toolRing', 'toolBody', 'conjugate', 'conjugateGear', 'interference'] as LayerId[]) {
       const g = layerGroups[id]
       if (g) applyInstallTransform(g)
     }
