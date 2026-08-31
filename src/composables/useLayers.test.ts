@@ -10,7 +10,10 @@ import { useLayers, resetLayersState } from './useLayers'
 import { LAYER_IDS, LAYER_VISUALS, type LayerId } from '../three/layerPalette'
 import type { GearViewport } from '../three/gearViewport'
 
-/** 步骤3 图层预设的唯一保留层（与 MainPanel 的 watch 同值）. */
+/** 步骤3 图层预设保留层（与 MainPanel 的 watch 同值；ADR-021 修订为整环+刀体两保留层）. */
+const STEP3_KEEP: LayerId[] = ['toolRing', 'toolBody']
+
+/** hideAllExcept 单层重载与 stale 圆点用例的对象层. */
 const TOOL_RING: LayerId = 'toolRing'
 
 /** 可记录调用序列的 viewport mock（只关心显隐/透明度两个通道）. */
@@ -101,22 +104,23 @@ describe('useLayers', () => {
     expect(rec.visibleCalls).toHaveLength(0)
   })
 
-  it('hideAllExcept 仅留指定层可见（workpiece 一并收拢），已收敛层不重复下发', () => {
+  it('hideAllExcept 仅留指定层组可见（步骤3 保留 toolRing+toolBody，ADR-021），已收敛层不重复下发', () => {
     const layers = useLayers()
     const rec = recordingViewport()
     layers.registerViewport(rec.vp)
     resetCalls(rec)
 
-    layers.hideAllExcept(TOOL_RING)
+    layers.hideAllExcept(STEP3_KEEP)
 
-    expect(layers.state.visible[TOOL_RING]).toBe(true)
+    for (const keep of STEP3_KEEP) {
+      expect(layers.state.visible[keep]).toBe(true)
+      expect(visibilityOf(rec, keep)).toEqual([]) // 初始全显 → 保留层零下发
+    }
     for (const id of LAYER_IDS) {
-      if (id === TOOL_RING) continue
+      if (STEP3_KEEP.includes(id)) continue
       expect(layers.state.visible[id]).toBe(false)
       expect(visibilityOf(rec, id)).toEqual([false])
     }
-    // toolRing 初始就可见 → 状态已收敛，不发冗余指令
-    expect(visibilityOf(rec, TOOL_RING)).toEqual([])
   })
 
   it('预设是一次性指令不是常驻守卫：手动重开的层不被自动关闭', () => {

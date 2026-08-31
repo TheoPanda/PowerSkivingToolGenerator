@@ -146,6 +146,17 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
   }
   const mockToolRing: api.ToolRingResponse = {
     layer: { id: 'toolRing', glb_base64: 'Z2xURg==' },
+    body_layer: { id: 'toolBody', glb_base64: 'Zm9v' },
+    body_description: {
+      loop: { outer_radius: 36.2, bore_radius: 15.8715, keyway: null },
+      rake_plane: { A: 0.0872, B: 0, C: 0.9962, const: -3.7 },
+      extrusion: { axis: [0, 0, -1], length: 15 },
+      boolean_def: { union: ['tooth_ring'], cut: ['bore_cylinder'] },
+      grade: 'preview',
+      segment_dia: 75,
+      thickness_is_standard: true,
+      warnings: [],
+    },
     coord_frame: 'T',
     source: '模块③ B 方案 v2（整环阵列，齿距线相位闭合）',
     meta: { ...toothMeta, z_t: 41 },

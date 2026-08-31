@@ -74,7 +74,7 @@ describe('MainPanel — 步骤内容区', () => {
       expect(body.text()).not.toContain('即将推出')
     })
 
-    it('currentStep=3 时也执行「仅留 toolRing」图层预设（每次进入都执行，PRD §5.5）', async () => {
+    it('currentStep=3 时也执行「仅留 toolRing+toolBody」图层预设（ADR-021 修订；每次进入都执行）', async () => {
       // useLayers 预设需要已登记 viewport（未登记整条跳过）——登记最小 stub
       const layers = useLayers()
       layers.registerViewport({ setLayerVisible: (): void => undefined, setLayerOpacity: (): void => undefined } as never)
@@ -87,6 +87,7 @@ describe('MainPanel — 步骤内容区', () => {
       await wrapper.vm.$nextTick()
 
       expect(layers.state.visible.toolRing).toBe(true)
+      expect(layers.state.visible.toolBody).toBe(true) // 刀体与齿圈拼成完整刀（ADR-021）
       expect(layers.state.visible.workpiece).toBe(false)
     })
 

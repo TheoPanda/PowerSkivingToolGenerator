@@ -16,6 +16,7 @@ from core.envelope.swept_cloud import WIREFRAME_COLOR, generate_envelope_cloud
 from core.envelope.envelope_context import ToolSpec, assemble_envelope_context
 from core.envelope.rake import normal_arrow, plane_patch
 from core.envelope.single_tooth import build_single_tooth
+from core.envelope.tool_body import build_tool_body, resolve_tool_body_params
 from core.envelope.tooth_solid import (
     build_single_tooth_solid,
     build_tooth_loop,
@@ -510,6 +511,22 @@ class HubParams(BaseModel):
     n_off: int = Field(4, ge=2, description="径向偏置直线采样点数")
 
 
+class ToolBodyParamsRequest(BaseModel):
+    """K-3.2 刀体结构参数（ADR-021 表驱动；None 字段 = 手册对档表自动带出）.
+
+    mounting 用 str + 运行时枚举校验（非 pydantic Literal）——刻意取舍：非法值统一
+    走业务 400 {error, code} 口径（与其他刀体硬校验一致、前端就地展示），不混入 422。
+    """
+
+    mounting: str = Field(
+        "bore", description="装夹形式：bore 光内孔 / bore_keyway 内孔+端面键槽（法兰/带柄预留枚举位）"
+    )
+    d_bore: float | None = Field(None, gt=0, description="内孔直径 [mm]；None=对档默认（向下取档首值）")
+    keyway_b: float | None = Field(None, gt=0, description="键槽宽 [mm]；None=随档×模数段带出（专家覆盖）")
+    keyway_t1: float | None = Field(None, gt=0, description="键槽深 [mm]；None=GB/T 6132 最近档（W16）")
+    B_body: float | None = Field(None, gt=0, description="刀体厚度 [mm]；None=档内 ≥L 最小标准值（非标软警）")
+
+
 class FlankRequest(BaseModel):
     """后刀面/单齿请求体."""
 
@@ -518,6 +535,7 @@ class FlankRequest(BaseModel):
     resharpening: ResharpenParams = ResharpenParams()
     discretization: DiscretizationParams = DiscretizationParams()
     hub: HubParams = HubParams()
+    tool_body: ToolBodyParamsRequest = ToolBodyParamsRequest()
     tool_type: str = Field("cylindrical", description="刀型：cylindrical 圆柱 / conical 圆锥（圆锥二期）")
     flank_method: str = Field("helical_lead", description="后刀面算法：helical_lead 螺旋导程法 / axial_offset 轴向偏移法（二期）")
 
@@ -618,11 +636,14 @@ def envelope_single_tooth(req: FlankRequest) -> dict:
 
 @router.post("/tool_ring")
 def envelope_tool_ring(req: FlankRequest) -> dict:
-    """K-3.1 整环刀具端点（B 方案 v2）：单齿实体绕 Z **同相位周向阵列** z_t 份 GLB.
+    """K-3.1+K-3.2 整环刀具端点（B 方案 v2）：齿圈周向阵列 + 刀体，一次管线两几何.
 
-    无轴向错位（2026-08-27 勘误：#34 的逐齿 ΔZ=i·p_z·j_t 实测证伪已回退，
-    缘由见 build_tool_ring docstring——单齿本体即螺旋条带，周向阵列即完整刀体）。
-    仍是三角网伪实体预览级（K-3.2 刀体结构 W9 未回读）。
+    齿圈：单齿实体绕 Z **同相位周向阵列** z_t 份，无轴向错位（2026-08-27 勘误：
+    #34 的逐齿 ΔZ=i·p_z·j_t 实测证伪已回退，缘由见 build_tool_ring docstring）。
+    刀体（K-3.2，ADR-021）：外缘=谷底圆柱（派生只读），表驱动缺省 = bore 光内孔
+    + 对档默认孔径 + 档内 ≥L 最小标准厚度；硬校验失败（孔缘含键槽底越谷底圆、
+    B<L、非系列孔径）→ 400。预览级三角网伪实体（正式级 OCCT 布尔/STEP 挂账，
+    body_description 即 CAD-neutral 描述包，原样重建零信息丢失）。
     """
     try:
         p = req.workpiece.to_gear_params()
@@ -647,9 +668,21 @@ def envelope_tool_ring(req: FlankRequest) -> dict:
                 f"tool_type={req.tool_type}/flank_method={req.flank_method} 未实现"
                 "（圆锥刀变位系数族法 K-2.14 / 轴向偏移法 K-2.17 二期）"
             )
+        # K-3.2 刀体：外缘=谷底圆柱（派生只读）；校验在 GLB 导出前 → 原子（无半响应）
+        r_root = solid.loop.root_radius
+        resolved = resolve_tool_body_params(
+            mounting=req.tool_body.mounting, d_pt=2.0 * ctx.plan.r_pt, m_n=p.m_n,
+            L=req.resharpening.L, r_root=r_root,
+            d_bore=req.tool_body.d_bore, keyway_b=req.tool_body.keyway_b,
+            keyway_t1=req.tool_body.keyway_t1, B=req.tool_body.B_body,
+        )
+        body_geo, body_desc = build_tool_body(ctx.rake, r_root=r_root, resolved=resolved)
         glb = export_geometry_glb_base64([geo])
+        body_glb = export_geometry_glb_base64([body_geo])
         return {
             "layer": {"id": "toolRing", "glb_base64": glb},
+            "body_layer": {"id": "toolBody", "glb_base64": body_glb},
+            "body_description": body_desc,
             "coord_frame": "T",
             "source": "模块③ B 方案 v2（整环阵列，齿距线相位闭合）",
             "meta": {

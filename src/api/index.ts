@@ -209,6 +209,20 @@ export interface HubParams {
   n_off: number
 }
 
+/** K-3.2 刀体装夹形式（法兰/带柄为预留枚举位，后端 400）.
+ * 与 composables/useToolParams 的 ToolBodyMountingChoice 同形互指（解耦惯例见该文件头部）. */
+export type ToolBodyMounting = 'bore' | 'bore_keyway'
+
+/** K-3.2 刀体结构参数 wire 形状（与 useToolParams.ToolBodyWireParams 同形互指；
+ * null = 对档表自动带出，目录见 composables/toolBodyCatalog.ts）. */
+export interface ToolBodyWireParams {
+  mounting: ToolBodyMounting
+  d_bore: number | null
+  keyway_b: number | null
+  keyway_t1: number | null
+  B_body: number | null
+}
+
 /** 后刀面/单齿请求体. */
 export interface FlankRequest {
   workpiece: WorkpieceRequestPayload
@@ -216,6 +230,7 @@ export interface FlankRequest {
   resharpening?: ResharpenParams
   discretization?: DiscretizationParams
   hub?: HubParams
+  tool_body?: ToolBodyWireParams
   tool_type?: ToolType
   flank_method?: FlankMethod
 }
@@ -259,9 +274,29 @@ export interface SingleToothResponse {
   meta: ToothSolidMeta
 }
 
+/** K-3.2 刀体解析描述包（CAD-neutral 权威数据；正式级 OCCT 拿它原样重建，ADR-021 ③）. */
+export interface ToolBodyDescription {
+  loop: {
+    outer_radius: number
+    bore_radius: number
+    keyway: { width: number; depth: number; polar_deg: number } | null
+  }
+  rake_plane: { A: number; B: number; C: number; const: number }
+  extrusion: { axis: number[]; length: number }
+  boolean_def: { union: string[]; cut: string[] }
+  grade: string
+  segment_dia: number
+  thickness_is_standard: boolean
+  warnings: string[]
+}
+
 /** 整环刀具响应（POST /api/envelope/tool_ring）. */
 export interface ToolRingResponse {
   layer: { id: 'toolRing'; glb_base64: string }
+  /** 刀体图层（K-3.2，ADR-021）：与齿圈拼合成完整刀具，独立显隐. */
+  body_layer: { id: 'toolBody'; glb_base64: string }
+  /** 刀体解析描述包（权威源视图化前置数据）. */
+  body_description: ToolBodyDescription
   coord_frame: string
   source: string
   /** TO-3 起 meta 新增实际施加的相邻齿轴向错位步距（带符号：p_z×j_t；直齿=0）. */

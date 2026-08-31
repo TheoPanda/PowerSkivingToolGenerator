@@ -21,7 +21,7 @@
  *     图层通道 gear:layer-ready 语义不同）→ 面板横幅 + useLayers.state.stale.toolRing
  *     （LayerPanel 圆点共用真值）。不强隐旧图，重新生成交给用户决定
  */
-import { computed, inject, ref } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import {
   fetchEnvelopeToolRing,
   type FlankRequest,
@@ -40,6 +40,7 @@ import {
 } from '../composables/useToolParams'
 import {
   computeToolExportQuantities,
+  k32ToolBodyRootRadiusEstimateMm,
   type ExportWorkpieceContext,
 } from '../composables/toolSolidExports'
 import {
@@ -50,7 +51,15 @@ import {
   type ToolValidatableField,
 } from '../composables/toolSolidValidation'
 import { useToolStale } from '../composables/useToolStale'
-import { TOOL_RING_ID, type LayerReadyDetail } from '../three/layerPalette'
+import {
+  filterBoresByRoot,
+  selectToolBodySegment,
+  toolBodyDefaultThickness,
+  toolBodyKeywayB,
+  toolBodyKeywayDepth,
+  type ToolBodySegment,
+} from '../composables/toolBodyCatalog'
+import { TOOL_BODY_ID, TOOL_RING_ID, type LayerReadyDetail } from '../three/layerPalette'
 
 // ── 工件参数注入：与 WorkpieceViewer 同一取数途径（MainPanel provide，inject 键相同） ──
 const gearParams = inject(gearParamsKey)
@@ -71,10 +80,11 @@ const lockedNotes = {
   flank_method: { value: LOCKED_FLANK_METHOD, note: LOCKED_FLANK_METHOD_NOTE },
 } as const
 
-/** 折叠状态：必填平铺展开，可默认/导出量默认收起（PRD §4 三档披露）. */
-const expandedSections = ref<{ required: boolean; optional: boolean; derived: boolean }>({
+/** 折叠状态：必填平铺展开，可默认/刀体结构/导出量默认收起（PRD §4 三档披露 + ADR-021 刀体组）. */
+const expandedSections = ref<{ required: boolean; optional: boolean; body: boolean; derived: boolean }>({
   required: true,
   optional: false,
+  body: false,
   derived: false,
 })
 
@@ -161,9 +171,74 @@ const pendingChanges = computed<boolean>(
 const workpieceStale = computed<boolean>(() => toolStale.state.workpieceStale)
 const staleBannerVisible = toolStale.bannerVisible
 
+// ── 刀体结构（K-3.2 / ADR-021，Q12：独立分组，组内必填=装夹+内孔、可默认=键槽/厚度） ──
+/** 对档表（toolBodyCatalog，d_pt=2·r_pt 向下取档；r_pt 缺失时钳 φ40 档——生成被 workpieceReady 挡住）. */
+const bodySeg = computed<ToolBodySegment>(() => selectToolBodySegment(2 * (exported.value.r_pt_mm ?? 0)))
+
+/** 专家覆盖（Q5）：关=全部对档自动带出（wire 传 null）；开=空白输入仍走自动，填了才覆盖. */
+const bodyExpert = ref<boolean>(false)
+
+/** 内孔选择：''=默认（对档首值）；键槽宽/深/厚度：''=自动带出. */
+const bodyDBoreText = ref<string>('')
+const bodyKeywayBText = ref<string>('')
+const bodyKeywayT1Text = ref<string>('')
+const bodyBText = ref<string>('')
+
+/** 生效内孔 = 显式选择 ?? 对档默认首值（键槽深查表键、软警判据共用）. */
+const bodyBoreEffective = computed<number>(() => {
+  const picked = bodyDBoreText.value === '' ? null : Number(bodyDBoreText.value)
+  return picked ?? bodySeg.value.bores[0]
+})
+
+/** 自动带出值（只读披露 + 专家输入的 placeholder）. */
+const keywayBAuto = computed<number>(() => toolBodyKeywayB(bodySeg.value, gearParams!.m_n ?? 0))
+const keywayT1Auto = computed<number | null>(() => toolBodyKeywayDepth(bodyBoreEffective.value))
+const thicknessAuto = computed<number | null>(() => toolBodyDefaultThickness(bodySeg.value, toolParams.L))
+
+/** 谷底半径估算（K-3.2 前端轻量复刻，仅供展示/预过滤；权威=后端描述包）. */
+const bodyRootEstMm = computed<number | null>(() => {
+  const g = gearParams!
+  if (g.m_n === null || !Number.isFinite(g.m_n) || g.m_n <= 0 || g.z_w === null) return null
+  return k32ToolBodyRootRadiusEstimateMm(
+    g.z_w, g.m_n, g.β_w, g.h_an, g.x_w, toolParams.z_t, toolParams.beta_t, g.k_io,
+  )
+})
+
+/** 内孔下拉候选（Q10 前端预过滤：孔缘含键槽底 < r_root；估算不可用则不过滤，后端兜底）. */
+const bodyBoreOptions = computed<number[]>(() =>
+  filterBoresByRoot(bodySeg.value, bodyRootEstMm.value, keywayT1Auto.value),
+)
+
+/** 非标厚度软警（Q10：黄警不阻断，硬拒交给后端 400）. */
+const bodyBSoftWarn = computed<boolean>(() => {
+  if (!bodyExpert.value || bodyBText.value === '') return false
+  const v = Number(bodyBText.value)
+  return Number.isFinite(v) && !bodySeg.value.thickness.includes(v)
+})
+
+/** 可默认折叠徽标：当前装夹/对档摘要. */
+const bodyBadge = computed<string>(() => {
+  const mount = toolParams.body_mounting === 'bore_keyway' ? '内孔+键槽' : '光内孔'
+  return `${mount} · φ${bodySeg.value.dia} 档`
+})
+
+// 表单文本 → 参数状态（toToolPayload 单一 wire 映射不破坏：快照/dirty 语义自动覆盖刀体字段）。
+// 空输入 = 自动带出（wire 传 null，后端查对档表）；专家关 = 键槽/厚度强制回自动。
+watch([bodyDBoreText, bodyExpert, bodyKeywayBText, bodyKeywayT1Text, bodyBText], (): void => {
+  toolParams.body_d_bore = bodyDBoreText.value === '' ? null : Number(bodyDBoreText.value)
+  toolParams.body_keyway_b =
+    bodyExpert.value && bodyKeywayBText.value !== '' ? Number(bodyKeywayBText.value) : null
+  toolParams.body_keyway_t1 =
+    bodyExpert.value && bodyKeywayT1Text.value !== '' ? Number(bodyKeywayT1Text.value) : null
+  toolParams.body_B =
+    bodyExpert.value && bodyBText.value !== '' ? Number(bodyBText.value) : null
+})
+
 // ── 手动生成（PRD §3.1-2：一键 tool_ring 链路，结果替换 toolRing 图层旧内容） ──
 const generating = ref<boolean>(false)
 const generateError = ref<string | null>(null)
+/** 刀体软警（Q10：厚度非标等；后端 body_description.warnings 原样展示，不阻断）. */
+const bodyWarnings = ref<string[]>([])
 
 const canGenerate = computed<boolean>(
   () => workpieceReady.value && hardErrors.value.length === 0 && !generating.value,
@@ -181,6 +256,7 @@ async function generate(): Promise<void> {
       workpiece: toPayload(gearParams!),
       tool: toolWire.tool,
       resharpening: toolWire.resharpening,
+      tool_body: toolWire.tool_body,        // K-3.2（ADR-021）：null 字段 = 对档表自动带出
       tool_type: toolWire.tool_type,       // T7/T15 锁定 cylindrical
       flank_method: toolWire.flank_method, // T15 锁定 helical_lead
     }
@@ -190,6 +266,10 @@ async function generate(): Promise<void> {
     // LayerPanel 同步 markLayerReady；detail 形状 = layerPalette.LayerReadyDetail
     const detail: LayerReadyDetail = { id: TOOL_RING_ID, glbBase64: resp.layer.glb_base64 }
     window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail }))
+    // 刀体图层（K-3.2）：独立图层与齿圈拼合成完整刀（ADR-021；Q11 预设两者同留）
+    const bodyDetail: LayerReadyDetail = { id: TOOL_BODY_ID, glbBase64: resp.body_layer.glb_base64 }
+    window.dispatchEvent(new CustomEvent('gear:layer-ready', { detail: bodyDetail }))
+    bodyWarnings.value = resp.body_description.warnings
 
     // 成功：按「实际发出的请求」刷新快照（清除待应用高亮）+ 单例内清除过期位/圆点
     lastAppliedSnapshot.value = sentSnapshot
@@ -211,6 +291,13 @@ defineExpose({
   generateError,
   generate,
   toggleSection,
+  bodyExpert,
+  bodySeg,
+  bodyBoreEffective,
+  keywayBAuto,
+  keywayT1Auto,
+  thicknessAuto,
+  bodyWarnings,
 })
 </script>
 
@@ -436,6 +523,131 @@ defineExpose({
       </div>
     </div>
 
+    <!-- ── 刀体结构（K-3.2 / ADR-021；Q12 独立分组：必填=装夹+内孔，可默认=键槽/厚度专家覆盖） ── -->
+    <div class="glass-collapse" :class="{ expanded: expandedSections.body }">
+      <button class="glass-collapse-header" @click="toggleSection('body')">
+        刀体结构
+        <span v-if="!expandedSections.body" class="collapse-badge" data-test="body-badge">{{ bodyBadge }}</span>
+        <span class="glass-collapse-arrow">▶</span>
+      </button>
+      <div class="glass-collapse-content">
+        <div class="collapse-inner">
+
+          <!-- 装夹形式（Q2：bore/bore_keyway；法兰/带柄仅枚举位） -->
+          <div class="glass-field">
+            <label class="glass-field-label">装夹形式</label>
+            <select v-model="toolParams.body_mounting" class="glass-select" data-test="body-mounting">
+              <option value="bore">光内孔</option>
+              <option value="bore_keyway">内孔 + 端面键槽</option>
+            </select>
+          </div>
+
+          <!-- 内孔直径（表驱动下拉：向下取档后只给手册系列值，Q5/Q8；'' = 默认） -->
+          <div class="glass-field">
+            <label class="glass-field-label">
+              内孔直径
+              <span class="tier-tag" :title="`对档：按刀具分度圆 2·r_pt 向下取 φ${bodySeg.dia} 档（安全侧）`">对档 φ{{ bodySeg.dia }}</span>
+            </label>
+            <select v-model="bodyDBoreText" class="glass-select" data-test="body-d-bore">
+              <option value="">默认（{{ bodyBoreOptions[0] ?? bodySeg.bores[0] }} mm）</option>
+              <option v-for="b in bodyBoreOptions" :key="b" :value="String(b)">{{ b }} mm</option>
+            </select>
+            <p v-if="bodyBoreOptions.length === 0" class="glass-field-hint">
+              该档无可行孔径（孔缘越谷底圆估算）——请检查刀具/工件参数
+            </p>
+          </div>
+
+          <template v-if="toolParams.body_mounting === 'bore_keyway'">
+            <!-- 键槽宽（随档×模数段自动带出；专家覆盖 Q5） -->
+            <div class="glass-field">
+              <label class="glass-field-label">键槽宽</label>
+              <input
+                v-if="bodyExpert"
+                v-model="bodyKeywayBText"
+                type="number"
+                step="0.5"
+                min="0.1"
+                class="glass-input"
+                data-test="body-keyway-b"
+                :placeholder="`自动 ${keywayBAuto} mm`"
+              />
+              <span v-else class="auto-value" data-test="body-keyway-b-auto">{{ keywayBAuto }} mm</span>
+              <span class="unit-suffix">mm</span>
+            </div>
+
+            <!-- 键槽深（GB/T 6132 最近档，W16 已销留档两处近似——UI 标注，Q9） -->
+            <div class="glass-field">
+              <label class="glass-field-label">
+                键槽深
+                <span
+                  class="tier-tag note-marker"
+                  title="按 GB/T 6132 / ISO 240:2016 最近档（W16）；GB/T 6081 自身深表未获取，键宽映射非逐档精确"
+                >i</span>
+              </label>
+              <input
+                v-if="bodyExpert"
+                v-model="bodyKeywayT1Text"
+                type="number"
+                step="0.1"
+                min="0.1"
+                class="glass-input"
+                data-test="body-keyway-t1"
+                :placeholder="keywayT1Auto === null ? '无标准档' : `自动 ${keywayT1Auto} mm`"
+              />
+              <span v-else class="auto-value" data-test="body-keyway-t1-auto">
+                {{ keywayT1Auto === null ? '—' : `${keywayT1Auto} mm` }}
+              </span>
+              <span class="unit-suffix">mm</span>
+            </div>
+          </template>
+
+          <!-- 厚度（默认=档内 ≥L 最小标准值，Q4/Q8；非标 → 软警黄字，硬拒走后端 400） -->
+          <div class="glass-field">
+            <label class="glass-field-label">刀体厚度 B</label>
+            <input
+              v-if="bodyExpert"
+              v-model="bodyBText"
+              type="number"
+              step="0.5"
+              min="0.1"
+              class="glass-input"
+              data-test="body-B"
+              :class="{ error: bodyBSoftWarn }"
+              :placeholder="thicknessAuto === null ? '档内无 ≥L 标准值' : `自动 ${thicknessAuto} mm`"
+            />
+            <span v-else class="auto-value" data-test="body-B-auto">
+              {{ thicknessAuto === null ? '—' : `${thicknessAuto} mm` }}
+            </span>
+            <span class="unit-suffix">mm</span>
+          </div>
+          <p v-if="bodyBSoftWarn" class="glass-field-hint warn" data-test="body-b-warn">
+            厚度非当前档标准系列（{{ bodySeg.thickness.join(' / ') }}）——软警不阻断，B&lt;L 仍会被拒绝
+          </p>
+
+          <!-- 专家覆盖开关（Q5：自动带出为常态，覆盖需显式进入专家模式） -->
+          <label class="expert-row" data-test="body-expert-row">
+            <input v-model="bodyExpert" type="checkbox" data-test="body-expert" />
+            <span>专家覆盖（空白 = 继续自动带出）</span>
+          </label>
+
+          <!-- 导出量只读行（标「由上游决定」：外缘/槽数不可手填，Q12；外缘数值为前端估算，权威=生成结果） -->
+          <div class="derived-row">
+            <span class="derived-name">刀体外缘直径</span>
+            <span class="derived-value" data-test="exp-body-od">
+              {{ bodyRootEstMm === null ? '= 齿圈谷底圆柱' : `${fmtNum(bodyRootEstMm * 2, 2)} mm（估算）` }}
+            </span>
+            <span class="derived-src">K-3.1 派生只读</span>
+          </div>
+          <div class="derived-row">
+            <span class="derived-name">容屑槽数</span>
+            <span class="derived-value">= 刀具齿数 z_t（{{ toolParams.z_t }}）</span>
+            <span class="derived-src">K-3.2 规定</span>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
     <!-- ── ③ 导出量（只读折叠；随工件+刀具参数 reactive 即时刷新，公式出处见 toolSolidExports.ts） ── -->
     <div class="glass-collapse" :class="{ expanded: expandedSections.derived }">
       <button class="glass-collapse-header" @click="toggleSection('derived')">
@@ -491,6 +703,9 @@ defineExpose({
 
     <!-- 请求失败就地展示：request() 把仓库契约 { "error", "code" } 的 error 字段拆成 message -->
     <div v-if="generateError" class="generate-error" data-test="generate-error">{{ generateError }}</div>
+
+    <!-- 刀体软警（Q10：后端 body_description.warnings 原样展示，黄警不阻断） -->
+    <div v-for="(w, i) in bodyWarnings" :key="i" class="generate-error warn" data-test="body-warnings">⚠ {{ w }}</div>
   </div>
 </template>
 
@@ -547,6 +762,29 @@ defineExpose({
   flex-shrink: 0;
 }
 
+/* 刀体自动带出值（非专家态的只读披露视觉：等宽小字，弱化于输入框） */
+.auto-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--brand-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 专家覆盖开关行（Q5：自动带出为常态） */
+.expert-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--brand-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.expert-row input[type='checkbox'] {
+  accent-color: var(--brand-blue);
+}
+
 /* 黄警沿用 Glass 视觉语言但取警告橙（区别于 .glass-field-hint 默认的危险红） */
 .glass-field-hint.warn {
   color: var(--brand-warning);
@@ -578,6 +816,13 @@ defineExpose({
   border-radius: 8px;
   background: rgba(192, 57, 43, 0.08);
   border: 1px solid rgba(192, 57, 43, 0.22);
+}
+
+/* 软警变体：同一版式取警告橙（后端 body_description.warnings 原样展示，Q10 黄警口径） */
+.generate-error.warn {
+  color: #a85900;
+  background: rgba(230, 126, 34, 0.14);
+  border-color: rgba(230, 126, 34, 0.32);
 }
 
 .stale-banner {

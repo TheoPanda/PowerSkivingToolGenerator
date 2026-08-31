@@ -164,3 +164,37 @@ export function computeToolExportQuantities(
   result.lead_mm = Number.isFinite(lead) ? lead : null
   return result
 }
+
+// ── K-3.2 刀体外缘估算（ADR-021：仅供 UI 只读展示与内孔下拉预过滤；权威=后端描述包） ──
+
+/** 齿根径向偏置比（与 tooth_solid.ROOT_OFFSET_RATIO_DEFAULT 同值：1/20 分度圆直径）. */
+const ROOT_OFFSET_RATIO = 0.05
+
+/**
+ * 刀体谷底半径（= 刀体外缘半径）估算 r_root = r_a − a − 0.05·2·r_pt [mm].
+ * 公式逐条抄写自后端：r_a 取负齿数模型 d_a = z·m_t − 2(h_an+x)·m_n 之半（ADR-015，
+ * workpiece.models.tip_radius）；r_limit = r_a − a ← tooth_solid.limit_radius；
+ * 偏置 ← ROOT_OFFSET_RATIO_DEFAULT。k_io=−1（内齿轮，应用支持域）以外返回 null——
+ * 外齿轮解析路线 T14 未销项，不臆造外齿分支。
+ */
+export function k32ToolBodyRootRadiusEstimateMm(
+  z_w: number,
+  m_n: number,
+  beta_w_deg: number,
+  h_an: number,
+  x_w: number,
+  z_t: number,
+  beta_t_deg: number,
+  k_io: number,
+): number | null {
+  if (k_io !== -1) return null
+  const cosW = Math.cos(beta_w_deg * Math.PI / 180)
+  if (cosW === 0) return null
+  const m_t = m_n / cosW
+  const r_a = (z_w * m_t - 2 * (h_an + x_w) * m_n) / 2
+  const r_pw = m_t * z_w / 2
+  const r_pt = toolPitchRadiusFromRpwMm(r_pw, z_w, z_t, beta_w_deg, beta_t_deg)
+  const a = k15CenterDistanceMm(r_pw, r_pt, k_io)
+  const r_root = r_a - a - ROOT_OFFSET_RATIO * 2 * r_pt
+  return Number.isFinite(r_root) && r_root > 0 ? r_root : null
+}

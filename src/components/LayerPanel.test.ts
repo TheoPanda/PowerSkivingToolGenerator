@@ -149,13 +149,13 @@ describe('LayerPanel 图层列表', () => {
     }
   })
 
-  it('可见计数徽章随显隐联动（10/10 → 隐藏一层 9/10）', async () => {
+  it('可见计数徽章随显隐联动（11/11 → 隐藏一层 10/11；刀体图层入列 ADR-021）', async () => {
     const vp = fakeViewport()
     const wrapper = mountPanel(vp)
-    expect(wrapper.find('[data-test="layer-visible-count"]').text()).toBe(`10/${LAYER_IDS.length}`)
+    expect(wrapper.find('[data-test="layer-visible-count"]').text()).toBe(`11/${LAYER_IDS.length}`)
     await wrapper.find('[data-test="layer-eye-rake"]').trigger('click')
-    expect(wrapper.find('[data-test="layer-visible-count"]').text()).toBe(`9/${LAYER_IDS.length}`)
-    // 全隐 → 0/10 且徽章转警示态
+    expect(wrapper.find('[data-test="layer-visible-count"]').text()).toBe(`10/${LAYER_IDS.length}`)
+    // 全隐 → 0/11 且徽章转警示态
     await wrapper.find('[data-test="layer-show-none"]').trigger('click')
     expect(wrapper.find('[data-test="layer-visible-count"]').text()).toBe(`0/${LAYER_IDS.length}`)
     expect(wrapper.find('[data-test="layer-visible-count"]').classes()).toContain('zero')

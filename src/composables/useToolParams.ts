@@ -28,6 +28,9 @@ export type RakeTypeChoice = 'plane' | 'equation' | 'cone'
 /** 后刀面算法选项：仅 helical_lead 可用（axial_offset 二期，T15 锁定）. */
 export type FlankMethodChoice = 'helical_lead' | 'axial_offset'
 
+/** 刀体装夹形式（K-3.2，ADR-021；法兰/带柄为预留枚举位，后端 400）. */
+export type ToolBodyMountingChoice = 'bore' | 'bore_keyway'
+
 /**
  * 刀具参数表单 schema（10 字段；camelCase 领域名，wire 映射见 toToolPayload）.
  *
@@ -44,6 +47,12 @@ export interface ToolParamsState {
   flank_method: FlankMethodChoice    // 后刀面算法（锁定 helical_lead，T15）
   L: number          // 刀齿轴向长度（总重磨量）[mm]
   n_L: number        // 重磨等分数（后刀面扫掠截面数）
+  // ── K-3.2 刀体结构（ADR-021 表驱动；null = 对档表自动带出，目录见 toolBodyCatalog.ts） ──
+  body_mounting: ToolBodyMountingChoice  // 装夹形式（bore/bore_keyway；法兰/带柄预留）
+  body_d_bore: number | null             // 内孔直径 [mm]；null=对档默认（向下取档首值）
+  body_keyway_b: number | null           // 键槽宽 [mm]；null=随档×模数段带出（专家可覆盖）
+  body_keyway_t1: number | null          // 键槽深 [mm]；null=GB/T 6132 最近档
+  body_B: number | null                  // 刀体厚度 [mm]；null=档内 ≥L 最小标准值（非标软警）
 }
 
 // ── 锁定项元数据（TO-5 三档披露表单复用；文案带缺口编号，PRD §7 纪律） ──
@@ -91,6 +100,11 @@ export function createToolParams(): ToolParamsState {
     flank_method: LOCKED_FLANK_METHOD,
     L: 20,                 // = ResharpenParams.L 20.0：≈工件齿宽量级，过小实体呈薄片
     n_L: 16,               // = ResharpenParams.n_L 16：间距 20/16=1.25mm
+    body_mounting: 'bore', // = ToolBodyParamsRequest.mounting 默认（K-3.2 一次管线始终生成）
+    body_d_bore: null,     // null = 对档表默认孔径
+    body_keyway_b: null,   // null = 随档×模数段自动带出
+    body_keyway_t1: null,  // null = GB/T 6132 最近档
+    body_B: null,          // null = 档内 ≥L 最小标准厚度
   }
 }
 
@@ -111,6 +125,16 @@ export interface ResharpenWireParams {
   n_L: number
 }
 
+/** 刀体段 wire 载荷（ToolBodyParamsRequest；null 直传 = 后端对档表自动带出.
+ * 与 src/api/index.ts 同名类型同形互指（解耦惯例见文件头部说明）. */
+export interface ToolBodyWireParams {
+  mounting: ToolBodyMountingChoice
+  d_bore: number | null
+  keyway_b: number | null
+  keyway_t1: number | null
+  B_body: number | null
+}
+
 /**
  * toToolPayload 输出：组件把各分片放到对应请求体的原嵌套位 ——
  * EnvelopeRequest.tool ← tool；RakeRequest.rake_type ← rake_type；
@@ -120,6 +144,7 @@ export interface ToolWirePayload {
   tool: ToolWireParams
   rake_type: RakeTypeChoice
   resharpening: ResharpenWireParams
+  tool_body: ToolBodyWireParams
   tool_type: ToolTypeChoice
   flank_method: FlankMethodChoice
 }
@@ -141,6 +166,13 @@ export function toToolPayload(p: ToolParamsState): ToolWirePayload {
     },
     rake_type: p.rake_type,
     resharpening: { L: p.L, n_L: p.n_L },
+    tool_body: {
+      mounting: p.body_mounting,
+      d_bore: p.body_d_bore,
+      keyway_b: p.body_keyway_b,
+      keyway_t1: p.body_keyway_t1,
+      B_body: p.body_B,
+    },
     tool_type: p.tool_type,
     flank_method: p.flank_method,
   }

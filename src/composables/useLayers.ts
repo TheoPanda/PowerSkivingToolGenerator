@@ -82,8 +82,9 @@ export interface UseLayersApi {
   hideAll: () => void
   /** 图层重生成重置默认可见（gear:layer-ready 的既有行为走这里）. */
   markLayerReady: (id: LayerId) => void
-  /** 预设指令：仅留 keep 可见（收敛式幂等；viewport 未登记整条跳过）. */
-  hideAllExcept: (keep: LayerId) => void
+  /** 预设指令：仅留 keep（单层或一组）可见（收敛式幂等；viewport 未登记整条跳过）.
+   * 单层重载保留：useLayers 单层语义用例在用，亦是未来单层预设的入口. */
+  hideAllExcept: (keep: LayerId | LayerId[]) => void
   /** 过期标记写入（PRD §5.4：工件重生成 → toolRing 基于旧工件参数；重生成该层即清除）. */
   setLayerStale: (id: LayerId, stale: boolean) => void
 }
@@ -174,14 +175,16 @@ function markLayerReady(id: LayerId): void {
   if (wasHidden && viewport) viewport.setLayerVisible(id, true)
 }
 
-/** 步骤3 图层预设（PRD §5.5 / ADR-020③）：仅留 keep 可见，其余收拢.
+/** 步骤3 图层预设（PRD §5.5 / ADR-020③，2026-08-31 ADR-021 修订：保留 toolRing+toolBody）：
+ * 仅留 keep（单层或一组）可见，其余收拢.
  * 收敛式下发：与当前状态一致的层不发 → 连续触发幂等（第二次起零调用）；
  * 视口未登记时整条跳过（连状态也不动，避免晚注册时落进半截预设）.
  * 不锁死、离开不复原：用户可随时手动开任一层，那是下一次手势路径的事。 */
-function hideAllExcept(keep: LayerId): void {
+function hideAllExcept(keep: LayerId | LayerId[]): void {
   if (!viewport) return
+  const keepSet: LayerId[] = Array.isArray(keep) ? keep : [keep]
   for (const id of LAYER_IDS) {
-    const value = id === keep
+    const value = keepSet.includes(id)
     if (state.visible[id] === value) continue
     pushVisible(id, value)
   }

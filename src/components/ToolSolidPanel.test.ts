@@ -16,8 +16,8 @@ import { resetToolStaleState } from '../composables/useToolStale'
 import { gearParamsKey, type GearParams } from '../composables/useGearParams'
 
 type PanelInstance = ComponentPublicInstance & {
-  expandedSections: { required: boolean; optional: boolean; derived: boolean }
-  toggleSection: (key: 'required' | 'optional' | 'derived') => void
+  expandedSections: { required: boolean; optional: boolean; body: boolean; derived: boolean }
+  toggleSection: (key: 'required' | 'optional' | 'body' | 'derived') => void
   pendingChanges: boolean
   workpieceStale: boolean
   staleBannerVisible: boolean
@@ -26,6 +26,17 @@ type PanelInstance = ComponentPublicInstance & {
 
 const MOCK_TOOL_RING: api.ToolRingResponse = {
   layer: { id: 'toolRing', glb_base64: 'Z2xURg==' },
+  body_layer: { id: 'toolBody', glb_base64: 'Zm9v' },
+  body_description: {
+    loop: { outer_radius: 36.2, bore_radius: 15.8715, keyway: null },
+    rake_plane: { A: 0.0872, B: 0, C: 0.9962, const: -3.7 },
+    extrusion: { axis: [0, 0, -1], length: 15 },
+    boolean_def: { union: ['tooth_ring'], cut: ['bore_cylinder'] },
+    grade: 'preview',
+    segment_dia: 75,
+    thickness_is_standard: true,
+    warnings: [],
+  },
   coord_frame: 'T',
   source: '模块③ B 方案 v2',
   meta: {
@@ -90,20 +101,22 @@ beforeEach(() => {
 })
 
 describe('ToolSolidPanel — 三档披露表单（PRD §4 骨架）', () => {
-  it('三组 .glass-collapse 存在且标题为 必填/可默认/导出量，默认：必填展开、其余收起', () => {
+  it('四组 .glass-collapse 存在且标题为 必填/可默认/刀体结构/导出量，默认：必填展开、其余收起', () => {
     const wrapper = mountPanel()
     const collapses = wrapper.findAll('.glass-collapse')
-    expect(collapses).toHaveLength(3)
+    expect(collapses).toHaveLength(4)
     expect(
       collapses.map((c) => c.find('.glass-collapse-header').text()),
     ).toEqual([
       expect.stringContaining('必填'),
       expect.stringContaining('可默认'),
+      expect.stringContaining('刀体结构'),
       expect.stringContaining('导出量'),
     ])
     const sections = wrapper.vm.expandedSections
     expect(sections.required).toBe(true)
     expect(sections.optional).toBe(false)
+    expect(sections.body).toBe(false)
     expect(sections.derived).toBe(false)
   })
 
@@ -262,9 +275,11 @@ describe('ToolSolidPanel — 手动生成 + 图层替换（Q2-a）', () => {
         flank_method: 'helical_lead',
         resharpening: { L: 20, n_L: 16 },
         tool: { z_t: 41, beta_t_deg: 15, j_t: -1, gamma_0_deg: 5, alpha_0_deg: 8 },
+        tool_body: { mounting: 'bore', d_bore: null, keyway_b: null, keyway_t1: null, B_body: null },
       })
-      // 与 WorkpieceViewer.dispatchLayer 同一通道（MainView.addLayer 替换同 id 层）
-      expect(ids).toEqual(['toolRing'])
+      // 与 WorkpieceViewer.dispatchLayer 同一通道（MainView.addLayer 替换同 id 层）；
+      // ADR-021：刀体随同一响应派发第二图层事件（Q3 一次管线两几何）
+      expect(ids).toEqual(['toolRing', 'toolBody'])
       expect(wrapper.vm.pendingChanges).toBe(false)
       expect(wrapper.find('[data-test="pending-hint"]').exists()).toBe(false)
     } finally {
@@ -319,6 +334,86 @@ describe('ToolSolidPanel — 手动生成 + 图层替换（Q2-a）', () => {
     expect(wrapper.vm.generateError).toContain('Σ=0')
     expect(wrapper.vm.pendingChanges).toBe(true) // 快照未刷新
     expect(layers.state.stale.toolRing).toBe(true) // 未成功替换 → 圆点保留
+  })
+})
+
+describe('ToolSolidPanel — 刀体结构分组（K-3.2 / ADR-021）', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.spyOn(api, 'fetchEnvelopeToolRing').mockResolvedValue(MOCK_TOOL_RING)
+  })
+
+  it('收起徽标显示装夹/对档摘要（算例1 d_pt≈84.9 → 向下取 φ75 档）', () => {
+    const wrapper = mountPanel()
+    const badge = wrapper.find('[data-test="body-badge"]')
+    expect(badge.text()).toContain('光内孔')
+    expect(badge.text()).toContain('φ75')
+  })
+
+  it('刀体外缘直径导出行给出估算数值（算例1 r_root≈36.20 → Ø72.40）', () => {
+    const wrapper = mountPanel()
+    wrapper.vm.expandedSections.body = true
+    const od = wrapper.find('[data-test="exp-body-od"]')
+    expect(od.text()).toContain('72.40')
+    expect(od.text()).toContain('估算')
+  })
+
+  it('后端软警原样展示（body_description.warnings → body-warnings 节点）', async () => {
+    vi.spyOn(api, 'fetchEnvelopeToolRing').mockResolvedValue({
+      ...MOCK_TOOL_RING,
+      body_description: {
+        ...MOCK_TOOL_RING.body_description,
+        thickness_is_standard: false,
+        warnings: ['厚度 B=16.0 非当前档 φ75 标准系列（软警不阻断）'],
+      },
+    })
+    const wrapper = mountPanel()
+    await wrapper.find('button[data-test="generate-tool-ring"]').trigger('click')
+    await flushPromises()
+    const warns = wrapper.findAll('[data-test="body-warnings"]')
+    expect(warns).toHaveLength(1)
+    expect(warns[0].text()).toContain('软警不阻断')
+  })
+
+  it('内孔下拉只给对档系列值（φ75 档 = 默认 + 31.743），键槽行默认隐藏', () => {
+    const wrapper = mountPanel()
+    const opts = wrapper.findAll('select[data-test="body-d-bore"] option')
+    expect(opts.map((o) => o.text())).toEqual(['默认（31.743 mm）', '31.743 mm'])
+    expect(wrapper.find('[data-test="body-keyway-b-auto"]').exists()).toBe(false)
+  })
+
+  it('切内孔+键槽 → 键槽宽/深自动带出（φ75×m_n=2 → 10 mm；GB/T 6132 → 2.8 mm）', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('select[data-test="body-mounting"]').setValue('bore_keyway')
+    expect(wrapper.find('[data-test="body-keyway-b-auto"]').text()).toContain('10')
+    expect(wrapper.find('[data-test="body-keyway-t1-auto"]').text()).toContain('2.8')
+  })
+
+  it('专家覆盖：勾选后键槽/厚度变输入（空白=自动）；非标厚度黄警不阻断生成', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('select[data-test="body-mounting"]').setValue('bore_keyway')
+    await wrapper.find('input[data-test="body-expert"]').setValue(true)
+    expect(wrapper.find('input[data-test="body-keyway-b"]').exists()).toBe(true)
+    await wrapper.find('input[data-test="body-B"]').setValue('16')
+    expect(wrapper.find('[data-test="body-b-warn"]').exists()).toBe(true)
+    const btn = wrapper.find('button[data-test="generate-tool-ring"]').element as HTMLButtonElement
+    expect(btn.disabled).toBe(false) // 软警不阻断（Q10），硬拒走后端 400
+  })
+
+  it('专家键槽宽覆盖写进 payload；未覆盖字段仍传 null 走自动带出', async () => {
+    const wrapper = mountPanel()
+    await wrapper.find('select[data-test="body-mounting"]').setValue('bore_keyway')
+    await wrapper.find('input[data-test="body-expert"]').setValue(true)
+    await wrapper.find('input[data-test="body-keyway-b"]').setValue('12')
+    await wrapper.find('button[data-test="generate-tool-ring"]').trigger('click')
+    await flushPromises()
+    expect(vi.mocked(api.fetchEnvelopeToolRing).mock.calls[0][0].tool_body).toEqual({
+      mounting: 'bore_keyway',
+      d_bore: null,
+      keyway_b: 12,
+      keyway_t1: null,
+      B_body: null,
+    })
   })
 })
 

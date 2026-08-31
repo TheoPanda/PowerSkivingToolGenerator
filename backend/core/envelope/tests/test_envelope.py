@@ -308,6 +308,90 @@ def test_tool_ring_same_phase_no_axial_stagger(j_t: int):
     assert ring_span == pytest.approx(tooth_span, abs=1e-2)  # 单齿宽 L≈2mm 口径内全环等跨
 
 
+# ── K-3.2 刀体结构（ADR-021，#37）──
+
+
+def test_tool_ring_returns_body_layer_and_description():
+    """缺省刀体：bore 光内孔 + 对档默认（d_pt≈84.89 → φ75 档）+ 档内 ≥L 最小厚度."""
+    from pygltflib import GLTF2
+    client = TestClient(app)
+    resp = client.post("/api/envelope/tool_ring", json=_flank_request())
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["layer"]["id"] == "toolRing"
+    assert data["body_layer"]["id"] == "toolBody"
+    desc = data["body_description"]
+    assert desc["loop"]["outer_radius"] == pytest.approx(data["meta"]["root_radius_mm"])
+    assert desc["loop"]["bore_radius"] == pytest.approx(31.743 / 2)
+    assert desc["loop"]["keyway"] is None
+    assert desc["extrusion"] == {"axis": [0.0, 0.0, -1.0], "length": 15.0}  # φ75 档 ≥L=2 最小
+    assert desc["boolean_def"]["cut"] == ["bore_cylinder"]
+    assert desc["grade"] == "preview"
+    assert desc["thickness_is_standard"] is True
+    blob = base64.b64decode(data["body_layer"]["glb_base64"])
+    assert blob[:4] == b"glTF"
+    gltf = GLTF2.load_from_bytes(blob)
+    assert gltf.meshes[0].primitives[0].mode == 4  # TRIANGLES
+
+
+def test_tool_ring_bore_keyway_table_driven():
+    """bore_keyway：键槽宽随档带出（φ75→10）、深=GB/T 6132 最近档（2.8）."""
+    client = TestClient(app)
+    resp = client.post(
+        "/api/envelope/tool_ring",
+        json=_flank_request(tool_body={"mounting": "bore_keyway"}),
+    )
+    assert resp.status_code == 200
+    desc = resp.json()["body_description"]
+    assert desc["loop"]["keyway"] == {"width": 10.0, "depth": 2.8, "polar_deg": 0.0}
+    assert desc["segment_dia"] == 75.0
+    assert desc["boolean_def"]["cut"] == ["bore_cylinder", "keyway_box"]
+    assert desc["warnings"] == []
+
+
+def test_tool_ring_nonstandard_thickness_warns():
+    """非标厚度 → 200 + 软警（黄警口径），不阻断（Q10 软硬分流）."""
+    client = TestClient(app)
+    resp = client.post(
+        "/api/envelope/tool_ring",
+        json=_flank_request(tool_body={"B_body": 16.0}),
+    )
+    assert resp.status_code == 200
+    desc = resp.json()["body_description"]
+    assert desc["thickness_is_standard"] is False
+    assert len(desc["warnings"]) == 1 and "软警" in desc["warnings"][0]
+
+
+def test_tool_ring_rejects_nonseries_bore():
+    client = TestClient(app)
+    resp = client.post(
+        "/api/envelope/tool_ring",
+        json=_flank_request(tool_body={"d_bore": 88.9}),  # φ75 档不含 88.9（φ160 档孔）
+    )
+    assert resp.status_code == 400
+    assert "标准系列" in resp.json()["detail"]["error"]
+
+
+def test_tool_ring_rejects_body_thinner_than_L():
+    client = TestClient(app)
+    resp = client.post(
+        "/api/envelope/tool_ring",
+        json=_flank_request(tool_body={"B_body": 1.0}),
+    )
+    assert resp.status_code == 400
+    assert "硬拒" in resp.json()["detail"]["error"]
+
+
+def test_tool_ring_rejects_invalid_mounting():
+    client = TestClient(app)
+    resp = client.post(
+        "/api/envelope/tool_ring",
+        json=_flank_request(tool_body={"mounting": "flange"}),  # 法兰预留枚举位未实现
+    )
+    assert resp.status_code == 400
+    assert "装夹形式" in resp.json()["detail"]["error"]
+
+
 # ── 子 PRD-5 解析路线端点 ─────────────────────────────────────────────
 
 

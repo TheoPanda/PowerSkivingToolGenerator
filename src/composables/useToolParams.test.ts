@@ -38,15 +38,17 @@ const GOLDEN_WIRE = {
   },
   rake_type: 'plane',
   resharpening: { L: 20, n_L: 16 },
+  tool_body: { mounting: 'bore', d_bore: null, keyway_b: null, keyway_t1: null, B_body: null },
   tool_type: 'cylindrical',
   flank_method: 'helical_lead',
 } as const
 
 describe('useToolParams — 单一 schema', () => {
-  it('默认值覆盖全部字段（10 字段；δ/z_off 按 T15/schema 缺口刻意不建字段）', () => {
+  it('默认值覆盖全部字段（15 字段含 K-3.2 刀体五项；δ/z_off 按 T15/schema 缺口刻意不建字段）', () => {
     const p: ToolParamsState = createToolParams()
     expect(Object.keys(p).sort()).toEqual(
-      ['z_t', 'beta_t', 'j_t', 'gamma_0', 'alpha_0', 'rake_type', 'tool_type', 'flank_method', 'L', 'n_L'].sort(),
+      ['z_t', 'beta_t', 'j_t', 'gamma_0', 'alpha_0', 'rake_type', 'tool_type', 'flank_method', 'L', 'n_L',
+       'body_mounting', 'body_d_bore', 'body_keyway_b', 'body_keyway_t1', 'body_B'].sort(),
     )
     // 数值档：锚算例1（z_t=41 ⇔ 工件 z_w=82 / β_t=15 / γ₀=5）；α₀=8 基线出处=算例2，
     // 算例1 文献值 6° 系 W2 假设输入、正文确认待做 —— 默认维持 pydantic 同值的 8。
@@ -62,13 +64,20 @@ describe('useToolParams — 单一 schema', () => {
     expect(p.tool_type).toBe(LOCKED_TOOL_TYPE)
     expect(p.rake_type).toBe(LOCKED_RAKE_TYPE)
     expect(p.flank_method).toBe(LOCKED_FLANK_METHOD)
+    // 刀体档（ADR-021）：默认 bore + 全 null = 对档表自动带出
+    expect(p.body_mounting).toBe('bore')
+    expect(p.body_d_bore).toBeNull()
+    expect(p.body_keyway_b).toBeNull()
+    expect(p.body_keyway_t1).toBeNull()
+    expect(p.body_B).toBeNull()
   })
 
-  it('toToolPayload 输出与改造前请求体逐字段等价（golden 全量快照）', () => {
+  it('toToolPayload 输出与改造前请求体逐字段等价（golden 全量快照；tool_body=ADR-021 新增段）', () => {
     expect(toToolPayload(createToolParams())).toEqual({
       tool: GOLDEN_WIRE.tool,
       rake_type: GOLDEN_WIRE.rake_type,
       resharpening: GOLDEN_WIRE.resharpening,
+      tool_body: GOLDEN_WIRE.tool_body,
       tool_type: GOLDEN_WIRE.tool_type,
       flank_method: GOLDEN_WIRE.flank_method,
     })
@@ -94,9 +103,10 @@ describe('useToolParams — 单一 schema', () => {
 
   it('wire 键序与既有报文一致（JSON.stringify 序列化序不变）', () => {
     const w = toToolPayload(createToolParams())
-    expect(Object.keys(w)).toEqual(['tool', 'rake_type', 'resharpening', 'tool_type', 'flank_method'])
+    expect(Object.keys(w)).toEqual(['tool', 'rake_type', 'resharpening', 'tool_body', 'tool_type', 'flank_method'])
     expect(Object.keys(w.tool)).toEqual(['z_t', 'beta_t_deg', 'j_t', 'gamma_0_deg', 'alpha_0_deg'])
     expect(Object.keys(w.resharpening)).toEqual(['L', 'n_L'])
+    expect(Object.keys(w.tool_body)).toEqual(['mounting', 'd_bore', 'keyway_b', 'keyway_t1', 'B_body'])
   })
 
   it('按组件同构展开组装三端点请求体，键集与取值均等价（workpiece 段归 useGearParams）', () => {
