@@ -249,8 +249,8 @@ def test_single_tooth_returns_closed_solid_glb():
     # B 方案 v2 元数据：理论极限圆 + 偏置谷底
     meta = data["meta"]
     assert meta["r_limit_mm"] == pytest.approx(80.0 - 39.5537, abs=1e-3)
-    assert meta["root_offset_mm"] == 0.0  # v8 圆柱求差：径向偏置退役
-    assert meta["root_radius_mm"] == pytest.approx(meta["r_limit_mm"], abs=1e-9)
+    assert meta["root_offset_mm"] == pytest.approx(0.05 * 2 * 42.4463, abs=1e-3)  # d_pt/20
+    assert meta["root_radius_mm"] == pytest.approx(meta["r_limit_mm"] - meta["root_offset_mm"], abs=1e-6)
     assert 0.0 < meta["pitch_z_mm"] < 3.0
     assert meta["volume_mm3"] > 0.0
 
@@ -322,10 +322,10 @@ def test_tool_ring_returns_body_layer_and_description():
     assert desc["loop"]["cut_radius"] == pytest.approx(data["meta"]["root_radius_mm"])
     assert desc["loop"]["bore_radius"] == pytest.approx(31.743 / 2)
     assert desc["loop"]["keyway"] is None
-    # v4 圆柱基体：外径 = 求差圆（= r_limit），总长 = φ75 档 ≥L=2 最小标准厚度 15
+    # v4 圆柱基体：外径 = 谷底求差圆（r_limit − 偏置，尽量小不伤齿根），总长 = φ75 档 ≥L=2 最小标准厚度 15
     assert desc["profile"] == {
         "type": "cylinder",
-        "od_mm": pytest.approx(2 * (80.0 - 39.5537)),
+        "od_mm": pytest.approx(2 * (80.0 - 39.5537 - 0.05 * 2 * 42.4463)),
         "length_mm": 15.0,
     }
     assert desc["boolean_def"]["cut"] == ["bore_cylinder"]

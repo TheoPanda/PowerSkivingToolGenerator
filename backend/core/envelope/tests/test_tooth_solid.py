@@ -115,10 +115,10 @@ class TestBuildToothLoop:
             assert rake.A * x + rake.B * y + rake.C * z + rake.const == pytest.approx(0.0, abs=1e-4)
 
     def test_smooth_trim_circle(self):
-        """v8 圆柱求差：求差底弧全部点落在 r_limit 光滑圆上（花瓣形内壁退役）.
+        """v8 圆柱求差（圆柱尽量小 = 谷底圆）：求差底弧全部点落在**同一圆**上.
 
-        用户裁决（2026-08-31）：谷底弧经阵列应形成**圆**而非花瓣——刀体圆柱
-        （外径 = r_limit）与齿圈内圆求差，圈内壁被修成光滑圆柱面。
+        用户裁决（2026-08-31）：谷底弧经阵列应形成**圆**而非花瓣——求差圆柱取
+        谷底圆（r_limit − 偏置，尽量小、不伤齿根），凸起被削平，圈内壁 = 光滑圆柱。
         """
         plan = _plan()
         rake = _rake(plan)
@@ -127,22 +127,24 @@ class TestBuildToothLoop:
         assert hi < lo  # 底弧为连续段
         for j in range(hi, lo + 1):
             p = loop.pts[j]
-            assert math.hypot(p[0], p[1]) == pytest.approx(loop.r_limit, abs=1e-6)
+            assert math.hypot(p[0], p[1]) == pytest.approx(loop.root_radius, abs=1e-6)
         # 底弧中点 = 齿中线方向（跨槽位中心）
         mid = loop.pts[(hi + lo) // 2]
         th_mid = math.atan2(mid[1], mid[0])
         assert abs(((th_mid - loop.theta_c + math.pi) % (2 * math.pi)) - math.pi) < 1e-6
 
-    def test_offset_retired_root_is_limit(self):
-        """v8：径向偏置退役（offset_mm 恒 0），谷底 = r_limit（轮廓最小半径 = 求差圆）."""
+    def test_offset_and_root_radius(self):
+        """偏置量 = ratio × 分度圆直径（默认 1/20），谷底半径 = r_limit − 偏置量（精确）.
+        求差圆柱 = 谷底圆（尽量小），轮廓最小半径 = 谷底.
+        """
         plan = _plan()
         rake = _rake(plan)
         loop = _loop(plan, rake, _chain(plan, rake))
-        assert loop.offset_mm == 0.0
-        assert loop.root_radius == pytest.approx(loop.r_limit, abs=1e-12)
-        # 轮廓最小半径 = 求差圆（不低于 r_limit——刀体圆柱恰好填到干涉物理上限）
+        d = ROOT_OFFSET_RATIO_DEFAULT * 2.0 * plan.r_pt
+        assert loop.offset_mm == pytest.approx(d, abs=1e-9)
+        assert loop.root_radius == pytest.approx(loop.r_limit - d, abs=1e-9)
         r_min = min(math.hypot(p[0], p[1]) for p in loop.pts)
-        assert r_min == pytest.approx(loop.r_limit, abs=1e-6)
+        assert r_min == pytest.approx(loop.root_radius, abs=1e-6)
 
     def test_simple_polygon_and_cap_complete(self):
         """闭环为简单多边形（v3：不要求星形——深谷轮廓对形心非星形）+ 耳切完整."""
@@ -468,11 +470,11 @@ class TestBuildToolRing:
         N = solid.n_loop
         r_limit = loop.r_limit
         sec0 = P[0:N]
-        ext_pts = [p for p in sec0 if abs(math.hypot(p[0], p[1]) - r_limit) < 1e-6]
+        ext_pts = [p for p in sec0 if abs(math.hypot(p[0], p[1]) - loop.root_radius) < 1e-6]
         ths = [math.atan2(p[1], p[0]) for p in ext_pts]
-        pr = ext_pts[int(np.argmax(ths))]   # 齿 0 的 +π/z_t 齿距线点
+        pr = ext_pts[int(np.argmax(ths))]   # 齿 0 的 +π/z_t 齿距线点（v8：求差底弧端点在谷底圆）
         sec1 = P[n_tooth : n_tooth + N]
-        ext1 = [p for p in sec1 if abs(math.hypot(p[0], p[1]) - r_limit) < 1e-6]
+        ext1 = [p for p in sec1 if abs(math.hypot(p[0], p[1]) - loop.root_radius) < 1e-6]
         ths1 = [math.atan2(p[1], p[0]) for p in ext1]
         pl1 = ext1[int(np.argmin(ths1))]    # 齿 1 的 −π/z_t 齿距线点
         # 相位闭合（旋转像）：角/径精确相等
@@ -482,7 +484,7 @@ class TestBuildToolRing:
         base_sec0 = base[:N]
         b_ext = [
             i for i in range(N)
-            if abs(math.hypot(base_sec0[i][0], base_sec0[i][1]) - r_limit) < 1e-6
+            if abs(math.hypot(base_sec0[i][0], base_sec0[i][1]) - loop.root_radius) < 1e-6
         ]
         b_ths = [math.atan2(base_sec0[i][1], base_sec0[i][0]) for i in b_ext]
         lo_idx, hi_idx = b_ext[int(np.argmin(b_ths))], b_ext[int(np.argmax(b_ths))]

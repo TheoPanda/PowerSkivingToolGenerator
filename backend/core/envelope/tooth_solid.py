@@ -68,8 +68,8 @@ class ToothLoop:
 
     pts: list[list[float]]  # 环形心极角升序（扇形剖分序）
     r_limit: float          # 理论极限最小刀具半径 r_a − a [mm]
-    root_radius: float      # 谷底半径 = r_limit（v8 圆柱求差：谷底=极限圆，偏置退役）
-    offset_mm: float        # 恒 0（径向偏置概念已随 v8 求差退役，字段保留兼容）
+    root_radius: float      # 谷底圆半径 = r_limit − 偏置量（v8 求差圆柱半径，尽量小）
+    offset_mm: float        # 径向偏置量 = ratio × 分度圆直径 [mm]
     theta_c: float          # 齿中线刀具极角 [rad]
     arch_spread_deg: float  # 上链（折返点间）刀具极角展布 [°]
     pitch_z_mm: float       # 单齿固有量：前刀面斜置下齿距线 ±π/z_t 两端的高差（非整环错位）[mm]
@@ -166,16 +166,17 @@ def build_tooth_loop(
     precut: bool = False,
     upper_constructed: list[bool] | None = None,
 ) -> ToothLoop:
-    """B 方案 v8 单齿前刀面闭合轮廓：上链 + 圆柱求差底弧（r_limit 光滑圆）.
+    """B 方案 v8 单齿前刀面闭合轮廓：上链 + 求差底弧（谷底圆 r_limit − 偏置 光滑弧）.
 
     Args:
         chain_pts: 按廓形列序的刃形共轭链（solve_edge_chain 输出，坐标 T；含折返链，
             本函数在折返处切分，仅保留上链 [左折返点→齿侧→齿顶→齿侧→右折返点]）
         rake: RakeSurface（前刀面隐式方程）
         z_t: 刀具齿数（齿距线 = 齿中线 ± π/z_t）
-        r_pt: 刀具节圆半径 [mm]（v8 起偏置退役，参数保留兼容、不参与计算）
-        r_limit: 理论极限最小刀具半径 r_a − a [mm]（limit_radius 输出；求差圆柱半径）
-        offset_ratio: 已退役（v8 圆柱求差，偏置概念移除；保留签名兼容，须 >0）
+        r_pt: 刀具节圆半径 [mm]（求差圆柱偏置量 = offset_ratio × 2 r_pt）
+        r_limit: 理论极限最小刀具半径 r_a − a [mm]（limit_radius 输出）
+        offset_ratio: 径向偏置 / 分度圆直径（默认 1/20；求差圆柱 = 谷底圆 r_limit−偏置，
+            尽量小——只削谷底弧离轴凸起成圆、不伤齿根）
         n_arc: 求差底弧采样点数（含端点，≥3）
         n_ext / n_off: 已退役（v8 无延伸/偏置腿；保留签名兼容，须 ≥2）
         r_f / a: 工件齿根圆半径与中心距 [mm]（齿顶伪点判据 r_f−a 用；缺省跳过该判据）
@@ -275,12 +276,20 @@ def build_tooth_loop(
     def ellipse(t: float) -> list[float]:
         return ellipse_pt(t, r_limit)
 
-    # v8 齿圈内圆平滑（2026-08-31 用户裁决「圆柱求差」）：废弃「1/2 齿根延伸 +
-    # 谷底弧」的花瓣形内壁（延伸腿到极限圆 r_limit 的齿顶 lands，阵列后呈 41 花瓣），
-    # 改为**圆柱求差**——刀体圆柱（外径 = r_limit，干涉物理上限：r_limit = r_a − a
-    # 为刀体可靠近工件齿顶圆柱的极限）与齿圈内圆求差，圈内壁被修成 r_limit 光滑圆
-    # （谷底弧落在同一圆上），刀齿立于圆柱基体之上，与刀体无缝一体。
-    # 底边 = r_limit 极限椭圆弧 P_R → P_L（跨槽位中心，阵列相位闭合不变），采样 n_arc。
+    # v8 齿圈内圆平滑（2026-08-31 用户裁决「圆柱求差、圆柱尽量小」）：谷底弧（凸侧
+    # 背离轴，中点外鼓 ~0.7mm）经阵列呈「花瓣」而非圆——改为**求差圆柱削平**：求差
+    # 圆柱取**谷底圆 r_limit − 偏置**（尽量小：刚好削掉弧的离轴凸起、不伤齿根），
+    # 与齿圈内圆求差后，圈内壁 = 谷底圆光滑圆柱（谷底弧落在同一圆上，花瓣消失），
+    # 刀体 = 同半径圆柱基体，刀齿立于其上无缝一体。用户实测纠偏：求差圆柱若取
+    # r_limit 会把整个齿根求差掉（WRONG.png）——必须是谷底圆。
+    d_off = offset_ratio * 2.0 * r_pt
+    r_root = r_limit - d_off
+    if r_root <= 0.0:
+        raise ValueError(
+            f"偏置过大：谷底半径 r_limit−偏置 = {r_root:.4f} ≤ 0（offset_ratio={offset_ratio}）"
+        )
+    # 齿距线就近分配：底弧从 P_R（尾侧齿距线）跨槽位中心到 P_L（首侧齿距线），
+    # 阵列相位闭合不变。直齿链极角升序 → 默认序；斜齿链极角可反向 → 首尾就近交换。
     th_head = math.atan2(upper[0][1], upper[0][0])
     th_tail = math.atan2(upper[-1][1], upper[-1][0])
 
@@ -293,14 +302,14 @@ def build_tooth_loop(
     else:
         t_head, t_tail = t_minus, t_plus
     bottom = [
-        ellipse(t_tail + (t_head - t_tail) * j / max(n_arc - 1, 1))
+        ellipse_pt(t_tail + (t_head - t_tail) * j / max(n_arc - 1, 1), r_root)
         for j in range(n_arc)
     ]
 
     # 物理构造序闭环（v3，2026-08-21）：构造序 = 物理边界遍历序
     # （上链→求差底弧→回链首），前后帽用耳切三角化（任意简单多边形，不要求星形）。
     pts: list[list[float]] = [list(p) for p in upper]
-    pts += [list(p) for p in bottom]      # 圆柱求差底弧（P_R → P_L，r_limit 光滑圆）
+    pts += [list(p) for p in bottom]      # 求差底弧（P_R → P_L，谷底圆光滑弧）
     n_upper = len(upper)
     seg_flags = list(upper_con) + [True] * len(bottom)  # 上链桥点 + 求差底弧均标构造
     hi_idx = n_upper                      # 弧首 P_R
@@ -325,8 +334,8 @@ def build_tooth_loop(
     return ToothLoop(
         pts=pts,
         r_limit=r_limit,
-        root_radius=r_limit,   # v8 圆柱求差：谷底 = r_limit 光滑圆（偏置概念退役）
-        offset_mm=0.0,
+        root_radius=r_root,   # v8 求差圆柱 = 谷底圆（尽量小，齿根不伤）
+        offset_mm=d_off,
         theta_c=theta_c,
         arch_spread_deg=math.degrees(span),
         pitch_z_mm=pitch_z,
