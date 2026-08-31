@@ -1,34 +1,31 @@
 """模块③ K-3.2 刀体结构预览级（ADR-021，2026-08-31）— 纯数学，不依赖 OCCT.
 
-齿圈之外的支承本体：内孔 ± 端面键槽 + 前后端面 + 外缘圆柱。几何依据（规格
+齿圈之外的支承本体：**光滑圆柱基体**（v4，2026-08-31 用户裁决「一步一步来：
+先做圆柱体」）+ 内孔 ± 端面键槽。几何依据（规格
 docs/specs/2026-08-31-tool-body-design.md）：
 
-  - 外缘 = 齿圈谷底圆柱 r_root（ToothLoop.root_radius，派生只读——用户填了必与
-    齿圈打架，故不入参数）；
-  - 前端面 = 前刀面平面**按槽位折叠**（[23]§3.3② 内圈前端面平行规则）：理想平面
-    会在斜齿/大γ下与「基准齿×z_t 纯旋转」的刀具整环产生十余毫米 z 相位错位
-    （2026-08-31 用户实测「光滑透明椭球」根因）——前端面 z 按基准齿窗口折叠，
-    逐扇区与前刀面平行，与整环阵列同一近似等级，重磨不挡屑规则保持；
-  - **碗形回转体**（用户图纸 4035100343「碗型斜齿车齿刀」锚定，2026-08-31 实测
-    返工第二弹：盘形平环与真实车齿刀不符）：内锥碗面（轮毂高 H≈0.46·B，图纸
-    13/28 比例）+ 外壁（背向 W=B−H）+ 背平板 + 内孔壁；**口部边缘沿谷底弧走**
-    （与齿圈内壁同一曲线，消除盘形直壁与弧形内壁之间的接缝）；键槽沿内孔壁
-    全高贯通（图纸：31.743 孔 → 键槽 14×6.0 R1，覆盖插齿刀手册近似值）；
-  - 纯轴向直拉伸（键槽必须笔直——装键现实约束；斜齿不做螺旋扭转，与刀齿后端的
-    微小错缝预览级接受，正式级布尔自然消解）；
-  - 双闭环端面（外=谷底圆、内=孔圆±键槽缺口）**极角配对 quad-strip** 剖分：环形
-    区域非简单多边形，build_tooth_loop 的单闭边界耳切（_ear_clip_indices）不适用；
-    内外边界对中心均星形（键槽缺口向 +X 凸入材料侧），同一极角序列采样两条边界、
-    逐角连四边形，键槽 4 个角点角（±θ_k 圆-壁交点、±θ_b 壁-底交点）精确入样。
+  - 外径 = **求差圆 r_cut = r_limit**（齿圈内圆求差的同一圆柱）：build_tooth_loop
+    v8 已把齿圈内壁修成 r_limit 光滑圆（花瓣形谷底弧退役），刀体圆柱恰好填到该圆
+    ——与齿圈无缝一体；r_limit = r_a − a 恰为刀体可靠近工件齿顶圆柱的干涉物理
+    上限，基体材料最大化且不干涉；
+  - 前端面为平面，z 取 rake 平面在 (r_cut, θ_c) 处的值（基准齿窗口相位中心）——
+    与齿圈前刀面带（同窗 ±1mm 内）齐平，不做刀齿阶梯结构的顺延；
+  - 键槽沿内孔壁**全高贯通且笔直**（现实装键约束；斜齿不做螺旋扭转）。键槽尺寸
+    图纸 4035100343「碗型斜齿车齿刀」锚定：31.743 孔 → 14×6.0（R1），覆盖插齿刀
+    手册/GB-T 6132 近似值（其余孔径沿用查表）；
+  - 剖分：内外圆柱面 ± 键槽缺口 → 四环（前外/前内/后外/后内）quad-strip
+    （前端面/背面/外壁/内孔壁），共享环顶点构造性水密；键槽角点角精确入样。
 
-尺寸依据（表驱动，REF-7 袁哲俊《齿轮刀具设计》插齿刀标准化数据，GB/T 6081 口径）：
+历史形态探索（碗形回转体、理想平面端面）见 git 历史 4a4f304/5704476——用户实测
+后裁决回退到圆柱基体（碗形列为圆柱验证后的候选升级）。
+
+尺寸依据（表驱动，REF-7 袁哲俊《齿轮刀具设计》插齿刀标准化数据 + 图纸锚定）：
   - 对档：内孔**向下取档**（≤2·r_pt 的最大公称分度圆档，低于 φ40 钳制 φ40 档）——
     孔小顶多重配刀杆，孔大刀体裂，安全侧（ADR-021 ⑤）；
-  - 键槽深 = GB/T 6132 / ISO 240:2016 Table 1 跨距尺寸 t = c1 − d 按最近档
-    （W16 已销，两处近似留档：部分档键宽与 GB/T 6081 的 b 不一致仅取深度值；
-    GB/T 6081 自身深表公开网络未获取）。
+  - 键槽：图纸 4035100343（31.743→14×6.0）优先，其余 GB/T 6132 / ISO 240:2016
+    最近档（W16 已销留档）。
 
-坐标标签 T。碗形 φ50 档（孔 20）不入对档——装夹范围不含碗形（ADR-021 ④）。
+坐标标签 T。
 """
 
 import math
@@ -127,7 +124,7 @@ def resolve_tool_body_params(
     d_pt: float,
     m_n: float,
     L: float,
-    r_root: float,
+    r_cut: float,
     d_bore: float | None = None,
     keyway_b: float | None = None,
     keyway_t1: float | None = None,
@@ -135,8 +132,9 @@ def resolve_tool_body_params(
 ) -> ToolBodyResolved:
     """表驱动解析 + 软硬校验（Q8/Q10 裁决；前端下拉预过滤，此处为后端二道闸）.
 
-    硬校验（ValueError = 400）：mounting 非法 / 非系列孔径 / 键槽半宽 ≥ 孔半径 /
-    孔缘含键槽底越谷底圆 / B < L。软偏离（warnings）：厚度非当前档标准值。
+    r_cut = 求差圆半径（= r_limit，干涉物理上限）。硬校验（ValueError = 400）：
+    mounting 非法 / 非系列孔径 / 键槽半宽 ≥ 孔半径 / 孔缘含键槽底越求差圆 / B < L。
+    软偏离（warnings）：厚度非当前档标准值。
     """
     if mounting not in _MOUNTINGS:
         raise ValueError(f"装夹形式 mounting={mounting!r} 不支持（可选：{'/'.join(_MOUNTINGS)}）")
@@ -150,8 +148,8 @@ def resolve_tool_body_params(
             f"内孔直径 d_bore={bore} 不在 φ{seg['dia']:.0f} 档标准系列 "
             f"{seg['bores']} 内（对档：向下取档，d_pt={d_pt:.3f}）"
         )
-    if bore / 2.0 >= r_root:
-        raise ValueError(f"孔缘越谷底圆：r_bore={bore / 2.0:.3f} ≥ r_root={r_root:.3f}")
+    if bore / 2.0 >= r_cut:
+        raise ValueError(f"孔缘越求差圆：r_bore={bore / 2.0:.3f} ≥ r_cut={r_cut:.3f}")
 
     has_key = mounting == "bore_keyway"
     kw_b = kw_t = None
@@ -164,9 +162,9 @@ def resolve_tool_body_params(
         kw_t = keyway_depth_default(bore) if keyway_t1 is None else float(keyway_t1)
         if kw_t is None or kw_t <= 0:
             raise ValueError(f"键槽深 keyway_t1 无有效值（孔径 {bore} 无 GB/T 6132 最近档）")
-        if bore / 2.0 + kw_t >= r_root:
+        if bore / 2.0 + kw_t >= r_cut:
             raise ValueError(
-                f"键槽底越谷底圆：r_bore+t1 = {bore / 2.0 + kw_t:.3f} ≥ r_root={r_root:.3f}"
+                f"键槽底越求差圆：r_bore+t1 = {bore / 2.0 + kw_t:.3f} ≥ r_cut={r_cut:.3f}"
             )
 
     B_std = default_thickness(seg, L)
@@ -196,7 +194,7 @@ def resolve_tool_body_params(
     )
 
 
-# ── 几何：碗形回转体（四环 quad-strip）──
+# ── 几何：圆柱基体（四环 quad-strip，与齿圈内圆求差面无缝）──
 
 
 def _keyway_half_angles(r_bore: float, kw_b: float, kw_t1: float) -> tuple[float, float]:
@@ -243,84 +241,38 @@ def _rake_z(rake: RakeSurface, x: float, y: float) -> float:
     return -(rake.A * x + rake.B * y + rake.const) / rake.C
 
 
-def _make_phase_folder(theta_c: float, z_t: int):
-    """同相位折叠：把极角折回基准齿窗口 [theta_c−π/z_t, theta_c+π/z_t).
-
-    刀具整环 = 基准齿 ×41 **纯旋转**阵列（K-3.1 勘误口径）：旋转不改 z，故 41 个齿的
-    前刀面全部停在基准齿窗口的 z 相位。刀体前端面若取理想前刀面平面（z 随全周角变化，
-    斜齿下跨幅达 ±2·sinγ·r 量级），会与齿圈产生十余毫米的 z 相位错位（一侧高出齿圈、
-    另一侧缩进——2026-08-31 用户实测「光滑透明椭球」根因）。折叠后刀体边缘 z 与齿圈
-    谷底弧逐扇区严丝合缝，[23]§3.3②「前端面∥前刀面」按槽位扇区成立——与整环阵列
-    同一近似等级。
-    """
-    half = math.pi / z_t
-
-    def fold(theta: float) -> float:
-        rel = (theta - theta_c + math.pi) % (2.0 * math.pi) - math.pi  # (−π, π]
-        folded = (rel + half) % (2.0 * half) - half                    # [−half, half)
-        return theta_c + folded
-
-    return fold
-
-
-def _valley_wall_radius_fn(r_root: float, z_t: int):
-    """谷底弧半径（槽位折叠角 u ∈ [−π/z_t, π/z_t]）：与 tooth_solid._valley_arc 同构
-    （弦端点在 r_root、R = 2.2×半弦长、圆心取轴侧 → 弧中点向离轴侧鼓起）.
-
-    刀体口部沿此弧走 → 与齿圈内壁**同一条曲线**，消除盘形直壁与弧形内壁之间的
-    接缝（2026-08-31 用户实测返工第二弹）。射线-圆求交取 + 根（离轴交点）。
-    """
-    half = math.pi / z_t
-    chord = 2.0 * r_root * math.sin(half)
-    R = 2.2 * chord / 2.0
-    Cx = r_root * math.cos(half) - math.sqrt(max(R * R - (chord / 2.0) ** 2, 0.0))
-
-    def r_wall(u: float) -> float:
-        disc = R * R - Cx * Cx * math.sin(u) ** 2
-        if disc < 0.0:
-            return r_root
-        return Cx * math.cos(u) + math.sqrt(disc)
-
-    return r_wall
-
-
-HUB_RISE_RATIO = 13.0 / 28.0  # 轮毂高/总厚（图纸 4035100343：台阶段 13±0.1 / 总厚 28±0.75）
-
-
 def build_tool_body(
     rake: RakeSurface,
     *,
-    r_root: float,
+    r_cut: float,
     resolved: ToolBodyResolved,
     theta_c: float,
-    z_t: int,
     n_base: int = 256,
 ) -> tuple[GeometrySpec, dict]:
-    """刀体网格（**碗形回转体**，四环 quad-strip）+ 解析描述包.
+    """刀体网格（**圆柱基体**，四环 quad-strip）+ 解析描述包.
 
-    剖面四环（各 n 角采样，z 相位按 2π/z_t 折叠回基准齿窗口，见 _make_phase_folder）：
-      R1 轮毂孔口 (r_groove, z_hub)    z_hub = z_fold(r_groove) + H   ← 键槽沿内孔壁全高
-      R2 碗口边缘 (r_wall(u),  z_m)                                     ← 沿谷底弧，与齿圈同线
-      R3 背外缘   (r_wall(u),  z_m − W)
-      R4 轮毂背面 (r_groove, z_m − W)                                    ← 背面平环
-    四条带：R1→R2 内锥碗面 / R2→R3 外壁 / R3→R4 背面 / R4→R1 内孔壁（含键槽）；
-    共享环顶点 → 构造性水密；绕向经散度体积自适应翻转（outward）。
-    H = 轮毂高（HUB_RISE_RATIO×B，图纸 13/28），W = 背壁（B−H），总厚 = H+W = B。
+    v4（2026-08-31 用户裁决「一步一步来：先做圆柱体」）：刀体 = 光滑圆柱，
+    外径 = 求差圆 r_cut = r_limit（与齿圈内圆求差的同一圆柱，干涉物理上限）；
+    前端面为平面，z 取基准齿窗口相位中心（rake 平面在 (r_cut, θ_c) 处的 z）——
+    与齿圈前刀面带（同窗 ±1mm 内）齐平，不做阶梯顺延。内孔 + 键槽沿轴向全高贯通
+    （键槽笔直——现实装键约束，斜齿不做螺旋扭转）。
+
+    顶点布局：前外 FO / 前内 FI / 后外 RO / 后内 RI 四条环（各 n 个），前端面、
+    背面、外壁、内孔壁四条 quad-strip 带共享环顶点 → 构造性水密。绕向经散度
+    体积自适应翻转（outward）。
 
     Returns:
         (GeometrySpec(layer_id="toolBody"), description 描述包 dict)
 
     Raises:
-        ValueError: |rake.C|≈0（前刀面近水平，椭圆退化）/ r_root ≤ r_bore
+        ValueError: |rake.C|≈0（前刀面近水平，椭圆退化）/ r_cut ≤ r_bore
     """
     if abs(rake.C) < 1e-9:
-        raise ValueError("前刀面法向 Z 分量 C≈0（γ₀→90°），刀体前端面退化")
+        raise ValueError("前刀面法向 Z 分量 C≈0（γ₀→90°），刀体端面退化")
     r_bore = resolved.d_bore / 2.0
-    if r_root <= r_bore:
-        raise ValueError(f"谷底半径 r_root={r_root:.3f} ≤ 孔半径 {r_bore:.3f}")
+    if r_cut <= r_bore:
+        raise ValueError(f"求差圆半径 r_cut={r_cut:.3f} ≤ 孔半径 {r_bore:.3f}")
     B = resolved.B
-    hub_rise = HUB_RISE_RATIO * B
-    back_wall = B - hub_rise
 
     has_key = resolved.keyway_t1 is not None
     corners: list[float] = []
@@ -332,46 +284,37 @@ def build_tool_body(
     angles = _sample_angles(n_base, corners)
     n = len(angles)
 
-    fold = _make_phase_folder(theta_c, z_t)
-    r_wall_fn = _valley_wall_radius_fn(r_root, z_t)
-    half = math.pi / z_t
-
-    def _z(r: float, theta: float) -> float:
-        th = fold(theta)
-        return _rake_z(rake, r * math.cos(th), r * math.sin(th))
+    # 前端面 z = rake 平面在求差圆、齿中线方向处的 z（基准齿窗口相位中心，与齿圈前刀面带齐平）
+    z_front = _rake_z(rake, r_cut * math.cos(theta_c), r_cut * math.sin(theta_c))
 
     def _pt(r: float, theta: float, dz: float) -> list[float]:
         x, y = r * math.cos(theta), r * math.sin(theta)
-        return [x, y, _z(r, theta) + dz]
+        return [x, y, z_front + dz]
 
+    r_groove = [
+        _bore_groove_radius(a, r_bore, resolved.keyway_b, resolved.keyway_t1) for a in angles
+    ]
     positions: list[float] = []
-    for j, a in enumerate(angles):  # R1 轮毂孔口（键槽鼓起在此环）
-        r_g = _bore_groove_radius(a, r_bore, resolved.keyway_b, resolved.keyway_t1)
-        positions += _pt(r_g, a, hub_rise)
-    z_mouth: list[float] = []
-    for j, a in enumerate(angles):  # R2 碗口边缘（谷底弧，与齿圈内壁同线）
-        u = (fold(a) - theta_c)  # 槽位折叠角 ∈ [−half, half)
-        r_w = r_wall_fn(u)
-        zm = _z(r_w, a)
-        z_mouth.append(zm)
-        positions += _pt(r_w, a, 0.0)
-    for j, a in enumerate(angles):  # R3 背外缘
-        u = (fold(a) - theta_c)
-        positions += _pt(r_wall_fn(u), a, -back_wall)
-    for j, a in enumerate(angles):  # R4 轮毂背面（键槽鼓起）
-        r_g = _bore_groove_radius(a, r_bore, resolved.keyway_b, resolved.keyway_t1)
-        positions += _pt(r_g, a, -back_wall)
-    r1, r2, r3, r4 = 0, n, 2 * n, 3 * n
+    for j, a in enumerate(angles):  # FO 前外
+        positions += _pt(r_cut, a, 0.0)
+    for j, a in enumerate(angles):  # FI 前内（键槽鼓起在此环）
+        positions += _pt(r_groove[j], a, 0.0)
+    for j, a in enumerate(angles):  # RO 后外
+        positions += _pt(r_cut, a, -B)
+    for j, a in enumerate(angles):  # RI 后内
+        positions += _pt(r_groove[j], a, -B)
+    fo, fi, ro, ri = 0, n, 2 * n, 3 * n
 
     def _j(j: int) -> int:
         return (j + 1) % n
 
     tris: list[int] = []
-    bands = [(r1, r2), (r2, r3), (r3, r4), (r4, r1)]  # 内锥碗面/外壁/背面/内孔壁
-    for ga, gb in bands:
-        for j in range(n):
-            k = _j(j)
-            tris += [ga + j, gb + j, gb + k, ga + j, gb + k, ga + k]
+    for j in range(n):
+        k = _j(j)
+        tris += [fo + j, fo + k, fi + k, fo + j, fi + k, fi + j]          # 前端面
+        tris += [ro + j, ri + k, ro + k, ro + j, ri + j, ri + k]          # 背面
+        tris += [fo + j, ro + j, ro + k, fo + j, ro + k, fo + k]          # 外壁（共享边反向）
+        tris += [fi + j, fi + k, ri + k, fi + j, ri + k, ri + j]          # 内孔壁（共享边反向）
 
     def _signed_volume() -> float:
         vol = 0.0
@@ -390,19 +333,14 @@ def build_tool_body(
 
     description = {
         "loop": {
-            "outer_radius": r_root,
+            "cut_radius": r_cut,
             "bore_radius": r_bore,
             "keyway": None if not has_key else {
                 "width": resolved.keyway_b, "depth": resolved.keyway_t1, "polar_deg": 0.0,
             },
         },
         "rake_plane": {"A": rake.A, "B": rake.B, "C": rake.C, "const": rake.const},
-        "profile": {
-            "type": "bowl",
-            "hub_rise_mm": hub_rise,
-            "back_wall_mm": back_wall,
-            "total_mm": B,
-        },
+        "profile": {"type": "cylinder", "od_mm": 2.0 * r_cut, "length_mm": B},
         "boolean_def": {
             "union": ["tooth_ring"],
             "cut": ["bore_cylinder"] + (["keyway_box"] if has_key else []),

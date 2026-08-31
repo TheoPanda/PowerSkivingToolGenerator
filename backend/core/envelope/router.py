@@ -624,7 +624,7 @@ def envelope_single_tooth(req: FlankRequest) -> dict:
         return {
             "layer": {"id": "singleTooth", "glb_base64": glb},
             "coord_frame": "T",
-            "source": "模块③ B 方案 v2（开放轮廓 + 径向偏置 + 圆弧闭合实体）",
+            "source": "模块③ B 方案 v8（开放轮廓 + 圆柱求差底弧实体）",
             "meta": meta,
         }
     except ValueError as e:
@@ -668,17 +668,18 @@ def envelope_tool_ring(req: FlankRequest) -> dict:
                 f"tool_type={req.tool_type}/flank_method={req.flank_method} 未实现"
                 "（圆锥刀变位系数族法 K-2.14 / 轴向偏移法 K-2.17 二期）"
             )
-        # K-3.2 刀体：外缘=谷底圆柱（派生只读）；校验在 GLB 导出前 → 原子（无半响应）
-        r_root = solid.loop.root_radius
+        # K-3.2 刀体（v4 圆柱基体）：外径 = 求差圆 r_limit（与齿圈内圆求差的同一圆柱，
+        # 干涉物理上限）；校验在 GLB 导出前 → 原子（无半响应）
+        r_cut = solid.loop.root_radius  # v8 求差后 root_radius = r_limit
         resolved = resolve_tool_body_params(
             mounting=req.tool_body.mounting, d_pt=2.0 * ctx.plan.r_pt, m_n=p.m_n,
-            L=req.resharpening.L, r_root=r_root,
+            L=req.resharpening.L, r_cut=r_cut,
             d_bore=req.tool_body.d_bore, keyway_b=req.tool_body.keyway_b,
             keyway_t1=req.tool_body.keyway_t1, B=req.tool_body.B_body,
         )
         body_geo, body_desc = build_tool_body(
-            ctx.rake, r_root=r_root, resolved=resolved,
-            theta_c=solid.loop.theta_c, z_t=req.tool.z_t,  # 同相位折叠（对齐齿圈阵列相位）
+            ctx.rake, r_cut=r_cut, resolved=resolved,
+            theta_c=solid.loop.theta_c,  # 前端面取基准窗口相位中心
         )
         glb = export_geometry_glb_base64([geo])
         body_glb = export_geometry_glb_base64([body_geo])

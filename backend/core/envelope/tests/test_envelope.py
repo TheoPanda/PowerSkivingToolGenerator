@@ -240,7 +240,7 @@ def test_single_tooth_returns_closed_solid_glb():
     assert resp.status_code == 200
     data = resp.json()
     assert data["layer"]["id"] == "singleTooth"
-    assert data["source"] == "模块③ B 方案 v2（开放轮廓 + 径向偏置 + 圆弧闭合实体）"
+    assert data["source"] == "模块③ B 方案 v8（开放轮廓 + 圆柱求差底弧实体）"
     blob = base64.b64decode(data["layer"]["glb_base64"])
     assert blob[:4] == b"glTF"
     gltf = GLTF2.load_from_bytes(blob)
@@ -249,8 +249,8 @@ def test_single_tooth_returns_closed_solid_glb():
     # B 方案 v2 元数据：理论极限圆 + 偏置谷底
     meta = data["meta"]
     assert meta["r_limit_mm"] == pytest.approx(80.0 - 39.5537, abs=1e-3)
-    assert meta["root_offset_mm"] == pytest.approx(0.05 * 2 * 42.4463, abs=1e-3)  # d_pt/20
-    assert meta["root_radius_mm"] == pytest.approx(meta["r_limit_mm"] - meta["root_offset_mm"], abs=1e-6)
+    assert meta["root_offset_mm"] == 0.0  # v8 圆柱求差：径向偏置退役
+    assert meta["root_radius_mm"] == pytest.approx(meta["r_limit_mm"], abs=1e-9)
     assert 0.0 < meta["pitch_z_mm"] < 3.0
     assert meta["volume_mm3"] > 0.0
 
@@ -271,15 +271,13 @@ def test_tool_ring_returns_arrayed_glb():
 
 
 def test_tool_ring_rejects_bad_offset_ratio():
-    """偏置比守卫：pydantic 拒 ≤0 值（422）；过大偏置使谷底越轴 → 400 JSON."""
+    """偏置比守卫：pydantic 拒 ≤0 值（422）。v8 圆柱求差后偏置不再参与几何
+    （旧「过大偏置→谷底越轴 400」分支随偏置退役删除）."""
     client = TestClient(app)
     body = _flank_request()
     body["hub"] = {"root_offset_ratio": -0.01}
     resp = client.post("/api/envelope/tool_ring", json=body)
     assert resp.status_code == 422  # pydantic gt=0 校验
-    body["hub"] = {"root_offset_ratio": 5.0}  # 偏置 > 极限半径 → 谷底越轴
-    resp = client.post("/api/envelope/tool_ring", json=body)
-    assert resp.status_code == 400
 
 
 @pytest.mark.parametrize("j_t", [+1, -1])
@@ -321,13 +319,15 @@ def test_tool_ring_returns_body_layer_and_description():
     assert data["layer"]["id"] == "toolRing"
     assert data["body_layer"]["id"] == "toolBody"
     desc = data["body_description"]
-    assert desc["loop"]["outer_radius"] == pytest.approx(data["meta"]["root_radius_mm"])
+    assert desc["loop"]["cut_radius"] == pytest.approx(data["meta"]["root_radius_mm"])
     assert desc["loop"]["bore_radius"] == pytest.approx(31.743 / 2)
     assert desc["loop"]["keyway"] is None
+    # v4 圆柱基体：外径 = 求差圆（= r_limit），总长 = φ75 档 ≥L=2 最小标准厚度 15
     assert desc["profile"] == {
-        "type": "bowl", "hub_rise_mm": pytest.approx(15.0 * 13 / 28),
-        "back_wall_mm": pytest.approx(15.0 * 15 / 28), "total_mm": 15.0,
-    }  # φ75 档 ≥L=2 最小厚度 15（轮毂高/背壁 = 图纸 13/28 拆分）
+        "type": "cylinder",
+        "od_mm": pytest.approx(2 * (80.0 - 39.5537)),
+        "length_mm": 15.0,
+    }
     assert desc["boolean_def"]["cut"] == ["bore_cylinder"]
     assert desc["grade"] == "preview"
     assert desc["thickness_is_standard"] is True

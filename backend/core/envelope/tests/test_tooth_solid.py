@@ -114,61 +114,35 @@ class TestBuildToothLoop:
         for (x, y, z) in loop.pts:
             assert rake.A * x + rake.B * y + rake.C * z + rake.const == pytest.approx(0.0, abs=1e-4)
 
-    def test_legs_straight_lines(self):
-        """v7 齿根腿全直线：偏置段同极角（严格径向直线，P 在极限圆/Q 在谷底半径）
-        + 延伸段共线（弦直线，折返点 → 齿距线极限圆点）."""
+    def test_smooth_trim_circle(self):
+        """v8 圆柱求差：求差底弧全部点落在 r_limit 光滑圆上（花瓣形内壁退役）.
+
+        用户裁决（2026-08-31）：谷底弧经阵列应形成**圆**而非花瓣——刀体圆柱
+        （外径 = r_limit）与齿圈内圆求差，圈内壁被修成光滑圆柱面。
+        """
         plan = _plan()
         rake = _rake(plan)
         loop = _loop(plan, rake, _chain(plan, rake))
         hi, lo = loop.arc_end_idx
-        # n_ext=n_off=4 布局：... fold, e1, e2, P, o1, o2, Q_R(hi), arc, Q_L(lo), o1, o2, P, e1, e2
-        radR = loop.pts[hi - 3: hi + 1]      # P_R + 偏置内部 + Q_R
-        radL = loop.pts[lo: lo + 4]          # Q_L + 偏置内部 + P_L
-        for seg in (radR, radL):
-            ths = [math.atan2(q[1], q[0]) for q in seg]
-            assert max(ths) - min(ths) < 1e-9, "偏置段同极角 = 严格径向直线"
-            rr = [math.hypot(q[0], q[1]) for q in seg]
-            assert min(rr) == pytest.approx(loop.root_radius, abs=1e-9)
-            assert max(rr) == pytest.approx(loop.r_limit, abs=1e-9)
+        assert hi < lo  # 底弧为连续段
+        for j in range(hi, lo + 1):
+            p = loop.pts[j]
+            assert math.hypot(p[0], p[1]) == pytest.approx(loop.r_limit, abs=1e-6)
+        # 底弧中点 = 齿中线方向（跨槽位中心）
+        mid = loop.pts[(hi + lo) // 2]
+        th_mid = math.atan2(mid[1], mid[0])
+        assert abs(((th_mid - loop.theta_c + math.pi) % (2 * math.pi)) - math.pi) < 1e-6
 
-        def dir_ang(q0, q1):
-            return math.atan2(q1[1] - q0[1], q1[0] - q0[0])
-
-        extR = loop.pts[hi - 6: hi - 2]      # fold + e1 + e2 + P_R
-        a0 = dir_ang(extR[0], extR[1])
-        for j in range(1, len(extR) - 1):  # 共线：弦直线
-            assert dir_ang(extR[j], extR[j + 1]) == pytest.approx(a0, abs=1e-9)
-        assert math.hypot(*extR[-1][:2]) == pytest.approx(loop.r_limit, abs=1e-9)
-
-    def test_offset_and_root_radius(self):
-        """偏置量 = ratio × 分度圆直径（默认 1/20），谷底半径 = r_limit − 偏置量（精确）."""
+    def test_offset_retired_root_is_limit(self):
+        """v8：径向偏置退役（offset_mm 恒 0），谷底 = r_limit（轮廓最小半径 = 求差圆）."""
         plan = _plan()
         rake = _rake(plan)
         loop = _loop(plan, rake, _chain(plan, rake))
-        d = ROOT_OFFSET_RATIO_DEFAULT * 2.0 * plan.r_pt
-        assert loop.offset_mm == pytest.approx(d, abs=1e-9)
-        assert loop.root_radius == pytest.approx(loop.r_limit - d, abs=1e-9)
-        # 轮廓最小半径 = 谷底（低于极限圆，深谷）
+        assert loop.offset_mm == 0.0
+        assert loop.root_radius == pytest.approx(loop.r_limit, abs=1e-12)
+        # 轮廓最小半径 = 求差圆（不低于 r_limit——刀体圆柱恰好填到干涉物理上限）
         r_min = min(math.hypot(p[0], p[1]) for p in loop.pts)
-        assert r_min < loop.r_limit - d + 1e-3
-
-    def test_valley_arc_endpoints(self):
-        """谷底圆弧两端点 = 直腿内端（arc_end_idx 处圆柱半径精确 = root_radius）."""
-        plan = _plan()
-        rake = _rake(plan)
-        loop = _loop(plan, rake, _chain(plan, rake))
-        for idx in loop.arc_end_idx:
-            p = loop.pts[idx]
-            assert math.hypot(p[0], p[1]) == pytest.approx(loop.root_radius, abs=1e-9)
-
-    def test_valley_arc_direction(self):
-        """v6 弧向：凸侧背离轴（弧在弦外靠材料侧，模仿轴心齿底圆）."""
-        plan = _plan()
-        rake = _rake(plan)
-        loop = _loop(plan, rake, _chain(plan, rake))
-        hi, lo = loop.arc_end_idx
-        r_mid = math.hypot(*loop.pts[(hi + lo) // 2][:2])
-        assert r_mid > loop.root_radius + 0.1
+        assert r_min == pytest.approx(loop.r_limit, abs=1e-6)
 
     def test_simple_polygon_and_cap_complete(self):
         """闭环为简单多边形（v3：不要求星形——深谷轮廓对形心非星形）+ 耳切完整."""

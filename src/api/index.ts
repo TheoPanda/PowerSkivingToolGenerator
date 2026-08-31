@@ -277,13 +277,13 @@ export interface SingleToothResponse {
 /** K-3.2 刀体解析描述包（CAD-neutral 权威数据；正式级 OCCT 拿它原样重建，ADR-021 ③）. */
 export interface ToolBodyDescription {
   loop: {
-    outer_radius: number
+    cut_radius: number
     bore_radius: number
     keyway: { width: number; depth: number; polar_deg: number } | null
   }
   rake_plane: { A: number; B: number; C: number; const: number }
-  /** 碗形剖面（图纸 4035100343：轮毂高 13/28·B + 背壁，总厚 = B）. */
-  profile: { type: 'bowl'; hub_rise_mm: number; back_wall_mm: number; total_mm: number }
+  /** 圆柱基体剖面（v4：外径 = 求差圆 r_limit，与齿圈内圆求差同一圆柱）. */
+  profile: { type: 'cylinder'; od_mm: number; length_mm: number }
   boolean_def: { union: string[]; cut: string[] }
   grade: string
   segment_dia: number

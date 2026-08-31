@@ -2,19 +2,21 @@
 
 「预览级」指三角网伪实体（直接由网格拼装，非 OCCT 实体布尔），几何量本身按
 公式施加；K-3.2 刀体结构：W9 已于 2026-08-31 回读解禁（ADR-021，设计见
-docs/specs/2026-08-31-tool-body-design.md，待实现）。
+docs/specs/2026-08-31-tool-body-design.md，已实现）。
 
-v1（r_hub 椭圆弧薄环带）的齿底呈片体，v2 按用户方案重做：刃形不做封闭环，
-而是**开放轮廓** = 上链（1/2齿根-齿侧-齿顶-齿侧-1/2齿根，按廓形列序的共轭链）
-+ 齿根延伸 + 径向偏置 + 圆弧闭合：
+v8（2026-08-31 用户裁决「圆柱求差」）单齿闭合轮廓 = **上链 + 求差底弧**：
 
   - 上链 = 刃形共轭链的「齿侧+齿顶+齿侧」部分（列序 = 物理齿序，solve_edge_chain）；
-    齿面共轭在啮合极限处折返（刀具极角反转、半径贴 r_a−a），折返链为共轭退化区。
-  - 齿根延伸（「1/2齿根」）= 沿**理论极限圆** r_limit = r_a − a 的椭圆弧（前刀面 ∩
-    极限圆柱）从左右折返点延伸到齿距线 θ_c ± π/z_t——每侧 ≈ 半齿谷，即工件齿顶
-    圆柱在刀具系的包络面（真实根切/成形面，v1 缺失正是片体根源）。
-  - 径向偏置 = 从两齿距线端点沿刀具径向（前刀面内）偏置 1/20 分度圆直径。
-  - 圆弧闭合 = 偏置端点间的圆弧（圆心在齿中线，谷底朝轴凸）。
+    齿面共轭在啮合极限处折返（刀具极角反转、半径贴 r_a−a = r_limit），折返链为
+    共轭退化区。
+  - 求差底弧 = r_limit 极限椭圆弧从右折返点经齿距线到左折返点（跨槽位中心）——
+    取代 v2-v7 的「1/2 齿根延伸 + 径向偏置 + 谷底圆弧」花瓣形内壁（用户实测
+    返工：谷底弧经阵列应形成**圆**而非花瓣）。效果：齿圈内壁 = r_limit 光滑
+    圆柱（求差面），刀齿立于 r_limit 圆柱基体（= 刀体，K-3.2）之上，无缝一体；
+    r_limit = r_a − a 恰为刀体可靠近工件齿顶圆柱的干涉物理上限，求差圆柱取此
+    半径 = 基体材料最大化且不干涉。径向偏置概念随此退役（offset_mm 恒 0）。
+  - 历史勘误（2026-08-27）：整环阵列为**同相位周向阵列**，无逐齿轴向错位
+    （ΔZ_i 方案实测产生蜗杆状弹簧，已回退，缘由见 build_tool_ring docstring）。
   - 整环阵列 z_t 份为**同相位周向阵列**（设计书 K-3.1 原义，与工件侧 ADR-002 同构）：
     单齿本体已是沿导程螺旋扫掠的条带（自带扭转），z_t 个条带绕 Z 纯旋转即拼成完整
     斜齿轮刀具体。勘误记录：TO-3/#34 曾施加逐齿轴向错位 ΔZ_i=i·π·m_n/sinβ_t·j_t，
@@ -66,12 +68,12 @@ class ToothLoop:
 
     pts: list[list[float]]  # 环形心极角升序（扇形剖分序）
     r_limit: float          # 理论极限最小刀具半径 r_a − a [mm]
-    root_radius: float      # 谷底圆弧半径水平（≈ r_limit − 偏置量）[mm]
-    offset_mm: float        # 径向偏置量 = ratio × 分度圆直径 [mm]
+    root_radius: float      # 谷底半径 = r_limit（v8 圆柱求差：谷底=极限圆，偏置退役）
+    offset_mm: float        # 恒 0（径向偏置概念已随 v8 求差退役，字段保留兼容）
     theta_c: float          # 齿中线刀具极角 [rad]
     arch_spread_deg: float  # 上链（折返点间）刀具极角展布 [°]
     pitch_z_mm: float       # 单齿固有量：前刀面斜置下齿距线 ±π/z_t 两端的高差（非整环错位）[mm]
-    arc_end_idx: tuple[int, int] = (0, 0)  # 偏置圆弧两端点（θ_c±π/z_t 侧）在 pts 中下标
+    arc_end_idx: tuple[int, int] = (0, 0)  # 求差底弧两端点 P_R/P_L（θ_c±π/z_t 侧）在 pts 中下标
     # 与 pts 等长：True = 齿底构造段（延伸/偏置/圆弧），False = 共轭上链（/edge 图层
     # 附加构造段线用——完整刃口 = 共轭上链 + 构造段；构造序下两段各自连续）
     constructed: list[bool] = field(default_factory=list)
@@ -164,19 +166,18 @@ def build_tooth_loop(
     precut: bool = False,
     upper_constructed: list[bool] | None = None,
 ) -> ToothLoop:
-    """B 方案 v7 单齿前刀面闭合轮廓：上链 + 1/2 齿根直腿 + 谷底圆弧.
+    """B 方案 v8 单齿前刀面闭合轮廓：上链 + 圆柱求差底弧（r_limit 光滑圆）.
 
     Args:
         chain_pts: 按廓形列序的刃形共轭链（solve_edge_chain 输出，坐标 T；含折返链，
             本函数在折返处切分，仅保留上链 [左折返点→齿侧→齿顶→齿侧→右折返点]）
         rake: RakeSurface（前刀面隐式方程）
         z_t: 刀具齿数（齿距线 = 齿中线 ± π/z_t）
-        r_pt: 刀具节圆半径 [mm]（偏置量 = offset_ratio × 2 r_pt）
-        r_limit: 理论极限最小刀具半径 r_a − a [mm]（limit_radius 输出）
-        offset_ratio: 径向偏置 / 分度圆直径（默认 1/20，用户选定）
-        n_arc: 谷底圆弧采样点数（含端点，≥3）
-        n_ext: 每侧 1/2 齿根延伸弦直线细分点数（含端点，≥2）
-        n_off: 每条径向偏置直线细分点数（含端点，≥2；直线细分仅为扫掠带加密）
+        r_pt: 刀具节圆半径 [mm]（v8 起偏置退役，参数保留兼容、不参与计算）
+        r_limit: 理论极限最小刀具半径 r_a − a [mm]（limit_radius 输出；求差圆柱半径）
+        offset_ratio: 已退役（v8 圆柱求差，偏置概念移除；保留签名兼容，须 >0）
+        n_arc: 求差底弧采样点数（含端点，≥3）
+        n_ext / n_off: 已退役（v8 无延伸/偏置腿；保留签名兼容，须 ≥2）
         r_f / a: 工件齿根圆半径与中心距 [mm]（齿顶伪点判据 r_f−a 用；缺省跳过该判据）
         precut: 链已是上链（斜齿数值求交路线：compute_helical_edge 链跟踪 + 顶缝
             桥接产出，无底部折返段）——跳过折返检测；且**跳过 r_f−a 伪点判据**
@@ -274,19 +275,12 @@ def build_tooth_loop(
     def ellipse(t: float) -> list[float]:
         return ellipse_pt(t, r_limit)
 
-    # v7 齿根直腿（2026-08-21 用户反馈「丢了 1/2 齿根、阵列有缝」）：恢复 1/2 齿根
-    # 延伸（折返角 → 齿距线，阵列相位闭合无缝）但**直线化**——延伸段用弦直线替代
-    # 极限圆弧（圆心角 ≈1.6°，弦弧距 ≈4μm 无损；用户报「折线」即旧弧采样折线），
-    # 偏置段保持径向直线（P→Q 同极角，XY 投影严格径向）。全腿 = 两直线段。
-    d_off = offset_ratio * 2.0 * r_pt
-    r_root = r_limit - d_off
-    if r_root <= 0.0:
-        raise ValueError(
-            f"偏置过大：谷底半径 r_limit−偏置 = {r_root:.4f} ≤ 0（offset_ratio={offset_ratio}）"
-        )
-    # 齿距线就近分配：P_L 连链首（ext_L）、P_R 连链尾（ext_R）。直齿链极角升序
-    # （首在低角）→ 默认序不变；斜齿链极角可反向（19° 实测首在 +0.8°、尾 −6.2°）
-    # → 首尾就近交换，否则延伸腿横穿整条链（自相交）。
+    # v8 齿圈内圆平滑（2026-08-31 用户裁决「圆柱求差」）：废弃「1/2 齿根延伸 +
+    # 谷底弧」的花瓣形内壁（延伸腿到极限圆 r_limit 的齿顶 lands，阵列后呈 41 花瓣），
+    # 改为**圆柱求差**——刀体圆柱（外径 = r_limit，干涉物理上限：r_limit = r_a − a
+    # 为刀体可靠近工件齿顶圆柱的极限）与齿圈内圆求差，圈内壁被修成 r_limit 光滑圆
+    # （谷底弧落在同一圆上），刀齿立于圆柱基体之上，与刀体无缝一体。
+    # 底边 = r_limit 极限椭圆弧 P_R → P_L（跨槽位中心，阵列相位闭合不变），采样 n_arc。
     th_head = math.atan2(upper[0][1], upper[0][0])
     th_tail = math.atan2(upper[-1][1], upper[-1][0])
 
@@ -298,38 +292,19 @@ def build_tooth_loop(
         t_head, t_tail = t_plus, t_minus  # 反向链：首就近高端齿距线
     else:
         t_head, t_tail = t_minus, t_plus
-    P_L, P_R = ellipse(t_head), ellipse(t_tail)                        # 齿距线极限圆点（L=首侧 / R=尾侧）
-    Q_L = ellipse_pt(t_head, r_root)                                   # 齿距线谷底半径点
-    Q_R = ellipse_pt(t_tail, r_root)
+    bottom = [
+        ellipse(t_tail + (t_head - t_tail) * j / max(n_arc - 1, 1))
+        for j in range(n_arc)
+    ]
 
-    def lerp(a: list[float], b: list[float], n: int) -> list[list[float]]:
-        return [
-            [a[k] + (b[k] - a[k]) * j / (n - 1) for k in range(3)]
-            for j in range(n)
-        ]
-
-    ext_R = lerp(upper[-1], P_R, n_ext)   # 1/2 齿根延伸弦直线（右）
-    ext_L = lerp(P_L, upper[0], n_ext)    # 左（P_L → 折返点序）
-    off_R = lerp(P_R, Q_R, n_off)[1:-1]   # 径向偏置直线内部点
-    off_L = lerp(Q_L, P_L, n_off)[1:-1]
-    # 谷底圆弧：v6 反向保留——凸侧背离刀具轴（模仿轴心齿底圆：弧在弦外靠材料侧）
-    arc = _valley_arc(Q_R, Q_L, rake, n_arc)
-
-    # 物理构造序闭环（v3，2026-08-21）：废弃形心极角重排——深谷轮廓（谷底半径
-    # r_limit−偏置 vs 拱顶半径差大）相对点平均形心**非星形**（形心被构造点拉向
-    # 谷底、贴近腿端），极角序 ≠ 物理边界序，重排产生穿插锯齿形实体。构造序 =
-    # 物理边界遍历序（上链→右延伸→右偏置→谷底弧→左偏置→左延伸→回链首），
-    # 前后帽用耳切三角化（任意简单多边形，不要求星形）。
+    # 物理构造序闭环（v3，2026-08-21）：构造序 = 物理边界遍历序
+    # （上链→求差底弧→回链首），前后帽用耳切三角化（任意简单多边形，不要求星形）。
     pts: list[list[float]] = [list(p) for p in upper]
-    pts += [list(p) for p in ext_R[1:]]   # 右延伸弦直线（去重折返点）
-    pts += [list(p) for p in off_R]       # 右径向偏置内部
-    pts += [list(p) for p in arc]         # 谷底弧（含 Q_R/Q_L 端点）
-    pts += [list(p) for p in off_L]       # 左径向偏置内部（Q_L → P_L）
-    pts += [list(p) for p in ext_L[:-1]]  # 左延伸弦直线（去重链首）
+    pts += [list(p) for p in bottom]      # 圆柱求差底弧（P_R → P_L，r_limit 光滑圆）
     n_upper = len(upper)
-    seg_flags = list(upper_con) + [True] * (len(pts) - n_upper)  # 上链桥点 + 底构造段均标构造
-    hi_idx = n_upper + (len(ext_R) - 1) + len(off_R)  # 弧首 Q_R
-    lo_idx = hi_idx + len(arc) - 1                    # 弧尾 Q_L
+    seg_flags = list(upper_con) + [True] * len(bottom)  # 上链桥点 + 求差底弧均标构造
+    hi_idx = n_upper                      # 弧首 P_R
+    lo_idx = n_upper + len(bottom) - 1    # 弧尾 P_L
 
     e1, e2 = _rake_basis_2d(rake)
     q2 = [
@@ -350,8 +325,8 @@ def build_tooth_loop(
     return ToothLoop(
         pts=pts,
         r_limit=r_limit,
-        root_radius=r_limit - d_off,
-        offset_mm=d_off,
+        root_radius=r_limit,   # v8 圆柱求差：谷底 = r_limit 光滑圆（偏置概念退役）
+        offset_mm=0.0,
         theta_c=theta_c,
         arch_spread_deg=math.degrees(span),
         pitch_z_mm=pitch_z,
@@ -409,76 +384,6 @@ def _ear_clip_indices(q: list[tuple[float, float]]) -> list[int]:
     if len(idx) == 3:
         tris += idx
     return tris
-
-
-def _valley_arc(
-    Q_R: list[float], Q_L: list[float], rake: RakeSurface, n_arc: int
-) -> list[list[float]]:
-    """谷底圆弧（v6 反向）：弦垂直平分线上取**靠刀具轴**侧圆心，凸侧背离轴.
-
-    方向裁定（2026-08-21 用户反馈「方向反了」）：齿底应模仿以轴心的齿底圆——
-    弧在弦**外**（靠材料侧、离轴侧凸），曲率中心在轴侧；v3-v5 取背离轴侧圆心
-    使弧退向轴侧，与齿底圆方向相反。R = 2.2 × 弦/2 浅圆角。退化（弦≈0 / R 域
-    失败）回退直线段。
-    """
-    chord = math.dist(Q_R, Q_L)
-    fallback = [
-        [Q_R[k] + (Q_L[k] - Q_R[k]) * j / (n_arc - 1) for k in range(3)]
-        for j in range(n_arc)
-    ]
-    if chord < 1e-9:
-        return [list(Q_R)]
-    nv = [rake.A, rake.B, rake.C]
-    nl = math.sqrt(nv[0] ** 2 + nv[1] ** 2 + nv[2] ** 2)
-    nv = [v / nl for v in nv]
-    d = [Q_R[k] - Q_L[k] for k in range(3)]
-    w = [
-        nv[1] * d[2] - nv[2] * d[1],
-        nv[2] * d[0] - nv[0] * d[2],
-        nv[0] * d[1] - nv[1] * d[0],
-    ]
-    wl = math.sqrt(w[0] ** 2 + w[1] ** 2 + w[2] ** 2)
-    if wl < 1e-12:  # 弦 ∥ 前刀面法向（不可能但守卫）
-        return fallback
-    w = [v / wl for v in w]
-    mid = [0.5 * (Q_R[k] + Q_L[k]) for k in range(3)]
-    R = 2.2 * chord / 2.0  # 浅圆角（深 ≈ 0.7mm @算例1；1.15 时深 1.76mm 偏凸，用户反馈调浅）
-    disc = R * R - (chord / 2.0) ** 2
-    if disc <= 1e-12:
-        return fallback
-    h = math.sqrt(disc)
-    c = min(
-        ([mid[k] + s * h * w[k] for k in range(3)] for s in (1.0, -1.0)),
-        key=lambda p: math.hypot(p[0], p[1]),  # 靠刀具轴侧（|c_xy| 小者）→ 凸侧背离轴
-    )
-    v1 = [Q_R[k] - c[k] for k in range(3)]
-    v2 = [Q_L[k] - c[k] for k in range(3)]
-    R = math.sqrt(sum(v * v for v in v1))
-    dot = sum(v1[k] * v2[k] for k in range(3))
-    ang = math.acos(max(-1.0, min(1.0, dot / (R * R)))) if R > 1e-12 else 0.0
-    nv = [
-        v1[1] * v2[2] - v1[2] * v2[1],
-        v1[2] * v2[0] - v1[0] * v2[2],
-        v1[0] * v2[1] - v1[1] * v2[0],
-    ]
-    nnv = math.sqrt(sum(v * v for v in nv))
-    if R < 1e-9 or ang < 1e-9 or nnv < 1e-12:
-        return fallback
-    nv = [v / nnv for v in nv]
-    perp = [
-        nv[1] * v1[2] - nv[2] * v1[1],
-        nv[2] * v1[0] - nv[0] * v1[2],
-        nv[0] * v1[1] - nv[1] * v1[0],
-    ]
-    out: list[list[float]] = []
-    for j in range(n_arc):
-        a = ang * j / (n_arc - 1)
-        ca, sa = math.cos(a), math.sin(a)
-        out.append([c[k] + v1[k] * ca + perp[k] * sa for k in range(3)])
-    # 端点钉死为精确 Q_R/Q_L（重建端点 ~1e-7 漂移会破坏水密）
-    out[0] = list(Q_R)
-    out[-1] = list(Q_L)
-    return out
 
 
 def _signed_volume(positions: list[float], indices: list[int]) -> float:
