@@ -251,7 +251,7 @@ class TestHelicalEdge:
                 r_f=p.root_radius(), a=plan.a, precut=True, upper_constructed=br_c,
             )
             assert len(loop.pts) > len(pts_c)  # 上链 + 底构造段
-            assert sum(loop.constructed) == sum(br_c) + 17  # 桥 + v8 求差底弧（n_arc=17 点全构造）
+            assert sum(loop.constructed) == sum(br_c) + 27  # 桥 + v8.1 腿(3+2)×2 + 求差底弧 17
             assert 0.0 < loop.arch_spread_deg < 2.0 * math.degrees(math.pi / (41 if beta_w < 10 else 21))
             # 桥点半径与缝两端点半径连续（均值半径，偏差 <0.3mm）
             br_rs = [math.hypot(pts_c[i][0], pts_c[i][1]) for i in range(len(pts_c)) if br_c[i]]

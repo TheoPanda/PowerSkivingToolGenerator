@@ -4,17 +4,19 @@
 公式施加；K-3.2 刀体结构：W9 已于 2026-08-31 回读解禁（ADR-021，设计见
 docs/specs/2026-08-31-tool-body-design.md，已实现）。
 
-v8（2026-08-31 用户裁决「圆柱求差」）单齿闭合轮廓 = **上链 + 求差底弧**：
+v8.1（2026-08-31 用户裁决「圆柱求差」+ 实测纠偏「齿变形/半齿根消失」）单齿闭合
+轮廓 = **上链 + 延伸/偏置腿 + 求差底弧**：
 
   - 上链 = 刃形共轭链的「齿侧+齿顶+齿侧」部分（列序 = 物理齿序，solve_edge_chain）；
     齿面共轭在啮合极限处折返（刀具极角反转、半径贴 r_a−a = r_limit），折返链为
     共轭退化区。
-  - 求差底弧 = r_limit 极限椭圆弧从右折返点经齿距线到左折返点（跨槽位中心）——
-    取代 v2-v7 的「1/2 齿根延伸 + 径向偏置 + 谷底圆弧」花瓣形内壁（用户实测
-    返工：谷底弧经阵列应形成**圆**而非花瓣）。效果：齿圈内壁 = r_limit 光滑
-    圆柱（求差面），刀齿立于 r_limit 圆柱基体（= 刀体，K-3.2）之上，无缝一体；
-    r_limit = r_a − a 恰为刀体可靠近工件齿顶圆柱的干涉物理上限，求差圆柱取此
-    半径 = 基体材料最大化且不干涉。径向偏置概念随此退役（offset_mm 恒 0）。
+  - 腿（v7 结构全保留）：1/2 齿根延伸弦直线（折返点 → 齿距线极限圆点）+ 径向
+    偏置直线（r_limit → r_root = r_limit − 1/20·d_pt）。v8 曾整段误删致折返点
+    斜弦直跳齿距线（齿形变形）——实测纠偏恢复。
+  - 求差底弧 = **谷底圆 r_root 上的精确椭圆弧**（Q_R → Q_L 跨槽位中心，无外鼓）：
+    v2-v7 的外鼓浅圆角（R=2.2×半弦）阵列后呈「花瓣」，用户要求阵列成**圆**——
+    精确圆弧阵列后 41 段拼成整圆（求差语义：求差圆柱 = 谷底圆，刚好削平外鼓、
+    不伤齿根与齿形）；刀体（K-3.2）= 同半径圆柱基体，无缝一体。
   - 历史勘误（2026-08-27）：整环阵列为**同相位周向阵列**，无逐齿轴向错位
     （ΔZ_i 方案实测产生蜗杆状弹簧，已回退，缘由见 build_tool_ring docstring）。
   - 整环阵列 z_t 份为**同相位周向阵列**（设计书 K-3.1 原义，与工件侧 ADR-002 同构）：
@@ -178,7 +180,8 @@ def build_tooth_loop(
         offset_ratio: 径向偏置 / 分度圆直径（默认 1/20；求差圆柱 = 谷底圆 r_limit−偏置，
             尽量小——只削谷底弧离轴凸起成圆、不伤齿根）
         n_arc: 求差底弧采样点数（含端点，≥3）
-        n_ext / n_off: 已退役（v8 无延伸/偏置腿；保留签名兼容，须 ≥2）
+        n_ext: 每侧 1/2 齿根延伸弦直线细分点数（含端点，≥2；v8.1 恢复）
+        n_off: 每条径向偏置直线细分点数（含端点，≥2；v8.1 恢复）
         r_f / a: 工件齿根圆半径与中心距 [mm]（齿顶伪点判据 r_f−a 用；缺省跳过该判据）
         precut: 链已是上链（斜齿数值求交路线：compute_helical_edge 链跟踪 + 顶缝
             桥接产出，无底部折返段）——跳过折返检测；且**跳过 r_f−a 伪点判据**
@@ -276,20 +279,20 @@ def build_tooth_loop(
     def ellipse(t: float) -> list[float]:
         return ellipse_pt(t, r_limit)
 
-    # v8 齿圈内圆平滑（2026-08-31 用户裁决「圆柱求差、圆柱尽量小」）：谷底弧（凸侧
-    # 背离轴，中点外鼓 ~0.7mm）经阵列呈「花瓣」而非圆——改为**求差圆柱削平**：求差
-    # 圆柱取**谷底圆 r_limit − 偏置**（尽量小：刚好削掉弧的离轴凸起、不伤齿根），
-    # 与齿圈内圆求差后，圈内壁 = 谷底圆光滑圆柱（谷底弧落在同一圆上，花瓣消失），
-    # 刀体 = 同半径圆柱基体，刀齿立于其上无缝一体。用户实测纠偏：求差圆柱若取
-    # r_limit 会把整个齿根求差掉（WRONG.png）——必须是谷底圆。
+    # v8.1（2026-08-31 用户实测纠偏「齿变形/半齿根消失」）：**保留 v7 全部腿结构**
+    # （1/2 齿根延伸弦直线 + 径向偏置直线——v8 误删致轮廓从折返点斜弦直跳齿距线，
+    # 齿形变形），仅把谷底圆弧从「外鼓浅圆角（R=2.2×半弦，阵列成花瓣）」换成
+    # **谷底圆 r_root 上的精确椭圆弧**（不外鼓）——阵列后 41 段弧拼成整圆（求差
+    # 语义：求差圆柱 = 谷底圆，刚好削平外鼓、不伤齿根与齿形）。
     d_off = offset_ratio * 2.0 * r_pt
     r_root = r_limit - d_off
     if r_root <= 0.0:
         raise ValueError(
             f"偏置过大：谷底半径 r_limit−偏置 = {r_root:.4f} ≤ 0（offset_ratio={offset_ratio}）"
         )
-    # 齿距线就近分配：底弧从 P_R（尾侧齿距线）跨槽位中心到 P_L（首侧齿距线），
-    # 阵列相位闭合不变。直齿链极角升序 → 默认序；斜齿链极角可反向 → 首尾就近交换。
+    # 齿距线就近分配：P_L 连链首（ext_L）、P_R 连链尾（ext_R）。直齿链极角升序
+    # （首在低角）→ 默认序不变；斜齿链极角可反向（19° 实测首在 +0.8°、尾 −6.2°）
+    # → 首尾就近交换，否则延伸腿横穿整条链（自相交）。
     th_head = math.atan2(upper[0][1], upper[0][0])
     th_tail = math.atan2(upper[-1][1], upper[-1][0])
 
@@ -301,19 +304,39 @@ def build_tooth_loop(
         t_head, t_tail = t_plus, t_minus  # 反向链：首就近高端齿距线
     else:
         t_head, t_tail = t_minus, t_plus
+    P_L, P_R = ellipse(t_head), ellipse(t_tail)                        # 齿距线极限圆点（L=首侧 / R=尾侧）
+    Q_L = ellipse_pt(t_head, r_root)                                   # 齿距线谷底圆点
+    Q_R = ellipse_pt(t_tail, r_root)
+
+    def lerp(a: list[float], b: list[float], n: int) -> list[list[float]]:
+        return [
+            [a[k] + (b[k] - a[k]) * j / (n - 1) for k in range(3)]
+            for j in range(n)
+        ]
+
+    ext_R = lerp(upper[-1], P_R, n_ext)   # 1/2 齿根延伸弦直线（右，折返点 → 齿距线）
+    ext_L = lerp(P_L, upper[0], n_ext)    # 左（P_L → 折返点序）
+    off_R = lerp(P_R, Q_R, n_off)[1:-1]   # 径向偏置直线内部点（r_limit → r_root）
+    off_L = lerp(Q_L, P_L, n_off)[1:-1]
+    # 求差底弧 = 谷底圆 r_root 精确椭圆弧（Q_R → Q_L 跨槽位中心；无外鼓）
     bottom = [
         ellipse_pt(t_tail + (t_head - t_tail) * j / max(n_arc - 1, 1), r_root)
         for j in range(n_arc)
     ]
 
     # 物理构造序闭环（v3，2026-08-21）：构造序 = 物理边界遍历序
-    # （上链→求差底弧→回链首），前后帽用耳切三角化（任意简单多边形，不要求星形）。
+    # （上链→右延伸→右偏置→求差底弧→左偏置→左延伸→回链首），
+    # 前后帽用耳切三角化（任意简单多边形，不要求星形）。
     pts: list[list[float]] = [list(p) for p in upper]
-    pts += [list(p) for p in bottom]      # 求差底弧（P_R → P_L，谷底圆光滑弧）
+    pts += [list(p) for p in ext_R[1:]]   # 右延伸弦直线（去重折返点）
+    pts += [list(p) for p in off_R]       # 右径向偏置内部
+    pts += [list(p) for p in bottom]      # 求差底弧（Q_R → Q_L，谷底圆精确弧）
+    pts += [list(p) for p in off_L]       # 左径向偏置内部（Q_L → P_L）
+    pts += [list(p) for p in ext_L[:-1]]  # 左延伸弦直线（去重链首）
     n_upper = len(upper)
-    seg_flags = list(upper_con) + [True] * len(bottom)  # 上链桥点 + 求差底弧均标构造
-    hi_idx = n_upper                      # 弧首 P_R
-    lo_idx = n_upper + len(bottom) - 1    # 弧尾 P_L
+    seg_flags = list(upper_con) + [True] * (len(pts) - n_upper)  # 上链桥点 + 底构造段均标构造
+    hi_idx = n_upper + (len(ext_R) - 1) + len(off_R)  # 弧首 Q_R
+    lo_idx = hi_idx + len(bottom) - 1                 # 弧尾 Q_L
 
     e1, e2 = _rake_basis_2d(rake)
     q2 = [
