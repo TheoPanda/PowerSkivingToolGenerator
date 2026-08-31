@@ -27,15 +27,16 @@ describe('toolBodyCatalog — 对档与查表', () => {
     expect(TOOL_BODY_SEGMENTS.find((s) => s.dia === 75)?.thickness).toEqual([15, 17, 20])
   })
 
-  it('键槽宽随档×模数段（φ100：m≤1.6→10 / 更大→12；φ75 恒 10）', () => {
+  it('键槽宽随档×模数段（φ100：m≤1.6→10 / 更大→12）；图纸锚定 31.743→14 优先', () => {
     const seg100 = selectToolBodySegment(100)
     expect(toolBodyKeywayB(seg100, 1.2)).toBe(10)
     expect(toolBodyKeywayB(seg100, 2)).toBe(12)
     expect(toolBodyKeywayB(selectToolBodySegment(75), 3)).toBe(10)
+    expect(toolBodyKeywayB(selectToolBodySegment(75), 3, 31.743)).toBe(14) // 图纸 4035100343
   })
 
-  it('键槽深 GB/T 6132 最近档；非系列孔径 null', () => {
-    expect(toolBodyKeywayDepth(31.743)).toBe(2.8)
+  it('键槽深：图纸锚定 31.743→6.0 优先，其余 GB/T 6132 最近档；非系列孔径 null', () => {
+    expect(toolBodyKeywayDepth(31.743)).toBe(6.0)
     expect(toolBodyKeywayDepth(44.443)).toBe(3.5)
     expect(toolBodyKeywayDepth(99)).toBeNull()
   })

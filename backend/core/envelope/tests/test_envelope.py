@@ -324,7 +324,10 @@ def test_tool_ring_returns_body_layer_and_description():
     assert desc["loop"]["outer_radius"] == pytest.approx(data["meta"]["root_radius_mm"])
     assert desc["loop"]["bore_radius"] == pytest.approx(31.743 / 2)
     assert desc["loop"]["keyway"] is None
-    assert desc["extrusion"] == {"axis": [0.0, 0.0, -1.0], "length": 15.0}  # φ75 档 ≥L=2 最小
+    assert desc["profile"] == {
+        "type": "bowl", "hub_rise_mm": pytest.approx(15.0 * 13 / 28),
+        "back_wall_mm": pytest.approx(15.0 * 15 / 28), "total_mm": 15.0,
+    }  # φ75 档 ≥L=2 最小厚度 15（轮毂高/背壁 = 图纸 13/28 拆分）
     assert desc["boolean_def"]["cut"] == ["bore_cylinder"]
     assert desc["grade"] == "preview"
     assert desc["thickness_is_standard"] is True
@@ -343,7 +346,7 @@ def test_tool_ring_bore_keyway_table_driven():
     )
     assert resp.status_code == 200
     desc = resp.json()["body_description"]
-    assert desc["loop"]["keyway"] == {"width": 10.0, "depth": 2.8, "polar_deg": 0.0}
+    assert desc["loop"]["keyway"] == {"width": 14.0, "depth": 6.0, "polar_deg": 0.0}
     assert desc["segment_dia"] == 75.0
     assert desc["boolean_def"]["cut"] == ["bore_cylinder", "keyway_box"]
     assert desc["warnings"] == []

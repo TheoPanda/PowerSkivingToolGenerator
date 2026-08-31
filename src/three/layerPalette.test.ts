@@ -9,12 +9,13 @@ describe('layerPalette 纯数据', () => {
     expect(LAYER_IDS).toEqual(['workpiece', 'toothFlank', 'conjugate', 'conjugateGear', 'rake', 'edge', 'flank', 'singleTooth', 'toolRing', 'toolBody', 'sweptCloud'])
   })
 
-  it('刀体图层默认不透明、单面、石板钢灰（与齿圈同族金属亮一档，ADR-021）', () => {
+  it('刀体图层默认不透明、单面、硬质合金（用户指定，与单齿同材质；ADR-021）', () => {
     expect(LAYER_VISUALS.toolBody.label).toBe('刀体')
     expect(LAYER_VISUALS.toolBody.defaultOpacity).toBe(1.0)
     expect(LAYER_VISUALS.toolBody.doubleSide).toBe(false)
-    expect(MATERIAL_PRESETS.toolBody.color).toBe(0x708090)
-    expect(MATERIAL_PRESETS.toolBody.transparent).toBe(false)
+    expect(LAYER_VISUALS.toolBody.materialPreset).toBe('carbide')
+    expect(MATERIAL_PRESETS.carbide.color).toBe(0x5a5854)
+    expect(MATERIAL_PRESETS.carbide.transparent).toBe(false)
   })
 
   it('每个图层 id 都有视觉定义且 id 自洽', () => {

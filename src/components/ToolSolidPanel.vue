@@ -191,7 +191,8 @@ const bodyBoreEffective = computed<number>(() => {
 })
 
 /** 自动带出值（只读披露 + 专家输入的 placeholder）. */
-const keywayBAuto = computed<number>(() => toolBodyKeywayB(bodySeg.value, gearParams!.m_n ?? 0))
+const keywayBAuto = computed<number>(() =>
+  toolBodyKeywayB(bodySeg.value, gearParams!.m_n ?? 0, bodyBoreEffective.value))
 const keywayT1Auto = computed<number | null>(() => toolBodyKeywayDepth(bodyBoreEffective.value))
 const thicknessAuto = computed<number | null>(() => toolBodyDefaultThickness(bodySeg.value, toolParams.L))
 

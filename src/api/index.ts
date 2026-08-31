@@ -282,7 +282,8 @@ export interface ToolBodyDescription {
     keyway: { width: number; depth: number; polar_deg: number } | null
   }
   rake_plane: { A: number; B: number; C: number; const: number }
-  extrusion: { axis: number[]; length: number }
+  /** 碗形剖面（图纸 4035100343：轮毂高 13/28·B + 背壁，总厚 = B）. */
+  profile: { type: 'bowl'; hub_rise_mm: number; back_wall_mm: number; total_mm: number }
   boolean_def: { union: string[]; cut: string[] }
   grade: string
   segment_dia: number

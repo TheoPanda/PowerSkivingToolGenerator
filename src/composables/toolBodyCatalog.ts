@@ -42,10 +42,15 @@ const KEYWAY_B_BY_DIA: ReadonlyArray<{ dia: number; mUp: number; b: number }> = 
   { dia: 200, mUp: Infinity, b: 20 },
 ]
 
-/** 键槽深（孔侧）GB/T 6132 / ISO 240:2016 Table 1 最近档：t = c1 − d [mm]（W16 已销）. */
+/** 图纸 4035100343（碗型斜齿车齿刀）锚定的键槽宽——优先于手册表（31.743 孔 → 14）. */
+const KEYWAY_WIDTH_BY_BORE: Readonly<Record<number, number>> = {
+  31.743: 14,
+}
+
+/** 键槽深（孔侧）[mm]——图纸锚定（31.743→6.0）优先，其余 GB/T 6132 / ISO 240:2016 最近档（W16 已销）. */
 const KEYWAY_DEPTH_BY_BORE: Readonly<Record<number, number>> = {
   15.875: 1.7,
-  31.743: 2.8,
+  31.743: 6.0,
   44.443: 3.5,
   44.45: 3.5,
   88.9: 5.5,
@@ -61,8 +66,12 @@ export function selectToolBodySegment(dPt: number): ToolBodySegment {
   return seg
 }
 
-/** 键槽宽自动带出（档 × 模数段）[mm]. */
-export function toolBodyKeywayB(seg: ToolBodySegment, mN: number): number {
+/** 键槽宽自动带出（图纸锚定孔径优先，否则档 × 模数段）[mm]. */
+export function toolBodyKeywayB(seg: ToolBodySegment, mN: number, dBore?: number): number {
+  if (dBore !== undefined) {
+    const hit = KEYWAY_WIDTH_BY_BORE[dBore]
+    if (hit !== undefined) return hit
+  }
   let b = KEYWAY_B_BY_DIA[KEYWAY_B_BY_DIA.length - 1].b
   for (const row of KEYWAY_B_BY_DIA) {
     if (row.dia === seg.dia && mN <= row.mUp) {

@@ -13,7 +13,7 @@ export type LayerId = 'workpiece' | 'toothFlank' | 'rake' | 'edge' | 'flank' | '
 export type LayerKind = 'mesh' | 'line' | 'points'
 
 /** 材质预设名（steel/carbide 复用现有工件/刀具材质；其余为包络层配色）. */
-export type MaterialPreset = 'steel' | 'carbide' | 'rake' | 'flank' | 'edge' | 'conjugate' | 'conjugateGear' | 'toolRing' | 'toolBody' | 'spectrum' | 'toothFlank'
+export type MaterialPreset = 'steel' | 'carbide' | 'rake' | 'flank' | 'edge' | 'conjugate' | 'conjugateGear' | 'toolRing' | 'spectrum' | 'toothFlank'
 
 /** 材质预设的 PBR 参数（color 为 hex 0xRRGGBB）. */
 export interface MaterialPresetDef {
@@ -42,8 +42,6 @@ export const MATERIAL_PRESETS: Record<MaterialPreset, MaterialPresetDef> = {
   conjugateGear: { color: 0x2a6fbf, roughness: 0.38, metalness: 0.35, transparent: true, opacity: 0.45 },
   // 刀具整环（模块③ B 方案）— 钨钢深灰蓝 #4A5568（成品刀全貌，与单齿硬质合金同族更深一档）
   toolRing: { color: 0x4a5568, roughness: 0.3, metalness: 0.96, transparent: false, opacity: 1.0 },
-  // 刀体（K-3.2，ADR-021）— 石板钢灰 #708090（与齿圈同族金属但亮一档，拼合成完整刀时齿/体可辨）
-  toolBody: { color: 0x708090, roughness: 0.35, metalness: 0.95, transparent: false, opacity: 1.0 },
   // 扫掠点云（运动仿真）— jet 光谱起点蓝 #3050C8（加深版 jet(0)）；实际逐帧 jet 色，仅色块/聚焦显示用
   spectrum: { color: 0x3050c8, roughness: 0.5, metalness: 0.3, transparent: true, opacity: 0.85 },
   // 内齿轮齿面 — 洋红紫 #C05AB0（GLB 逐顶点色为主：参与=洋红紫/被修剪=暗灰；preset 色仅兜底与色块显示）
@@ -82,8 +80,8 @@ export const LAYER_VISUALS: Record<LayerId, LayerVisual> = {
   flank: { id: 'flank', label: '后刀面', kind: 'mesh', materialPreset: 'flank', defaultOpacity: 0.5, doubleSide: true, polygonOffset: true },
   singleTooth: { id: 'singleTooth', label: '单齿模型', kind: 'mesh', materialPreset: 'carbide', defaultOpacity: 1.0, doubleSide: false },
   toolRing: { id: 'toolRing', label: '刀具整环', kind: 'mesh', materialPreset: 'toolRing', defaultOpacity: 1.0, doubleSide: false },
-  // 刀体（K-3.2 内孔/键槽本体，与刀具整环拼合成完整刀具；ADR-021）
-  toolBody: { id: 'toolBody', label: '刀体', kind: 'mesh', materialPreset: 'toolBody', defaultOpacity: 1.0, doubleSide: false },
+  // 刀体（K-3.2 碗形本体，与刀具整环拼合成完整刀具；ADR-021）——硬质合金（用户指定，与单齿同材质）
+  toolBody: { id: 'toolBody', label: '刀体', kind: 'mesh', materialPreset: 'carbide', defaultOpacity: 1.0, doubleSide: false },
   conjugate: { id: 'conjugate', label: '产形面', kind: 'mesh', materialPreset: 'conjugate', defaultOpacity: 0.5, doubleSide: true },
   conjugateGear: { id: 'conjugateGear', label: '等效产形齿轮', kind: 'mesh', materialPreset: 'conjugateGear', defaultOpacity: 0.45, doubleSide: true },
   // 扫掠点云：运动仿真（固定刀具系看工件运动）的离散包络扫掠轨迹，非产形面（2026-08-20 术语厘清）

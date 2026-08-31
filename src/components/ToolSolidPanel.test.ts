@@ -30,7 +30,7 @@ const MOCK_TOOL_RING: api.ToolRingResponse = {
   body_description: {
     loop: { outer_radius: 36.2, bore_radius: 15.8715, keyway: null },
     rake_plane: { A: 0.0872, B: 0, C: 0.9962, const: -3.7 },
-    extrusion: { axis: [0, 0, -1], length: 15 },
+    profile: { type: 'bowl' as const, hub_rise_mm: 6.9, back_wall_mm: 8.1, total_mm: 15 },
     boolean_def: { union: ['tooth_ring'], cut: ['bore_cylinder'] },
     grade: 'preview',
     segment_dia: 75,
@@ -382,11 +382,11 @@ describe('ToolSolidPanel — 刀体结构分组（K-3.2 / ADR-021）', () => {
     expect(wrapper.find('[data-test="body-keyway-b-auto"]').exists()).toBe(false)
   })
 
-  it('切内孔+键槽 → 键槽宽/深自动带出（φ75×m_n=2 → 10 mm；GB/T 6132 → 2.8 mm）', async () => {
+  it('切内孔+键槽 → 键槽宽/深自动带出（31.743 孔 → 图纸 14 mm / 6 mm）', async () => {
     const wrapper = mountPanel()
     await wrapper.find('select[data-test="body-mounting"]').setValue('bore_keyway')
-    expect(wrapper.find('[data-test="body-keyway-b-auto"]').text()).toContain('10')
-    expect(wrapper.find('[data-test="body-keyway-t1-auto"]').text()).toContain('2.8')
+    expect(wrapper.find('[data-test="body-keyway-b-auto"]').text()).toContain('14')
+    expect(wrapper.find('[data-test="body-keyway-t1-auto"]').text()).toContain('6 mm')
   })
 
   it('专家覆盖：勾选后键槽/厚度变输入（空白=自动）；非标厚度黄警不阻断生成', async () => {

@@ -150,7 +150,7 @@ describe('WorkpieceViewer — 包络计算（子 PRD-2 离散包络）', () => {
     body_description: {
       loop: { outer_radius: 36.2, bore_radius: 15.8715, keyway: null },
       rake_plane: { A: 0.0872, B: 0, C: 0.9962, const: -3.7 },
-      extrusion: { axis: [0, 0, -1], length: 15 },
+      profile: { type: 'bowl' as const, hub_rise_mm: 6.9, back_wall_mm: 8.1, total_mm: 15 },
       boolean_def: { union: ['tooth_ring'], cut: ['bore_cylinder'] },
       grade: 'preview',
       segment_dia: 75,

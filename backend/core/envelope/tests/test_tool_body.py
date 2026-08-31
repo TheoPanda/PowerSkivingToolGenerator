@@ -18,6 +18,7 @@ import pytest
 
 from core.envelope.rake import build_plane_rake
 from core.envelope.tool_body import (
+    HUB_RISE_RATIO,
     ToolBodyResolved,
     build_tool_body,
     default_bore,
@@ -77,13 +78,16 @@ class TestDefaults:
         assert default_keyway_b(_seg(40.0), 0.5) == 6.0
         assert default_keyway_b(_seg(40.0), 1.0) == 7.0
         assert default_keyway_b(_seg(125.0), 5.0) == 13.0
+        # 图纸 4035100343 锚定：31.743 孔 → 键槽宽 14（覆盖插齿刀手册值）
+        assert default_keyway_b(_seg(100.0), 2.0, d_bore=31.743) == 14.0
 
     def test_default_bore_first_of_series(self):
         assert default_bore(_seg(100.0)) == 31.743
         assert default_bore(_seg(160.0)) == 88.9
 
-    def test_keyway_depth_gbt6132(self):
-        assert keyway_depth_default(31.743) == 2.8
+    def test_keyway_depth_drawing_first_then_gbt6132(self):
+        # 31.743 → 图纸 4035100343（6.0）；其余 GB/T 6132 最近档
+        assert keyway_depth_default(31.743) == 6.0
         assert keyway_depth_default(44.45) == 3.5
         assert keyway_depth_default(88.9) == 5.5
         assert keyway_depth_default(101.6) == 7.0
@@ -104,8 +108,8 @@ class TestResolve:
 
     def test_bore_keyway_full_chain(self):
         r = _resolved_bore_keyway()
-        assert r.keyway_b == 10.0  # φ75 档 b=10
-        assert r.keyway_t1 == 2.8  # GB/T 6132 d=32 档
+        assert r.keyway_b == 14.0  # 图纸 4035100343：31.743 孔 → 键槽宽 14
+        assert r.keyway_t1 == 6.0  # 图纸键槽深 6.0（覆盖 GB/T 6132 近似）
 
     def test_nonstandard_thickness_warns_but_passes(self):
         r = _resolved_bore_keyway(B=19.0)
@@ -183,7 +187,7 @@ class TestToolBodyMesh:
             assert cnt == 2
             assert dir_[(u, v)] == 1 and dir_[(v, u)] == 1  # 可定向（绕向一致）
 
-    def test_volume_matches_analytic(self, mesh):
+    def test_volume_matches_bowl_estimate(self, mesh):
         spec, desc = mesh
         pos, idx = spec.positions, spec.indices
         vol = 0.0
@@ -195,31 +199,63 @@ class TestToolBodyMesh:
             vol += ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx)
         vol /= 6.0
         r_root, r_bore, B = 30.0, 31.743 / 2.0, 12.0
-        # Cavalieri：直拉伸截面积恒定 → V = (π(R²−r²) − b·t1)·B（键槽矩形从环形扣除；
-        # 口部月牙薄楔并入 void，欠 ~0.3% 落入容差）
-        analytic = (math.pi * (r_root**2 - r_bore**2) - 10.0 * 2.8) * B
+        H = HUB_RISE_RATIO * B
+        W = B - H
+        # 碗体积上界估算（无键槽、内径=r_bore 的锥台+圆柱）：键槽鼓起抬高内径起点、
+        # 键槽棱柱再去料 → 实际体积必然落入上界的 55%~98%（弦采样微降）
+        half = math.pi / 41
+        chord = 2.0 * r_root * math.sin(half)
+        R_arc = 2.2 * chord / 2.0
+        Cx = r_root * math.cos(half) - math.sqrt(R_arc**2 - (chord / 2.0) ** 2)
+        R_mouth = Cx + R_arc  # 谷底弧中点鼓起后的口部半径
+        frustum = math.pi * H / 3 * (R_mouth**2 + R_mouth * r_bore + r_bore**2)
+        cylinder = math.pi * R_mouth**2 * W
+        v_ref = frustum + cylinder
         assert vol > 0
-        assert abs(vol - analytic) / analytic < 5e-3  # 圆弦采样欠估 + 薄楔 + 前刀面微斜
+        assert 0.55 < vol / v_ref < 0.98
 
     def test_keyway_is_straight(self, mesh):
         spec, _ = mesh
         pos = spec.positions
         n = len(pos) // 3 // 4  # 每环点数
-        fi, ri = n, 3 * n  # 前内环 / 后内环
-        # 键槽底 = 内环上 x 最大的顶点；前后环对应点应严格差 (0,0,−B)
-        j_max = max(range(n), key=lambda j: pos[3 * (fi + j)])
-        dx = pos[3 * (ri + j_max)] - pos[3 * (fi + j_max)]
-        dy = pos[3 * (ri + j_max) + 1] - pos[3 * (fi + j_max) + 1]
-        dz = pos[3 * (ri + j_max) + 2] - pos[3 * (fi + j_max) + 2]
+        r1, r4 = 0, 3 * n  # 轮毂孔口环 / 轮毂背面环（键槽沿内孔壁全高贯通）
+        # 键槽底 = 孔口环上 x 最大的顶点；与背面环同角点应严格差 (0,0,−(H+W)=−12)
+        j_max = max(range(n), key=lambda j: pos[3 * (r1 + j)])
+        dx = pos[3 * (r4 + j_max)] - pos[3 * (r1 + j_max)]
+        dy = pos[3 * (r4 + j_max) + 1] - pos[3 * (r1 + j_max) + 1]
+        dz = pos[3 * (r4 + j_max) + 2] - pos[3 * (r1 + j_max) + 2]
         assert abs(dx) < 1e-12 and abs(dy) < 1e-12 and abs(dz + 12.0) < 1e-9
+
+    def test_rim_follows_valley_arc(self):
+        """接缝回归锁（2026-08-31 返工二）：碗口边缘沿谷底弧（弧中点向外鼓起）.
+
+        齿圈内壁 = 谷底弧（弦端点在 r_root、弧中点离轴鼓 ~0.5mm）；刀体口部若取
+        直壁圆柱 r_root，弧鼓段与直壁之间出现月牙缝隙。锁定：口部半径极值 =
+        弧中点（r_root + 鼓起量）、槽位边界处回落到 r_root。
+        """
+        spec, _ = _build()
+        pos = spec.positions
+        n = len(pos) // 3 // 4
+        r2 = n  # 碗口环
+        rim_r = [math.hypot(pos[3 * (r2 + j)], pos[3 * (r2 + j) + 1]) for j in range(n)]
+        r_root = 30.0
+        half = math.pi / 41
+        chord = 2.0 * r_root * math.sin(half)
+        R_arc = 2.2 * chord / 2.0
+        sagitta = R_arc - math.sqrt(R_arc**2 - (chord / 2.0) ** 2)
+        assert max(rim_r) == pytest.approx(r_root + sagitta - r_root * (1 - math.cos(half)), abs=5e-3)
+        assert min(rim_r) == pytest.approx(r_root, abs=1e-6)  # 槽位边界回落到谷底半径
 
     def test_description_fields(self, mesh):
         spec, desc = mesh
         assert spec.layer_id == "toolBody"
         assert desc["loop"]["outer_radius"] == 30.0
         assert desc["loop"]["bore_radius"] == pytest.approx(31.743 / 2.0)
-        assert desc["loop"]["keyway"] == {"width": 10.0, "depth": 2.8, "polar_deg": 0.0}
-        assert desc["extrusion"] == {"axis": [0.0, 0.0, -1.0], "length": 12.0}
+        assert desc["loop"]["keyway"] == {"width": 14.0, "depth": 6.0, "polar_deg": 0.0}
+        assert desc["profile"]["type"] == "bowl"
+        assert desc["profile"]["total_mm"] == 12.0
+        assert desc["profile"]["hub_rise_mm"] == pytest.approx(HUB_RISE_RATIO * 12.0)
+        assert desc["profile"]["back_wall_mm"] == pytest.approx(12.0 - HUB_RISE_RATIO * 12.0)
         assert desc["boolean_def"]["cut"] == ["bore_cylinder", "keyway_box"]
         assert desc["grade"] == "preview"
 
@@ -234,17 +270,17 @@ class TestToolBodyMesh:
         assert set(und.values()) == {2}
 
     def test_phase_folded_front_band(self):
-        """同相位折叠回归锁（2026-08-31「光滑椭球」根因）：前端面 z 跨幅与基准齿窗口同宽.
+        """同相位折叠回归锁（2026-08-31「光滑椭球」根因）：碗口环 z 跨幅与基准齿窗口同宽.
 
-        β_t=15° 理想平面在整环上的 z 跨幅 ≈ 2·sinγ_eff·r ≈ 19mm；折叠后前端面只取
+        β_t=15° 理想平面在整环上的 z 跨幅 ≈ 2·sinγ_eff·r ≈ 19mm；折叠后碗口环只取
         基准齿窗口（±π/41 ≈ ±4.4°）的 z——跨幅应缩到 ~2mm 量级，与刀具整环
         （旋转不改 z，全部齿停在基准窗口相位）严丝合缝。
         """
         spec, _ = _build()
         pos = spec.positions
         n = len(pos) // 3 // 4
-        front_z = [pos[3 * j + 2] for j in list(range(n)) + list(range(n, 2 * n))]  # FO+FI
-        assert max(front_z) - min(front_z) < 3.0  # 未折叠时 ≈ 19.5mm
+        mouth_z = [pos[3 * (n + j) + 2] for j in range(n)]  # R2 碗口环
+        assert max(mouth_z) - min(mouth_z) < 3.0  # 未折叠时 ≈ 19.5mm
 
     def test_degenerate_guard_r_root_le_bore(self):
         # 绕过 resolve（其「越谷底圆」硬校验先拦）直接构造，打构建器自身的护栏
