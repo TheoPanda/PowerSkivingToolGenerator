@@ -249,18 +249,16 @@ def build_tool_body(
     theta_c: float,
     n_base: int = 256,
 ) -> tuple[GeometrySpec, dict]:
-    """刀体网格（**圆柱基体**，四环 quad-strip）+ 解析描述包.
+    """刀体网格（**圆柱基体**，硬边四条带）+ 解析描述包.
 
-    v4（2026-08-31 用户裁决「一步一步来：先做圆柱体」+「圆柱尽量小」）：刀体 =
-    光滑圆柱，外径 = 求差圆柱 = **谷底圆 r_cut = r_limit − 偏置**（与齿圈内圆求差的
-    同一圆柱，齿根不伤）；
-    前端面为平面，z 取基准齿窗口相位中心（rake 平面在 (r_cut, θ_c) 处的 z）——
-    与齿圈前刀面带（同窗 ±1mm 内）齐平，不做阶梯顺延。内孔 + 键槽沿轴向全高贯通
-    （键槽笔直——现实装键约束，斜齿不做螺旋扭转）。
+    v4.1（2026-08-31 用户实测「曲面凸圆」根因）：端面与外壁**共享顶点**时
+    compute_vertex_normals 把边界顶点法向平均倾斜，金属高光下平面端面呈凸圆
+    曲面观感——改为**硬边**：每条带独立顶点副本 + 纯法向（端面 [0,0,±1]、
+    外壁径向、内孔壁径向），圆柱/平面光照严格无假曲率。几何位置不变（各带
+    端点重合），仅法向/顶点解耦；水密性由「几何重合 + 各带闭合」保证，
+    测试按几何坐标去重后数边。
 
-    顶点布局：前外 FO / 前内 FI / 后外 RO / 后内 RI 四条环（各 n 个），前端面、
-    背面、外壁、内孔壁四条 quad-strip 带共享环顶点 → 构造性水密。绕向经散度
-    体积自适应翻转（outward）。
+    内孔 + 键槽沿轴向全高贯通且笔直（键槽尺寸图纸 4035100343 锚定 14×6.0）。
 
     Returns:
         (GeometrySpec(layer_id="toolBody"), description 描述包 dict)
@@ -279,32 +277,49 @@ def build_tool_body(
     corners: list[float] = []
     if has_key:
         th_k, th_c = _keyway_half_angles(r_bore, resolved.keyway_b, resolved.keyway_t1)
-        # 对称角域：±θ_k（孔圆-壁交点）、±θ_c（槽底出口角），负角折算到 [0, 2π)
         corners = [th_k % (2.0 * math.pi), th_c % (2.0 * math.pi),
                    (-th_k) % (2.0 * math.pi), (-th_c) % (2.0 * math.pi)]
     angles = _sample_angles(n_base, corners)
     n = len(angles)
 
-    # 前端面 z = rake 平面在求差圆、齿中线方向处的 z（基准齿窗口相位中心，与齿圈前刀面带齐平）
     z_front = _rake_z(rake, r_cut * math.cos(theta_c), r_cut * math.sin(theta_c))
 
-    def _pt(r: float, theta: float, dz: float) -> list[float]:
-        x, y = r * math.cos(theta), r * math.sin(theta)
-        return [x, y, z_front + dz]
+    def _xy(r: float, theta: float) -> tuple[float, float]:
+        return r * math.cos(theta), r * math.sin(theta)
 
     r_groove = [
         _bore_groove_radius(a, r_bore, resolved.keyway_b, resolved.keyway_t1) for a in angles
     ]
+
+    # 顶点副本×8 条环（硬边法向）：FOc/FIc 前端面、FOw/FIw 外壁/内孔壁前缘、
+    # ROw/RIw 后缘、ROc/RIc 背面
     positions: list[float] = []
-    for j, a in enumerate(angles):  # FO 前外
-        positions += _pt(r_cut, a, 0.0)
-    for j, a in enumerate(angles):  # FI 前内（键槽鼓起在此环）
-        positions += _pt(r_groove[j], a, 0.0)
-    for j, a in enumerate(angles):  # RO 后外
-        positions += _pt(r_cut, a, -B)
-    for j, a in enumerate(angles):  # RI 后内
-        positions += _pt(r_groove[j], a, -B)
-    fo, fi, ro, ri = 0, n, 2 * n, 3 * n
+    normals: list[float] = []
+    for j, a in enumerate(angles):  # FOc 前外（法向 +Z）
+        x, y = _xy(r_cut, a)
+        positions += [x, y, z_front]; normals += [0.0, 0.0, 1.0]
+    for j, a in enumerate(angles):  # FIc 前内（法向 +Z）
+        x, y = _xy(r_groove[j], a)
+        positions += [x, y, z_front]; normals += [0.0, 0.0, 1.0]
+    for j, a in enumerate(angles):  # FOw 外壁前缘（法向径向）
+        x, y = _xy(r_cut, a)
+        positions += [x, y, z_front]; normals += [x / r_cut, y / r_cut, 0.0]
+    for j, a in enumerate(angles):  # FIw 内孔壁前缘（法向指向轴 = −径向）
+        x, y = _xy(r_groove[j], a)
+        positions += [x, y, z_front]; normals += [-x / r_groove[j], -y / r_groove[j], 0.0]
+    for j, a in enumerate(angles):  # ROw 外壁后缘
+        x, y = _xy(r_cut, a)
+        positions += [x, y, z_front - B]; normals += [x / r_cut, y / r_cut, 0.0]
+    for j, a in enumerate(angles):  # RIw 内孔壁后缘
+        x, y = _xy(r_groove[j], a)
+        positions += [x, y, z_front - B]; normals += [-x / r_groove[j], -y / r_groove[j], 0.0]
+    for j, a in enumerate(angles):  # ROc 背面（法向 −Z）
+        x, y = _xy(r_cut, a)
+        positions += [x, y, z_front - B]; normals += [0.0, 0.0, -1.0]
+    for j, a in enumerate(angles):  # RIc 背面
+        x, y = _xy(r_groove[j], a)
+        positions += [x, y, z_front - B]; normals += [0.0, 0.0, -1.0]
+    foc, fic, fow, fiw, row, riw, roc, ric = (i * n for i in range(8))
 
     def _j(j: int) -> int:
         return (j + 1) % n
@@ -312,10 +327,10 @@ def build_tool_body(
     tris: list[int] = []
     for j in range(n):
         k = _j(j)
-        tris += [fo + j, fo + k, fi + k, fo + j, fi + k, fi + j]          # 前端面
-        tris += [ro + j, ri + k, ro + k, ro + j, ri + j, ri + k]          # 背面
-        tris += [fo + j, ro + j, ro + k, fo + j, ro + k, fo + k]          # 外壁（共享边反向）
-        tris += [fi + j, fi + k, ri + k, fi + j, ri + k, ri + j]          # 内孔壁（共享边反向）
+        tris += [foc + j, foc + k, fic + k, foc + j, fic + k, fic + j]   # 前端面
+        tris += [roc + j, ric + k, roc + k, roc + j, ric + j, ric + k]   # 背面
+        tris += [fow + j, row + j, row + k, fow + j, row + k, fow + k]   # 外壁
+        tris += [fiw + j, fiw + k, riw + k, fiw + j, riw + k, riw + j]   # 内孔壁
 
     def _signed_volume() -> float:
         vol = 0.0
@@ -327,10 +342,11 @@ def build_tool_body(
             vol += ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx)
         return vol / 6.0
 
-    if _signed_volume() < 0:  # 全局 outward 自适应翻转
+    if _signed_volume() < 0:  # 全局 outward 自适应翻转（法向随之同步翻转）
         tris = [
             v for t in range(0, len(tris), 3) for v in (tris[t], tris[t + 2], tris[t + 1])
         ]
+        normals = [-v for v in normals]
 
     description = {
         "loop": {
@@ -352,7 +368,7 @@ def build_tool_body(
         "warnings": list(resolved.warnings),
     }
     spec = GeometrySpec(
-        kind="mesh", positions=positions, indices=tris,
-        normals=compute_vertex_normals(positions, tris), layer_id="toolBody",
+        kind="mesh", positions=positions, indices=tris, normals=normals,
+        layer_id="toolBody",
     )
     return spec, description

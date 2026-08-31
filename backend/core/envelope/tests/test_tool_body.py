@@ -160,13 +160,20 @@ def _build(**kw):
     return build_tool_body(_RAKE, r_cut=30.0, resolved=resolved, theta_c=theta_c)
 
 
-def _edge_stats(indices: list[int]):
+def _edge_stats(positions: list[float], indices: list[int]):
+    """按几何坐标去重后数边（v4.1 硬边：端面/外壁顶点副本解耦法向，位置重合）."""
+    vid: dict[tuple[float, float, float], int] = {}
+
+    def _v(i: int) -> int:
+        p = (round(positions[3 * i], 9), round(positions[3 * i + 1], 9), round(positions[3 * i + 2], 9))
+        return vid.setdefault(p, len(vid))
+
     und: Counter = Counter()
     dir_: Counter = Counter()
     for t in range(0, len(indices), 3):
         a, b, c = indices[t], indices[t + 1], indices[t + 2]
-        for u, v in ((a, b), (b, c), (c, a)):
-            und[tuple(sorted((u, v)))] += 1
+        for u, v in ((_v(a), _v(b)), (_v(b), _v(c)), (_v(c), _v(a))):
+            und[frozenset((u, v))] += 1
             dir_[(u, v)] += 1
     return und, dir_
 
@@ -179,7 +186,7 @@ class TestToolBodyMesh:
 
     def test_watertight_each_edge_twice_opposite(self, mesh):
         spec, _ = mesh
-        und, dir_ = _edge_stats(spec.indices)
+        und, dir_ = _edge_stats(spec.positions, spec.indices)
         assert und and set(und.values()) == {2}
         for (u, v), cnt in und.items():
             assert cnt == 2
@@ -206,13 +213,13 @@ class TestToolBodyMesh:
     def test_keyway_is_straight(self, mesh):
         spec, _ = mesh
         pos = spec.positions
-        n = len(pos) // 3 // 4  # 每环点数
-        fi, ri = n, 3 * n  # 前内环 / 后内环（键槽沿内孔壁全高贯通）
-        # 键槽底 = 前内环上 x 最大的顶点；与后内环同角点应严格差 (0,0,−B)
-        j_max = max(range(n), key=lambda j: pos[3 * (fi + j)])
-        dx = pos[3 * (ri + j_max)] - pos[3 * (fi + j_max)]
-        dy = pos[3 * (ri + j_max) + 1] - pos[3 * (fi + j_max) + 1]
-        dz = pos[3 * (ri + j_max) + 2] - pos[3 * (fi + j_max) + 2]
+        n = len(pos) // 3 // 8  # 每环点数（v4.1 硬边：8 条环）
+        fiw, riw = 3 * n, 5 * n  # 内孔壁前缘 / 后缘环（键槽沿内孔壁全高贯通）
+        # 键槽底 = 内孔壁前缘环上 x 最大的顶点；与后缘环同角点应严格差 (0,0,−B)
+        j_max = max(range(n), key=lambda j: pos[3 * (fiw + j)])
+        dx = pos[3 * (riw + j_max)] - pos[3 * (fiw + j_max)]
+        dy = pos[3 * (riw + j_max) + 1] - pos[3 * (fiw + j_max) + 1]
+        dz = pos[3 * (riw + j_max) + 2] - pos[3 * (fiw + j_max) + 2]
         assert abs(dx) < 1e-12 and abs(dy) < 1e-12 and abs(dz + 12.0) < 1e-9
 
     def test_rim_smooth_circle(self):
@@ -223,8 +230,8 @@ class TestToolBodyMesh:
         """
         spec, _ = _build()
         pos = spec.positions
-        n = len(pos) // 3 // 4
-        rim_r = [math.hypot(pos[3 * j], pos[3 * j + 1]) for j in range(n)]  # FO 前外环
+        n = len(pos) // 3 // 8  # 每环点数（v4.1 硬边：8 条环）
+        rim_r = [math.hypot(pos[3 * (2 * n + j)], pos[3 * (2 * n + j) + 1]) for j in range(n)]  # FOw 外壁环
         assert min(rim_r) == pytest.approx(30.0, abs=1e-9)
         assert max(rim_r) == pytest.approx(30.0, abs=1e-9)
 
@@ -232,8 +239,8 @@ class TestToolBodyMesh:
         """前端面为平面（v4：不做刀齿阶梯结构顺延），z = rake 平面在 (r_cut, θ_c) 处值."""
         spec, _ = _build()
         pos = spec.positions
-        n = len(pos) // 3 // 4
-        front_z = [pos[3 * j + 2] for j in range(n)]  # FO 前外环
+        n = len(pos) // 3 // 8  # 每环点数（v4.1 硬边：8 条环）
+        front_z = [pos[3 * j + 2] for j in range(n)]  # FOc 前端面环
         assert max(front_z) - min(front_z) < 1e-9
         expected = -(_RAKE.A * 30.0 + _RAKE.const) / _RAKE.C  # θ_c=0 → y 项为 0
         assert front_z[0] == pytest.approx(expected, abs=1e-9)
@@ -255,7 +262,7 @@ class TestToolBodyMesh:
         spec, desc = build_tool_body(_RAKE, r_cut=30.0, resolved=resolved, theta_c=0.0)
         assert desc["loop"]["keyway"] is None
         assert desc["boolean_def"]["cut"] == ["bore_cylinder"]
-        und, _ = _edge_stats(spec.indices)
+        und, _ = _edge_stats(spec.positions, spec.indices)
         assert set(und.values()) == {2}
 
     def test_degenerate_guard_r_root_le_bore(self):
